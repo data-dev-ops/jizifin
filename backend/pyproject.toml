@@ -1,0 +1,12 @@
+[project]
+name = "finance-tracker-backend"
+version = "0.1.0"
+description = "Personal Finance Tracker — FastAPI/aiosqlite backend"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn[standard]>=0.29.0",
+    "aiosqlite>=0.20.0",
+    "pydantic>=2.7.0",
+    "apscheduler>=3.11.3",
+]

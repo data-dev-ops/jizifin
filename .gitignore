@@ -1,0 +1,9 @@
+.env
+target/
+node_modules/
+.DS_Store
+__pycache__
+dist/
+.agents/
+*.db-shm
+*.db-wal

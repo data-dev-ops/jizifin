@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Base reset — dark scrollbar to match neutral-950 theme */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #404040 transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+*::-webkit-scrollbar-thumb {
+  background-color: #404040;
+  border-radius: 3px;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-color: #030712; /* neutral-950 */
+  color: #f9fafb;            /* neutral-50 */
+  font-family: 'Inter', system-ui, sans-serif;
+}
