@@ -13,7 +13,7 @@
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = true;
@@ -391,10 +391,51 @@
     {:else if activeTab === 'settings'}
       <div class="p-4 sm:p-6 md:p-8 max-w-3xl mx-auto">
         <header class="mb-6 md:mb-8">
-          <h1 class="text-xl sm:text-2xl font-bold text-white">Household Members</h1>
-          <p class="text-neutral-400 text-sm mt-1">Add members, set active status, and customise avatar colours</p>
+          <h1 class="text-xl sm:text-2xl font-bold text-white">Settings</h1>
+          <p class="text-neutral-400 text-sm mt-1">Household members and display preferences</p>
         </header>
+
+        <!-- Mobile Splits toggle -->
+        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6 mb-6">
+          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Mobile Preferences</p>
+          <div class="flex items-center justify-between gap-4">
+            <div class="flex items-center gap-3">
+              <!-- Lock icon reflects current state -->
+              <span class="text-xl leading-none select-none" aria-hidden="true">
+                {$mobileSplitsEditable ? '🔓' : '🔒'}
+              </span>
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Splits editing on mobile</p>
+                <p class="text-xs text-neutral-500 mt-0.5">
+                  {$mobileSplitsEditable
+                    ? 'Inputs and save buttons are visible on small screens.'
+                    : 'Splits are read-only on mobile — tap to unlock.'}
+                </p>
+              </div>
+            </div>
+            <!-- Toggle switch -->
+            <!-- svelte-ignore a11y-click-events-have-key-events -->
+            <!-- svelte-ignore a11y-no-static-element-interactions -->
+            <button
+              id="toggle-mobile-splits"
+              role="switch"
+              aria-checked={$mobileSplitsEditable}
+              on:click={() => mobileSplitsEditable.update(v => !v)}
+              class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                     transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                     {$mobileSplitsEditable ? 'bg-indigo-600' : 'bg-neutral-700'}"
+            >
+              <span
+                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                       transition duration-200 ease-in-out
+                       {$mobileSplitsEditable ? 'translate-x-5' : 'translate-x-0'}"
+              ></span>
+            </button>
+          </div>
+        </div>
+
         <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
+          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Household Members</p>
           <UserManager />
         </div>
       </div>

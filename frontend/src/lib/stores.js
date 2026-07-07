@@ -17,6 +17,18 @@
 import { writable } from 'svelte/store';
 
 /**
+ * Helper: writable store that reads/writes a boolean to localStorage.
+ * Falls back to `defaultValue` when no entry exists yet.
+ */
+function persistedBoolean(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  const initial = stored !== null ? stored === 'true' : defaultValue;
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, String(val)));
+  return store;
+}
+
+/**
  * Household users. Each entry: { name, color, is_active, created_at }
  * Populated by fetchUsers(). The store holds ALL users (active + inactive)
  * so deactivated users remain visible in history. Filter by is_active at
@@ -80,3 +92,10 @@ export const recurringExpenses = writable([]);
  * Locked months. Each entry: { month, settled_at, net_balance_transferred_cents }
  */
 export const settlements = writable([]);
+
+/**
+ * UI preference: allow editing split percentages on mobile.
+ * Default false — mobile view is read-only until the user opts in via Settings.
+ * Persisted to localStorage so the choice survives page reload.
+ */
+export const mobileSplitsEditable = persistedBoolean('mobileSplitsEditable', false);

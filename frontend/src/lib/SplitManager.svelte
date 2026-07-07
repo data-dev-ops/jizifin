@@ -15,7 +15,18 @@
 
   import { onMount } from 'svelte';
   import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson } from './api.js';
-  import { splits, selectedMonth, users } from './stores.js';
+  import { splits, selectedMonth, users, mobileSplitsEditable } from './stores.js';
+
+  /** True when viewport width < 768 px (Tailwind's md breakpoint). */
+  let isMobile = false;
+  onMount(() => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    isMobile = mq.matches;
+    mq.addEventListener('change', (e) => { isMobile = e.matches; });
+  });
+
+  /** Editing splits is locked when on mobile AND the user hasn't enabled it in Settings. */
+  $: splitsLocked = isMobile && !$mobileSplitsEditable;
 
   /** Categories where the payer always bears 100% — percentages are irrelevant. */
   const PERSONAL_PAY = new Set(['PERSONAL COST', 'GIFT', 'LEISURE']);
@@ -250,7 +261,26 @@
         {@const sumOk = Math.abs(sum - 100.0) <= 0.01}
 
         <div class="group px-1 py-3 rounded-xl hover:bg-neutral-800/50 transition-colors">
-          <div class="grid gap-3 items-center" style="grid-template-columns: minmax(80px,1fr) {activeUsers.map(() => 'minmax(70px,1fr)').join(' ')} auto">
+          {#if splitsLocked}
+            <!-- ── Read-only mobile row ── -->
+            <div class="flex items-center justify-between gap-3 flex-wrap">
+              <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium">
+                {split.category}
+              </span>
+              <div class="flex items-center gap-2 flex-wrap">
+                {#each activeUsers as u}
+                  <span
+                    class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold tabular-nums"
+                    style="background-color: {u.color}18; color: {u.color}; border: 1px solid {u.color}40"
+                  >
+                    {u.name.charAt(0)}: {parseFloat(editValues[split.category][u.name] ?? '0').toFixed(1)}%
+                  </span>
+                {/each}
+              </div>
+            </div>
+          {:else}
+            <!-- ── Editable row (desktop always, mobile when unlocked) ── -->
+            <div class="grid gap-3 items-center" style="grid-template-columns: minmax(80px,1fr) {activeUsers.map(() => 'minmax(70px,1fr)').join(' ')} auto">
 
             <!-- Category badge -->
             <div>
@@ -306,6 +336,7 @@
               {/if}
             </div>
           </div>
+          {/if}
 
           <!-- Sum indicator bar -->
           <div class="mt-2 mx-1">
@@ -315,7 +346,7 @@
                 style="width: {Math.min(sum, 100)}%"
               ></div>
             </div>
-            {#if !sumOk}
+            {#if !sumOk && !splitsLocked}
               <p class="text-[10px] text-amber-400 mt-0.5 text-right">sum = {sum.toFixed(2)}%</p>
             {/if}
           </div>
