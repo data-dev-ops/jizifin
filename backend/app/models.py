@@ -31,7 +31,7 @@ _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 class AllocationEntry(BaseModel):
     """A single user's percentage share in a split or override."""
-    user_name: Annotated[str, Field(min_length=1, max_length=64)]
+    user_name: Annotated[str, Field(min_length=1, max_length=256)]
     pct:       Annotated[float, Field(ge=0.0, le=100.0)]
 
 
@@ -40,7 +40,7 @@ class AllocationEntry(BaseModel):
 # ---------------------------------------------------------------------------
 
 class UserCreate(BaseModel):
-    name:      Annotated[str, Field(min_length=1, max_length=64)]
+    name:      Annotated[str, Field(min_length=1, max_length=256)]
     color:     str = Field(default="#6366f1", description="CSS hex colour, e.g. #0ea5e9")
     is_active: bool = True
 
@@ -64,7 +64,7 @@ class UserResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ProjectCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=96)]
+    name:         Annotated[str, Field(min_length=1, max_length=256)]
     target_cents: Annotated[int, Field(gt=0, description="Total target in whole cents")]
     target_date:  str = Field(..., description="ISO date YYYY-MM-DD")
 
@@ -77,7 +77,7 @@ class ProjectCreate(BaseModel):
 
 
 class ProjectUpdate(BaseModel):
-    name:         Optional[Annotated[str, Field(min_length=1, max_length=96)]] = None
+    name:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
     target_cents: Optional[Annotated[int, Field(gt=0)]] = None
     target_date:  Optional[str] = None
 
@@ -114,9 +114,9 @@ class ProjectResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 def _validate_allocations(allocations: list[AllocationEntry]) -> list[AllocationEntry]:
-    """Shared validator: no empty list, no duplicate names, must sum to 100.0."""
+    """Shared validator: duplicate names must not exist, must sum to 100.0 if not empty."""
     if not allocations:
-        raise ValueError("At least one allocation entry is required.")
+        return allocations
     names = [a.user_name for a in allocations]
     if len(names) != len(set(names)):
         raise ValueError("Duplicate user_name entries in allocations.")
@@ -127,7 +127,7 @@ def _validate_allocations(allocations: list[AllocationEntry]) -> list[Allocation
 
 
 class SplitCreate(BaseModel):
-    category:    Annotated[str, Field(min_length=1, max_length=32)]
+    category:    Annotated[str, Field(min_length=1, max_length=256)]
     allocations: list[AllocationEntry]
 
     @model_validator(mode="after")
@@ -155,11 +155,11 @@ class SplitResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ExpenseCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=96)]
+    name:         Annotated[str, Field(min_length=1, max_length=256)]
     cost_cents:   Annotated[int, Field(gt=0, description="Whole cents — e.g. €12.50 → 1250")]
     expense_date: str = Field(..., description="ISO date YYYY-MM-DD")
-    who_paid:     Annotated[str, Field(min_length=1, max_length=64)]
-    category:     Annotated[str, Field(max_length=32)]
+    who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
+    category:     Annotated[str, Field(max_length=256)]
     project_id:   Optional[int] = None
     overrides:    Optional[list[AllocationEntry]] = None
 
@@ -179,11 +179,11 @@ class ExpenseCreate(BaseModel):
 
 class ExpenseUpdate(BaseModel):
     """Partial update — all fields optional."""
-    name:         Optional[Annotated[str, Field(min_length=1, max_length=96)]] = None
+    name:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
     cost_cents:   Optional[Annotated[int, Field(gt=0)]] = None
     expense_date: Optional[str] = None
-    who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=64)]] = None
-    category:     Optional[Annotated[str, Field(max_length=32)]] = None
+    who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    category:     Optional[Annotated[str, Field(max_length=256)]] = None
     project_id:   Optional[int] = None
     overrides:    Optional[list[AllocationEntry]] = None  # None = keep existing; [] = clear all
 
@@ -244,10 +244,10 @@ class MonthlyPayerRow(BaseModel):
 # ---------------------------------------------------------------------------
 
 class IncomeCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=96)]
+    name:         Annotated[str, Field(min_length=1, max_length=256)]
     amount_cents: Annotated[int, Field(gt=0, description="Whole cents")]
-    who:          Annotated[str, Field(min_length=1, max_length=64)]
-    category:     Annotated[str, Field(min_length=1, max_length=32)]
+    who:          Annotated[str, Field(min_length=1, max_length=256)]
+    category:     Annotated[str, Field(min_length=1, max_length=256)]
     income_date:  str = Field(..., description="ISO date YYYY-MM-DD")
 
     @field_validator("income_date")
@@ -315,10 +315,10 @@ class PaybackSummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 class RecurringCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=96)]
+    name:         Annotated[str, Field(min_length=1, max_length=256)]
     cost_cents:   Annotated[int, Field(gt=0, description="Whole cents")]
-    who_paid:     Annotated[str, Field(min_length=1, max_length=64)]
-    category:     Annotated[str, Field(max_length=32)]
+    who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
+    category:     Annotated[str, Field(max_length=256)]
     day_of_month: Annotated[int, Field(ge=1, le=31)]
 
 
@@ -338,7 +338,7 @@ class RecurringResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class BudgetCreate(BaseModel):
-    category:    Annotated[str, Field(max_length=32)]
+    category:    Annotated[str, Field(max_length=256)]
     month:       str = Field(..., description="YYYY-MM or 'ALL'")
     limit_cents: Annotated[int, Field(ge=0, description="Monthly limit in whole cents")]
 

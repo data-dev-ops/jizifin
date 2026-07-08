@@ -46,8 +46,14 @@ from datetime import date as _date, datetime as _datetime
 from typing import Annotated
 
 import aiosqlite
+import os
+import shutil
+import tempfile
+from pathlib import Path
+
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status
+from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status, File, UploadFile, Form, BackgroundTasks
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -254,6 +260,99 @@ async def set_auth_salt(payload: AuthSaltRequest, db: DbDep) -> dict:
             raise HTTPException(status_code=409, detail="Already initialized")
     await db.execute("INSERT INTO app_config (key, value) VALUES ('magic_word', ?)", (payload.value,))
     await db.commit()
+    return {"status": "ok"}
+
+from .crypto_utils import derive_key, encrypt_database, decrypt_database, encrypt_text
+
+def remove_file(path: str):
+    try:
+        os.remove(path)
+    except Exception:
+        pass
+
+@app.post("/auth/export", tags=["auth"])
+async def export_database(payload: AuthSaltRequest, db: DbDep, background_tasks: BackgroundTasks):
+    """Decrypt a copy of the database and return it for download."""
+    # Verify password
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=400, detail="Database not initialized")
+        
+    # Verify salt by checking magic word using local crypto_utils
+    key = derive_key(payload.value)
+    from .crypto_utils import decrypt_text
+    if decrypt_text(row["value"], key) != "FinanceTrackerAuth":
+        raise HTTPException(status_code=401, detail="Incorrect master password")
+
+    # Create temporary decrypted DB
+    db_path = Path(__file__).resolve().parent.parent / "finance.db"
+    temp_dir = tempfile.mkdtemp()
+    temp_db_path = Path(temp_dir) / "finance_decrypted.db"
+    
+    import sqlite3
+    with sqlite3.connect(db_path) as src, sqlite3.connect(temp_db_path) as dst:
+        src.backup(dst)
+    
+    # Decrypt in place
+    try:
+        decrypt_database(temp_db_path, key)
+    except Exception as e:
+        remove_file(str(temp_db_path))
+        os.rmdir(temp_dir)
+        raise HTTPException(status_code=500, detail=f"Decryption failed: {e}")
+
+    background_tasks.add_task(remove_file, str(temp_db_path))
+    background_tasks.add_task(os.rmdir, temp_dir)
+    return FileResponse(
+        path=temp_db_path,
+        filename="jizifin_decrypted.db",
+        media_type="application/octet-stream"
+    )
+@app.post("/auth/import", tags=["auth"])
+async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str = Form(...)):
+    """Import an unencrypted database file on first boot and encrypt it."""
+
+    try:
+        async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+            if await cur.fetchone() is not None:
+                raise HTTPException(status_code=409, detail="Database already initialized")
+    except Exception:
+        pass # Table doesn't exist, which means it's uninitialized. Proceed.
+            
+    db_path = Path(__file__).resolve().parent.parent / "finance.db"
+    
+    # Clear any old WAL/SHM files to prevent corruption with the new database
+    wal_path = db_path.with_name(db_path.name + "-wal")
+    shm_path = db_path.with_name(db_path.name + "-shm")
+    if wal_path.exists(): wal_path.unlink()
+    if shm_path.exists(): shm_path.unlink()
+    
+    # Save the uploaded file over the current DB
+    with open(db_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
+        
+    key = derive_key(saltText)
+    
+    # Encrypt the data
+    try:
+        encrypt_database(db_path, key)
+    except Exception as e:
+        # If encryption fails, remove the db to stay uninitialized
+        os.remove(db_path)
+        raise HTTPException(status_code=500, detail=f"Encryption failed: {e}")
+        
+    # Set the magic word
+    magic_val = encrypt_text("FinanceTrackerAuth", key)
+    
+    # Needs a new connection since we replaced the file under the hood
+    async with aiosqlite.connect(db_path) as new_conn:
+        await new_conn.execute("PRAGMA journal_mode=WAL;")
+        await new_conn.execute("PRAGMA foreign_keys=ON;")
+        await new_conn.execute("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
+        await new_conn.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES ('magic_word', ?)", (magic_val,))
+        await new_conn.commit()
+
     return {"status": "ok"}
 
 
@@ -790,7 +889,15 @@ async def get_monthly_by_payer(db: DbDep, month: str | None = None) -> list[Mont
 
 
 @app.get("/analytics/paybacks", response_model=PaybackSummary, tags=["analytics"])
-async def get_paybacks(db: DbDep, month: str | None = None) -> PaybackSummary:
+async def get_paybacks(
+    personal_cats: str,
+    combined_fixed_cat: str,
+    apartment_cat: str,
+    zina_name: str,
+    jim_name: str,
+    db: DbDep,
+    month: str | None = None
+) -> PaybackSummary:
     """
     Compute per-category and overall payback balances for the given month.
 
@@ -801,9 +908,8 @@ async def get_paybacks(db: DbDep, month: str | None = None) -> PaybackSummary:
       3. Greedy debt simplification: match creditors against debtors to produce
          a minimal list of DebtItem transfers.
 
-    Personal-pay categories (PERSONAL COST, LEISURE, GIFT) are handled by
-    renaming the category to "<CAT> <payer>" and assigning the payer a 100%
-    effective share, so no cross-user debt is generated for those expenses.
+    Personal-pay categories are handled by renaming the category to "<CAT> <payer>" 
+    and assigning the payer a 100% effective share.
     """
     from datetime import date as _date
     target_month = month or _date.today().strftime("%Y-%m")
@@ -839,7 +945,7 @@ async def get_paybacks(db: DbDep, month: str | None = None) -> PaybackSummary:
         override_map.setdefault(r["expense_id"], {})[r["user_name"]] = r["pct"]
 
     # 4. Personal-pay category rename: payer bears 100%, others 0%
-    PERSONAL_PAY: set[str] = {"PERSONAL COST", "LEISURE", "GIFT"}
+    PERSONAL_PAY: set[str] = set(personal_cats.split(",")) if personal_cats else set()
     for e in expenses:
         if e["category"] in PERSONAL_PAY:
             e["category"] = f"{e['category']} {e['who_paid']}"
@@ -919,6 +1025,17 @@ async def get_paybacks(db: DbDep, month: str | None = None) -> PaybackSummary:
             net_per_user=net_per_user_eur,
         ))
 
+    # Apply special deduction rule: "Combined Fixed" paid by Zina is subtracted from "Apartment" paid by Jim
+    zina_combined_fixed_paid = cat_paid.get(combined_fixed_cat, {}).get(zina_name, 0)
+    jim_apartment_paid = cat_paid.get(apartment_cat, {}).get(jim_name, 0)
+    
+    # If Zina paid Combined Fixed and Jim paid Apartment
+    if zina_combined_fixed_paid > 0 and jim_apartment_paid > 0:
+        # Subtract from Jim's net balance, add to Zina's net balance (simulating Zina paying Jim)
+        deduction = min(zina_combined_fixed_paid, jim_apartment_paid)
+        net_balance[jim_name] = net_balance.get(jim_name, 0) - deduction
+        net_balance[zina_name] = net_balance.get(zina_name, 0) + deduction
+
     # 7. Greedy debt simplification
     creditors = sorted(((u, v) for u, v in net_balance.items() if v > 0), key=lambda x: -x[1])
     debtors   = sorted(((u, -v) for u, v in net_balance.items() if v < 0), key=lambda x: -x[1])
@@ -993,25 +1110,26 @@ async def create_income(entries: list[IncomeCreate], db: DbDep) -> list[IncomeRe
 
 
 @app.get("/income/latest-salary", response_model=list[LatestSalaryRow], tags=["income"])
-async def get_latest_salary(db: DbDep) -> list[LatestSalaryRow]:
+async def get_latest_salary(salary_cat: str, db: DbDep) -> list[LatestSalaryRow]:
     async with db.execute(
         """
         SELECT who, amount_cents, income_date, name
         FROM   income
-        WHERE  category = 'SALARY'
+        WHERE  category = ?
           AND  (who, income_date) IN (
                    SELECT who, MAX(income_date)
-                   FROM   income WHERE category = 'SALARY'
+                   FROM   income WHERE category = ?
                    GROUP  BY who
                )
-        """
+        """,
+        (salary_cat, salary_cat)
     ) as cur:
         rows = await cur.fetchall()
     return [LatestSalaryRow(**dict(r)) for r in rows]
 
 
 @app.get("/analytics/income-by-person", response_model=list[IncomeByPersonRow], tags=["analytics"])
-async def get_income_by_person(db: DbDep, month: str | None = None) -> list[IncomeByPersonRow]:
+async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = None) -> list[IncomeByPersonRow]:
     """
     Return total income per active user for the requested month.
     Salary entries are append-only; only the latest entry per user per month counts.
@@ -1028,15 +1146,15 @@ async def get_income_by_person(db: DbDep, month: str | None = None) -> list[Inco
     result: list[IncomeByPersonRow] = []
     for person in active_users:
         async with db.execute(
-            "SELECT COALESCE(SUM(amount_cents), 0) AS total_cents FROM income WHERE who=? AND strftime('%Y-%m', income_date)=? AND category!='SALARY'",
-            (person, target),
+            "SELECT COALESCE(SUM(amount_cents), 0) AS total_cents FROM income WHERE who=? AND strftime('%Y-%m', income_date)=? AND category!=?",
+            (person, target, salary_cat),
         ) as cur:
             other_row = await cur.fetchone()
         other_cents: int = other_row["total_cents"] if other_row else 0
 
         async with db.execute(
-            "SELECT amount_cents FROM income WHERE who=? AND category='SALARY' AND strftime('%Y-%m', income_date)=? ORDER BY income_date DESC, id DESC LIMIT 1",
-            (person, target),
+            "SELECT amount_cents FROM income WHERE who=? AND category=? AND strftime('%Y-%m', income_date)=? ORDER BY income_date DESC, id DESC LIMIT 1",
+            (person, salary_cat, target),
         ) as cur:
             sal_month_row = await cur.fetchone()
         salary_this_month: int = sal_month_row["amount_cents"] if sal_month_row else 0
@@ -1044,8 +1162,8 @@ async def get_income_by_person(db: DbDep, month: str | None = None) -> list[Inco
         is_carried = False
         if salary_this_month == 0:
             async with db.execute(
-                "SELECT amount_cents FROM income WHERE who=? AND category='SALARY' AND income_date <= ? || '-31' ORDER BY income_date DESC, id DESC LIMIT 1",
-                (person, target),
+                "SELECT amount_cents FROM income WHERE who=? AND category=? AND income_date <= ? || '-31' ORDER BY income_date DESC, id DESC LIMIT 1",
+                (person, salary_cat, target),
             ) as cur:
                 carry_row = await cur.fetchone()
             if carry_row:

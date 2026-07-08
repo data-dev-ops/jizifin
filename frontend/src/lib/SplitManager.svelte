@@ -14,7 +14,7 @@
    */
 
   import { onMount } from 'svelte';
-  import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson } from './api.js';
+  import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson, createSplit } from './api.js';
   import { splits, selectedMonth, users, mobileSplitsEditable, currencySymbol } from './stores.js';
 
   /** True when viewport width < 768 px (Tailwind's md breakpoint). */
@@ -115,6 +115,26 @@
   let rowError   = {};
   let rowSuccess = {};
 
+  // ── Add new category state ──────────────────────────────────────────────────
+  let newCategoryName = '';
+  let creatingCategory = false;
+  let createCategoryError = '';
+
+  async function handleAddCategory() {
+    if (!newCategoryName.trim()) return;
+    const cat = newCategoryName.trim().toUpperCase();
+    creatingCategory = true;
+    createCategoryError = '';
+    try {
+      await createSplit({ category: cat, allocations: [] });
+      newCategoryName = '';
+    } catch (err) {
+      createCategoryError = err.message || 'Failed to create category.';
+    } finally {
+      creatingCategory = false;
+    }
+  }
+
   /** Initialise edit state for a category from the split's current allocations. */
   function initEditValues(split) {
     if (split.category in editValues) return;
@@ -134,8 +154,8 @@
   }
 
   /** Sum of the currently-entered percentages for a category. */
-  function rowSum(category) {
-    const vals = editValues[category] ?? {};
+  function rowSum(category, values) {
+    const vals = values[category] ?? {};
     return parseFloat(
       Object.values(vals).reduce((acc, v) => acc + (parseFloat(v) || 0), 0).toFixed(4)
     );
@@ -244,6 +264,33 @@
     {/if}
   </div>
 
+  <!-- ── Add Category ───────────────────────────────────────────────────────── -->
+  <div class="mb-6 bg-neutral-900/50 border border-neutral-800 rounded-xl p-4">
+    <div class="flex items-end gap-3 flex-wrap">
+      <div class="flex-1 min-w-[200px]">
+        <label for="new-category" class="block text-[11px] font-semibold text-neutral-500 uppercase tracking-wider mb-1.5">New Category Name</label>
+        <input
+          id="new-category"
+          type="text"
+          bind:value={newCategoryName}
+          placeholder="e.g. SUBSCRIPTIONS"
+          class="w-full bg-neutral-950 border border-neutral-800 rounded-lg px-3 py-2 text-sm font-medium text-neutral-200 focus:outline-none focus:border-sky-500/50 transition-colors uppercase"
+          on:keydown={(e) => e.key === 'Enter' && handleAddCategory()}
+        />
+      </div>
+      <button
+        on:click={handleAddCategory}
+        disabled={creatingCategory || !newCategoryName.trim()}
+        class="px-4 py-2 rounded-lg text-sm font-semibold bg-sky-600 hover:bg-sky-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors whitespace-nowrap h-[38px]"
+      >
+        {creatingCategory ? 'Adding...' : 'Add Category'}
+      </button>
+    </div>
+    {#if createCategoryError}
+      <p class="mt-2 text-xs text-red-400">{createCategoryError}</p>
+    {/if}
+  </div>
+
   <!-- ── Splits table ───────────────────────────────────────────────────────── -->
   <div class="space-y-1">
     <!-- Dynamic header row -->
@@ -257,7 +304,7 @@
 
     {#each variableSplits as split (split.category)}
       {#if editValues[split.category]}
-        {@const sum = rowSum(split.category)}
+        {@const sum = rowSum(split.category, editValues)}
         {@const sumOk = Math.abs(sum - 100.0) <= 0.01}
 
         <div class="group px-1 py-3 rounded-xl hover:bg-neutral-800/50 transition-colors">

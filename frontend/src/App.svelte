@@ -12,16 +12,30 @@
   import RecurringManager from './lib/RecurringManager.svelte';
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
-    import Login from './lib/Login.svelte';
-  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './lib/api.js';
+  import Login from './lib/Login.svelte';
+  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase } from './lib/api.js';
   import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
   let error = null;
+  let exporting = false;
+  let exportError = '';
 
   // Sidebar collapsed by default (especially for mobile)
   let sidebarOpen = false;
+
+  async function handleExport() {
+    exporting = true;
+    exportError = '';
+    try {
+      await exportDatabase($authSalt);
+    } catch (e) {
+      exportError = e.message;
+    } finally {
+      exporting = false;
+    }
+  }
 
   const tabs = [
     {
@@ -563,9 +577,29 @@
           </div>
         </div>
 
-        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
+        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6 mb-6">
           <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Household Members</p>
           <UserManager />
+        </div>
+
+        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
+          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Database Management</p>
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div>
+              <p class="text-sm font-medium text-neutral-200">Export Decrypted Database</p>
+              <p class="text-xs text-neutral-500 mt-0.5">Download a fully decrypted SQLite database file to browse your data in DBeaver.</p>
+              {#if exportError}
+                <p class="text-xs text-red-400 mt-2">{exportError}</p>
+              {/if}
+            </div>
+            <button
+              on:click={handleExport}
+              disabled={exporting}
+              class="w-full sm:w-auto px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 text-sm font-medium rounded-lg transition-colors border border-neutral-700 disabled:opacity-50 whitespace-nowrap"
+            >
+              {exporting ? 'Decrypting...' : 'Export .db File'}
+            </button>
+          </div>
         </div>
       </div>
 

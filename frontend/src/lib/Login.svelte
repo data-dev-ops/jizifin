@@ -6,6 +6,7 @@
   let error = '';
   let loading = false;
   let isFirstBoot = false;
+  let dbFile = null;
 
   // Check if first boot when component mounts
   import { onMount } from 'svelte';
@@ -32,14 +33,39 @@
       const baseUrl = `http://${window.location.hostname}:8000`;
 
       if (isFirstBoot) {
-        // Encrypt the magic word and store it
-        const magicEncrypted = await encryptText("FinanceTrackerAuth", key);
-        const res = await fetch(`${baseUrl}/auth/salt`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ value: magicEncrypted })
-        });
-        if (!res.ok) throw new Error("Failed to initialize master password");
+        if (dbFile && dbFile[0]) {
+          const formData = new FormData();
+          formData.append('file', dbFile[0]);
+          formData.append('saltText', saltText);
+          const res = await fetch(`${baseUrl}/auth/import`, {
+            method: 'POST',
+            body: formData
+          });
+          if (!res.ok) throw new Error("Failed to import database: " + await res.text());
+        } else {
+          // Encrypt the magic word and store it
+          const magicEncrypted = await encryptText("FinanceTrackerAuth", key);
+          const res = await fetch(`${baseUrl}/auth/salt`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ value: magicEncrypted })
+          });
+          if (!res.ok) throw new Error("Failed to initialize master password: " + await res.text());
+
+          // Seed default categories using the key
+          const defaultCategories = [
+            "GROCERIES", "UTILITIES", "RENT", "OTHER", "FIXED COSTS",
+            "DATING", "LEISURE", "GIFT", "PET", "PERSONAL COST"
+          ];
+          for (const cat of defaultCategories) {
+            const encCat = await encryptText(cat, key);
+            await fetch(`${baseUrl}/splits`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ category: encCat, allocations: [] })
+            });
+          }
+        }
       } else {
         // Fetch the magic word and try to decrypt it
         const res = await fetch(`${baseUrl}/auth/salt`);
@@ -92,6 +118,23 @@
           disabled={loading}
         />
       </div>
+
+      {#if isFirstBoot}
+        <div>
+          <label for="dbUpload" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+            Import Existing Database (Optional)
+          </label>
+          <input
+            id="dbUpload"
+            type="file"
+            accept=".db,.sqlite"
+            bind:files={dbFile}
+            class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-900/50 file:text-indigo-300 hover:file:bg-indigo-900 transition"
+            disabled={loading}
+          />
+          <p class="text-[10px] text-slate-500 mt-1.5">Provide an unencrypted finance.db to load your data. It will be encrypted upon import.</p>
+        </div>
+      {/if}
 
       {#if error}
         <div class="text-red-400 text-xs bg-red-950/30 border border-red-900/50 rounded-xl p-3">

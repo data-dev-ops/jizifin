@@ -15,13 +15,13 @@ const BASE = `http://${window.location.hostname}:8000`;
 // Encryption / Decryption Helpers
 // ---------------------------------------------------------------------------
 
-async function enc(txt) {
+export async function enc(txt) {
   const key = get(cryptoKey);
   if (!key) return txt;
   return encryptText(txt, key);
 }
 
-async function dec(txt) {
+export async function dec(txt) {
   const key = get(cryptoKey);
   if (!key) return txt;
   return decryptText(txt, key);
@@ -303,7 +303,22 @@ export async function fetchAnalytics(month) {
 }
 
 export async function fetchPaybacks(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const encPersonal = [await enc('PERSONAL COST'), await enc('LEISURE'), await enc('GIFT')].join(',');
+  const encCombinedFixed = await enc('Combined Fixed');
+  const encApartment = await enc('Apartment');
+  const encZina = await enc('Zina');
+  const encJim = await enc('Jim');
+
+  const params = new URLSearchParams({
+    personal_cats: encPersonal,
+    combined_fixed_cat: encCombinedFixed,
+    apartment_cat: encApartment,
+    zina_name: encZina,
+    jim_name: encJim
+  });
+  if (month) params.append('month', month);
+
+  const qs = `?${params.toString()}`;
   const data = await request(`/analytics/paybacks${qs}`);
   
   const decrypted = {
@@ -336,7 +351,11 @@ export async function fetchPaybacks(month) {
 // ---------------------------------------------------------------------------
 
 export async function fetchIncomeByPerson(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const encSalary = await enc('SALARY');
+  const params = new URLSearchParams({ salary_cat: encSalary });
+  if (month) params.append('month', month);
+
+  const qs = `?${params.toString()}`;
   const data = await request(`/analytics/income-by-person${qs}`);
   
   const decrypted = await Promise.all(
@@ -351,7 +370,9 @@ export async function fetchIncomeByPerson(month) {
 }
 
 export async function fetchLatestSalaries() {
-  const data = await request('/income/latest-salary');
+  const encSalary = await enc('SALARY');
+  const qs = `?salary_cat=${encodeURIComponent(encSalary)}`;
+  const data = await request(`/income/latest-salary${qs}`);
   return Promise.all(
     data.map(async (s) => ({
       ...s,
@@ -448,7 +469,7 @@ export async function deleteProject(id) {
 }
 
 // ---------------------------------------------------------------------------
-// Bootstrap
+// Bootstrap / Import / Export
 // ---------------------------------------------------------------------------
 
 export async function fetchAllData(month) {
@@ -464,6 +485,27 @@ export async function fetchAllData(month) {
     fetchRecurring(),
     fetchSettlements(),
   ]);
+}
+
+export async function exportDatabase(saltText) {
+  const res = await fetch(`${BASE}/auth/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: saltText })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Export failed: ${errText}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'jizifin_decrypted.db';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
 }
 
 // ---------------------------------------------------------------------------

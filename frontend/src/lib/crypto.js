@@ -34,7 +34,7 @@ export async function deriveKey(saltText) {
 
 /**
  * Encrypt plaintext using the derived key.
- * Returns Base64 string.
+ * Returns Base64URL string.
  * @param {string} plaintext
  * @param {CryptoKey} key
  * @returns {Promise<string>}
@@ -47,7 +47,9 @@ export async function encryptText(plaintext, key) {
     key,
     enc.encode(plaintext)
   );
-  return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  const base64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+  // Convert standard Base64 to Base64URL
+  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 }
 
 /**
@@ -60,7 +62,13 @@ export async function encryptText(plaintext, key) {
 export async function decryptText(ciphertext, key) {
   if (!ciphertext) return ciphertext;
   try {
-    const binaryStr = atob(ciphertext);
+    // Convert Base64URL to standard Base64
+    let base64 = ciphertext.replace(/-/g, '+').replace(/_/g, '/');
+    while (base64.length % 4) {
+      base64 += '=';
+    }
+    
+    const binaryStr = atob(base64);
     const bytes = new Uint8Array(binaryStr.length);
     for (let i = 0; i < binaryStr.length; i++) {
       bytes[i] = binaryStr.charCodeAt(i);

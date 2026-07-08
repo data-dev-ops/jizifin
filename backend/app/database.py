@@ -199,14 +199,8 @@ async def init_db() -> None:
         )
 
         # ── Seed default split categories ───────────────────────────────────
-        # INSERT OR IGNORE is idempotent — safe on every boot.
-        # Allocations are left empty until users are added via the Settings tab.
-        default_categories = [
-            "GROCERIES", "UTILITIES", "RENT", "OTHER", "FIXED COSTS",
-            "DATING", "LEISURE", "GIFT", "PET", "PERSONAL COST",
-        ]
-        for cat in default_categories:
-            await conn.execute("INSERT OR IGNORE INTO splits (category) VALUES (?)", (cat,))
+        # In encrypted mode, the backend cannot seed plaintext categories.
+        # The user must add categories manually via the UI.
 
         # ── Analytics views ─────────────────────────────────────────────────
         # Dropped and recreated on every boot so schema changes take effect

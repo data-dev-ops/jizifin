@@ -8,6 +8,8 @@
    */
 
 
+import { dec } from './api.js';
+
   const BASE_URL = `http://${window.location.hostname}:8000`;
 
   let sql = '';
@@ -61,7 +63,26 @@
         const body = await res.json().catch(() => ({ detail: res.statusText }));
         error = body.detail ?? 'Unknown error';
       } else {
-        result = await res.json();
+        const rawResult = await res.json();
+        
+        // Decrypt string cells
+        if (rawResult.rows) {
+          const decryptedRows = [];
+          for (const row of rawResult.rows) {
+            const decRow = [];
+            for (const cell of row) {
+              if (typeof cell === 'string') {
+                decRow.push(await dec(cell));
+              } else {
+                decRow.push(cell);
+              }
+            }
+            decryptedRows.push(decRow);
+          }
+          rawResult.rows = decryptedRows;
+        }
+        
+        result = rawResult;
       }
     } catch (e) {
       error = e.message ?? 'Network error';
