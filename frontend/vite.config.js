@@ -7,6 +7,6 @@ export default defineConfig({
     host: true,          // bind to 0.0.0.0 inside container
     port: 5173,
     strictPort: true,
-    allowedHosts: 'all', // allow Docker bridge hostname
+    allowedHosts: ['jizifin.duckdns.org', 'localhost', '134.209.137.40'],
   },
 });
