@@ -99,3 +99,20 @@ export const settlements = writable([]);
  * Persisted to localStorage so the choice survives page reload.
  */
 export const mobileSplitsEditable = persistedBoolean('mobileSplitsEditable', false);
+
+/**
+ * Helper: writable store that reads/writes a string to localStorage.
+ */
+function persistedString(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  const initial = stored !== null ? stored : defaultValue;
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, val));
+  return store;
+}
+
+export const defaultPayer = persistedString('defaultPayer', '');
+export const defaultCategory = persistedString('defaultCategory', '');
+export const showQueryTab = persistedBoolean('showQueryTab', true);
+export const currencySymbol = persistedString('currencySymbol', '€');
+

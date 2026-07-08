@@ -9,14 +9,14 @@
    *  - Delete with confirmation (expenses retain history)
    */
 
-  import { projects } from './stores.js';
+  import { projects, currencySymbol } from './stores.js';
   import { createProject, updateProject, deleteProject } from './api.js';
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
-  /** Integer cents → "€1,234.56" */
+  /** Integer cents → formatted amount */
   function fmtEur(cents) {
-    return `€${(cents / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `${$currencySymbol}${(cents / 100).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   /** YYYY-MM-DD → DD/MM/YYYY */
@@ -171,9 +171,9 @@
       </div>
 
       <div>
-        <label for="project-target" class="block text-xs font-medium text-neutral-400 mb-1.5">Target Amount (€)</label>
+        <label for="project-target" class="block text-xs font-medium text-neutral-400 mb-1.5">Target Amount ({$currencySymbol})</label>
         <div class="relative">
-          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">€</span>
+          <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">{$currencySymbol}</span>
           <input
             id="project-target"
             type="number"
@@ -253,7 +253,7 @@
               />
               <div class="grid grid-cols-2 gap-3">
                 <div class="relative">
-                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs">€</span>
+                  <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-xs">{$currencySymbol}</span>
                   <input
                     id="edit-target-{project.id}"
                     type="number"

@@ -1,5 +1,5 @@
 <script>
-  import { recurringExpenses, splits, users } from './stores.js';
+  import { recurringExpenses, splits, users, currencySymbol } from './stores.js';
   import { createRecurring, deleteRecurring } from './api.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
@@ -74,7 +74,7 @@
           {#each $recurringExpenses as rec (rec.id)}
             <tr>
               <td class="name-cell">{rec.name}</td>
-              <td class="amount-cell">€{(rec.cost_cents / 100).toFixed(2)}</td>
+              <td class="amount-cell">{$currencySymbol}{(rec.cost_cents / 100).toFixed(2)}</td>
               <td>
                 <span class="payer-badge" style="background-color:{($users.find(u=>u.name===rec.who_paid)?.color ?? '#6366f1') + '33'}; color:{$users.find(u=>u.name===rec.who_paid)?.color ?? '#a5b4fc'}">
                   {rec.who_paid}
@@ -109,7 +109,7 @@
           <input id="rec-name" type="text" bind:value={form.name} placeholder="e.g. Spotify" maxlength="96" />
         </div>
         <div class="field field--sm">
-          <label for="rec-amount">Amount (€)</label>
+          <label for="rec-amount">Amount ({$currencySymbol})</label>
           <input id="rec-amount" type="number" min="0.01" step="0.01" bind:value={form.cost_euros} placeholder="0.00" />
         </div>
       </div>

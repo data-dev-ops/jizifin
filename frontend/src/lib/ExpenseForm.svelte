@@ -8,7 +8,7 @@
    */
 
   import { createExpense } from './api.js';
-  import { splits, selectedMonth, projects, settlements, users } from './stores.js';
+  import { splits, selectedMonth, projects, settlements, users, defaultPayer, defaultCategory, currencySymbol } from './stores.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
 
@@ -47,8 +47,8 @@
   let name         = '';
   let costEuros    = '';       // user-facing input, e.g. "12.50"
   let expenseDate  = today();
-  let whoPaid      = '';       // defaults to empty, requiring selection (checkbox)
-  let category     = '';       // defaults to empty, requiring selection (checkbox)
+  let whoPaid      = $defaultPayer;
+  let category     = $defaultCategory;
   let projectId    = null;     // optional: link expense to a project
 
   let submitting   = false;
@@ -59,8 +59,8 @@
     name        = '';
     costEuros   = '';
     expenseDate = today();
-    whoPaid     = '';
-    category    = '';
+    whoPaid     = $defaultPayer;
+    category    = $defaultCategory;
     projectId   = null;
     errorMsg    = null;
     customSplit = false;
@@ -90,7 +90,7 @@
     }
     const costCents = Math.round(parsed * 100);
     if (costCents <= 0) {
-      errorMsg = 'Amount must be at least €0.01.';
+      errorMsg = `Amount must be at least ${$currencySymbol}0.01.`;
       return;
     }
 
@@ -171,10 +171,10 @@
   <!-- Cost -->
   <div>
     <label for="expense-cost" class="block text-xs font-medium text-neutral-400 mb-1.5">
-      Amount (€)
+      Amount ({$currencySymbol})
     </label>
     <div class="relative">
-      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">€</span>
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500 text-sm">{$currencySymbol}</span>
       <input
         id="expense-cost"
         type="number"

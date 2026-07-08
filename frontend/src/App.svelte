@@ -13,7 +13,7 @@
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = true;
@@ -31,6 +31,11 @@
     { id: 'query',     label: 'Query',      icon: '⌗' },
     { id: 'settings',  label: 'Settings',   icon: '⚙' },
   ];
+
+  $: visibleTabs = tabs.filter(t => t.id !== 'query' || $showQueryTab);
+  $: if (activeTab === 'query' && !$showQueryTab) {
+    activeTab = 'dashboard';
+  }
 
   let unsubMonth;
   let budgetStatus = [];
@@ -105,8 +110,8 @@
   >
     <!-- Logo -->
     <div class="px-5 py-7 flex items-center gap-3 min-w-[240px]">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-base font-bold shadow-lg shadow-indigo-900/40 flex-none">
-        €
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-base font-bold shadow-lg shadow-indigo-900/40 flex-none text-white">
+        {$currencySymbol}
       </div>
       <div>
         <p class="text-sm font-semibold leading-none">FinanceTracker</p>
@@ -139,7 +144,7 @@
 
     <!-- Nav -->
     <nav class="flex-1 px-3 space-y-0.5 min-w-[240px]">
-      {#each tabs as tab}
+      {#each visibleTabs as tab}
         <button
           id="nav-{tab.id}"
           on:click={() => selectTab(tab.id)}
@@ -259,7 +264,7 @@
                 <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-3">
                   <p class="text-[11px] text-neutral-500 font-medium uppercase truncate">{row.category}</p>
                   <p class="text-xs font-semibold text-neutral-200 mt-0.5 tabular-nums">
-                    €{(row.actual_cents/100).toFixed(0)} <span class="text-neutral-600 font-normal">/ €{(row.limit_cents/100).toFixed(0)}</span>
+                    {$currencySymbol}{(row.actual_cents/100).toFixed(0)} <span class="text-neutral-600 font-normal">/ {$currencySymbol}{(row.limit_cents/100).toFixed(0)}</span>
                   </p>
                   <div class="mt-1.5 h-1 bg-neutral-800 rounded-full overflow-hidden">
                     <div class="h-full rounded-full {barColor} transition-all" style="width:{Math.min(row.pct_used,100)}%"></div>
@@ -327,8 +332,8 @@
                   </div>
                   <div class="text-right flex-none">
                     <p class="text-xs font-semibold text-neutral-100">
-                      €{(project.total_spent_cents / 100).toFixed(0)}
-                      <span class="text-neutral-600 font-normal">/ €{(project.target_cents / 100).toFixed(0)}</span>
+                      {$currencySymbol}{(project.total_spent_cents / 100).toFixed(0)}
+                      <span class="text-neutral-600 font-normal">/ {$currencySymbol}{(project.target_cents / 100).toFixed(0)}</span>
                     </p>
                   </div>
                 </div>
@@ -431,6 +436,88 @@
                        {$mobileSplitsEditable ? 'translate-x-5' : 'translate-x-0'}"
               ></span>
             </button>
+          </div>
+        </div>
+
+        <!-- Preferences Section -->
+        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6 mb-6">
+          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Display & Form Preferences</p>
+          
+          <div class="space-y-4">
+            <!-- Currency Symbol -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Currency Symbol</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Preferred currency symbol used across the dashboard (e.g. €, $, £).</p>
+              </div>
+              <input
+                id="setting-currency-symbol"
+                type="text"
+                maxlength="3"
+                bind:value={$currencySymbol}
+                class="w-full sm:w-24 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+              />
+            </div>
+
+            <!-- Default Payer -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Default Payer</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Pre-selected member when logging a new expense.</p>
+              </div>
+              <select
+                id="setting-default-payer"
+                bind:value={$defaultPayer}
+                class="w-full sm:w-48 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                <option value="">— None (require choice) —</option>
+                {#each $users.filter(u => u.is_active) as u}
+                  <option value={u.name}>{u.name}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Default Category -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-neutral-800 pb-4">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Default Category</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Pre-selected category when logging a new expense.</p>
+              </div>
+              <select
+                id="setting-default-category"
+                bind:value={$defaultCategory}
+                class="w-full sm:w-48 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500 transition-colors"
+              >
+                <option value="">— None (require choice) —</option>
+                {#each $splits as split}
+                  <option value={split.category}>{split.category}</option>
+                {/each}
+              </select>
+            </div>
+
+            <!-- Show SQL Console -->
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Show SQL Query Console</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Display the raw SQL Query tab in the navigation sidebar.</p>
+              </div>
+              <!-- Toggle switch -->
+              <button
+                id="toggle-query-console"
+                role="switch"
+                aria-checked={$showQueryTab}
+                on:click={() => showQueryTab.update(v => !v)}
+                class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                       {$showQueryTab ? 'bg-indigo-600' : 'bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {$showQueryTab ? 'translate-x-5' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
           </div>
         </div>
 

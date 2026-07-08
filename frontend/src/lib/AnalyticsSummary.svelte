@@ -9,7 +9,7 @@
    */
 
   import { onMount, onDestroy } from 'svelte';
-  import { analytics, users } from './stores.js';
+  import { analytics, users, currencySymbol } from './stores.js';
   import Chart from 'chart.js/auto';
 
   // ── Doughnut chart state & refs ───────────────────────────────────────────
@@ -90,7 +90,7 @@
             titleColor:      '#e5e7eb',
             bodyColor:       '#9ca3af',
             callbacks: {
-              label: (ctx) => ` €${Number(ctx.raw).toFixed(2)}`,
+              label: (ctx) => ` ${$currencySymbol}${Number(ctx.raw).toFixed(2)}`,
             },
           },
         },
@@ -107,7 +107,7 @@
   });
 
   function fmt(n) {
-    return `€${Number(n).toFixed(2)}`;
+    return `${$currencySymbol}${Number(n).toFixed(2)}`;
   }
 
   function pct(part, whole) {

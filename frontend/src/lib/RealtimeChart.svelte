@@ -14,7 +14,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import { expenses, selectedMonth } from './stores.js';
+  import { expenses, selectedMonth, currencySymbol } from './stores.js';
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_URL = `${wsProtocol}//${window.location.hostname}:8000/ws/finance`;
@@ -92,7 +92,7 @@
         labels: [],
         datasets: [
           {
-            label:                'Amount (€)',
+            label:                `Amount (${$currencySymbol})`,
             data:                 [],
             borderColor:          '#6366f1',
             backgroundColor:      gradient,
@@ -128,7 +128,7 @@
             bodyColor:       '#9ca3af',
             padding:         10,
             callbacks: {
-              label: (ctx) => ` €${Number(ctx.raw).toFixed(2)}`,
+              label: (ctx) => ` ${$currencySymbol}${Number(ctx.raw).toFixed(2)}`,
             },
           },
         },
@@ -146,7 +146,7 @@
             ticks: {
               color:    '#6b7280',
               font:     { size: 11 },
-              callback: (v) => `€${v}`,
+              callback: (v) => `${$currencySymbol}${v}`,
             },
             grid:   { color: 'rgba(255,255,255,0.04)' },
             border: { color: 'rgba(255,255,255,0.08)' },

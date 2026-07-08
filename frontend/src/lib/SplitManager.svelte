@@ -15,7 +15,7 @@
 
   import { onMount } from 'svelte';
   import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson } from './api.js';
-  import { splits, selectedMonth, users, mobileSplitsEditable } from './stores.js';
+  import { splits, selectedMonth, users, mobileSplitsEditable, currencySymbol } from './stores.js';
 
   /** True when viewport width < 768 px (Tailwind's md breakpoint). */
   let isMobile = false;
@@ -200,7 +200,7 @@
             >{u.name.charAt(0).toUpperCase()}</div>
             <span class="text-sm font-medium whitespace-nowrap" style="color: {u.color}">{u.name}</span>
             <div class="relative">
-              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500 pointer-events-none">€</span>
+              <span class="absolute left-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500 pointer-events-none">{$currencySymbol}</span>
               <input
                 id="salary-{u.name}"
                 type="number" min="0" step="0.01"

@@ -10,7 +10,7 @@
    * Delete requires click-through confirmation.
    */
 
-  import { expenses, selectedMonth, projects, settlements, users } from './stores.js';
+  import { expenses, selectedMonth, projects, settlements, users, currencySymbol } from './stores.js';
   import { deleteExpense } from './api.js';
 
   /** Lookup user color from the users store. */
@@ -34,9 +34,9 @@
     return `${d}/${m}/${y}`;
   }
 
-  /** Integer cents → "€12.50" */
+  /** Integer cents → currency amount */
   function formatAmount(cents) {
-    return `€${(cents / 100).toFixed(2)}`;
+    return `${$currencySymbol}${(cents / 100).toFixed(2)}`;
   }
 
   // Per-row delete state: null = idle, id = pending confirmation

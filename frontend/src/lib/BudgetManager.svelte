@@ -1,6 +1,6 @@
 <script>
   import { onMount } from 'svelte';
-  import { budgets, splits, selectedMonth } from './stores.js';
+  import { budgets, splits, selectedMonth, currencySymbol } from './stores.js';
   import { upsertBudget, deleteBudget, fetchBudgetAnalytics } from './api.js';
 
   let budgetStatus = []; // BudgetStatusRow[]
@@ -107,9 +107,9 @@
             <div class="card-header">
               <span class="cat-name">{row.category}</span>
               <span class="amounts">
-                €{(row.actual_cents / 100).toFixed(0)}
+                {$currencySymbol}{(row.actual_cents / 100).toFixed(0)}
                 {#if row.limit_cents > 0}
-                  / €{(row.limit_cents / 100).toFixed(0)}
+                  / {$currencySymbol}{(row.limit_cents / 100).toFixed(0)}
                 {:else}
                   <span class="no-limit">(no limit)</span>
                 {/if}
@@ -142,7 +142,7 @@
             <tr>
               <th>Category</th>
               <th>Month</th>
-              <th>Limit (€)</th>
+              <th>Limit ({$currencySymbol})</th>
               <th></th>
             </tr>
           </thead>
@@ -165,7 +165,7 @@
                     <button class="btn-confirm" on:click={() => saveEdit(b)} disabled={saving[key]}>✓</button>
                   {:else}
                     <button class="limit-btn" on:click={() => startEdit(b)}>
-                      €{(b.limit_cents / 100).toFixed(2)}
+                      {$currencySymbol}{(b.limit_cents / 100).toFixed(2)}
                     </button>
                   {/if}
                 </td>
@@ -204,7 +204,7 @@
           <input id="bmonth" type="text" bind:value={newForm.month} placeholder="ALL or YYYY-MM" />
         </div>
         <div class="field field--sm">
-          <label for="blimit">Limit (€)</label>
+          <label for="blimit">Limit ({$currencySymbol})</label>
           <input id="blimit" type="number" min="0" step="0.01" bind:value={newForm.limit_euros} placeholder="0.00" />
         </div>
         <button class="btn-save" on:click={handleAdd} disabled={addSaving}>

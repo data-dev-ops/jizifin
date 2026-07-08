@@ -12,7 +12,7 @@
   import { onMount, onDestroy, tick } from 'svelte';
   import { get } from 'svelte/store';
   import Chart from 'chart.js/auto';
-  import { incomeAnalytics, users } from './stores.js';
+  import { incomeAnalytics, users, currencySymbol } from './stores.js';
 
   let canvas;
   let chart = null;
@@ -20,7 +20,7 @@
   $: hasData = $incomeAnalytics.length > 0;
 
   function fmt(cents) {
-    return `€${(cents / 100).toFixed(2)}`;
+    return `${$currencySymbol}${(cents / 100).toFixed(2)}`;
   }
 
   /** Convert a hex colour to rgba(r,g,b,alpha). */
@@ -59,7 +59,7 @@
       data: {
         labels: [],
         datasets: [{
-          label:           'Income (€)',
+          label:           `Income (${$currencySymbol})`,
           data:            [],
           backgroundColor: [],
           borderColor:     [],
@@ -82,12 +82,12 @@
             titleColor:      '#e5e7eb',
             bodyColor:       '#9ca3af',
             padding:         10,
-            callbacks: { label: (ctx) => ` €${Number(ctx.raw).toFixed(2)}` },
+            callbacks: { label: (ctx) => ` ${$currencySymbol}${Number(ctx.raw).toFixed(2)}` },
           },
         },
         scales: {
           x: {
-            ticks: { color: '#6b7280', font: { size: 11 }, callback: (v) => `€${v}` },
+            ticks: { color: '#6b7280', font: { size: 11 }, callback: (v) => `${$currencySymbol}${v}` },
             grid:  { color: 'rgba(255,255,255,0.04)' },
             border: { color: 'rgba(255,255,255,0.08)' },
             beginAtZero: true,
