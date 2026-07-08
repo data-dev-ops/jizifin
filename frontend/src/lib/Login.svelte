@@ -12,7 +12,7 @@
   import { onMount } from 'svelte';
   onMount(async () => {
     try {
-      const res = await fetch(`http://${window.location.hostname}:8000/auth/salt`);
+      const res = await fetch(`/api/auth/salt`);
       if (res.status === 404) {
         isFirstBoot = true;
       }
@@ -30,7 +30,7 @@
     error = '';
     try {
       const key = await deriveKey(saltText);
-      const baseUrl = `http://${window.location.hostname}:8000`;
+      const baseUrl = `/api`;
 
       if (isFirstBoot) {
         if (dbFile && dbFile[0]) {

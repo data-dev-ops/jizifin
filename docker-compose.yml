@@ -4,8 +4,6 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     container_name: finance-tracker-backend
-    ports:
-      - "8000:8000"
     environment:
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
@@ -26,12 +24,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     container_name: finance-tracker-frontend
-    ports:
-      - "5173:5173"
     depends_on:
       - backend
-    environment:
-      VITE_API_URL: "http://localhost:8000"
     volumes:
       - ./frontend:/app
       - /app/node_modules
@@ -44,8 +38,27 @@ services:
     networks:
       - app-network
 
+  caddy:
+    image: caddy:2-alpine
+    container_name: finance-tracker-caddy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - app-network
+    depends_on:
+      - frontend
+      - backend
+
 volumes:
   backend-cache:
+  caddy_data:
+  caddy_config:
 
 networks:
   app-network:

@@ -10,7 +10,7 @@
 
 import { dec } from './api.js';
 
-  const BASE_URL = `http://${window.location.hostname}:8000`;
+  const BASE_URL = `/api`;
 
   let sql = '';
   let loading = false;

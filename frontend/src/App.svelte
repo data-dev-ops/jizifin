@@ -90,7 +90,7 @@
         try { budgetStatus = await fetchBudgetAnalytics($selectedMonth); } catch {}
       })
       .catch((e) => {
-        error = 'Could not connect to the backend. Make sure the API is running on port 8000.';
+        error = 'Could not connect to the backend. Make sure the API service is running.';
       })
       .finally(() => {
         loading = false;

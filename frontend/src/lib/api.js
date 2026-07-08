@@ -9,7 +9,7 @@ import { cryptoKey } from './stores.js';
 import { encryptText, decryptText } from './crypto.js';
 import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users } from './stores.js';
 
-const BASE = `http://${window.location.hostname}:8000`;
+const BASE = `/api`;
 
 // ---------------------------------------------------------------------------
 // Encryption / Decryption Helpers

@@ -17,7 +17,7 @@
   import { expenses, selectedMonth, currencySymbol } from './stores.js';
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  const WS_URL = `${wsProtocol}//${window.location.hostname}:8000/ws/finance`;
+  const WS_URL = `${wsProtocol}//${window.location.host}/api/ws/finance`;
 
   let canvas;
   let chart;
