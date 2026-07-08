@@ -12,24 +12,46 @@
   import RecurringManager from './lib/RecurringManager.svelte';
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
+    import Login from './lib/Login.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt } from './lib/stores.js';
 
   let activeTab = 'dashboard';
-  let loading = true;
+  let loading = false; // Handled after salt is entered
   let error = null;
 
   // Sidebar collapsed by default (especially for mobile)
   let sidebarOpen = false;
 
   const tabs = [
-    { id: 'dashboard', label: 'Dashboard',  icon: '▤' },
-    { id: 'expenses',  label: 'Expenses',   icon: '₂' },
-    { id: 'splits',    label: 'Splits',     icon: '⊗' },
-    { id: 'projects',  label: 'Projects',   icon: '▰' },
-    { id: 'recurring', label: 'Recurring',  icon: '↻' },
-    { id: 'query',     label: 'Query',      icon: '⌗' },
-    { id: 'settings',  label: 'Settings',   icon: '⚙' },
+    {
+      id: 'dashboard', label: 'Dashboard',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><rect x="3" y="3" width="7" height="7" rx="1" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="3" width="7" height="7" rx="1" stroke-linecap="round" stroke-linejoin="round"/><rect x="3" y="14" width="7" height="7" rx="1" stroke-linecap="round" stroke-linejoin="round"/><rect x="14" y="14" width="7" height="7" rx="1" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+    },
+    {
+      id: 'expenses', label: 'Expenses',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l2 2 4-4M7.5 3.75A1.5 1.5 0 006 5.25v13.5A1.5 1.5 0 007.5 20.25h9A1.5 1.5 0 0018 18.75V5.25A1.5 1.5 0 0016.5 3.75H7.5z"/></svg>`,
+    },
+    {
+      id: 'splits', label: 'Splits',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9" stroke-linecap="round"/></svg>`,
+    },
+    {
+      id: 'projects', label: 'Projects',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>`,
+    },
+    {
+      id: 'recurring', label: 'Recurring',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99"/></svg>`,
+    },
+    {
+      id: 'query', label: 'Query',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M17.25 6.75L22.5 12l-5.25 5.25m-10.5 0L1.5 12l5.25-5.25m7.5-3l-4.5 16.5"/></svg>`,
+    },
+    {
+      id: 'settings', label: 'Settings',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9.594 3.94c.09-.542.56-.94 1.11-.94h2.593c.55 0 1.02.398 1.11.94l.213 1.281c.063.374.313.686.645.87.074.04.147.083.22.127.324.196.72.257 1.075.124l1.217-.456a1.125 1.125 0 011.37.49l1.296 2.247a1.125 1.125 0 01-.26 1.431l-1.003.827c-.293.24-.438.613-.431.992a6.759 6.759 0 010 .255c-.007.378.138.75.43.99l1.005.828c.424.35.534.954.26 1.43l-1.298 2.247a1.125 1.125 0 01-1.369.491l-1.217-.456c-.355-.133-.75-.072-1.076.124a6.57 6.57 0 01-.22.128c-.331.183-.581.495-.644.869l-.213 1.28c-.09.543-.56.941-1.11.941h-2.594c-.55 0-1.02-.398-1.11-.94l-.213-1.281c-.062-.374-.312-.686-.644-.87a6.52 6.52 0 01-.22-.127c-.325-.196-.72-.257-1.076-.124l-1.217.456a1.125 1.125 0 01-1.369-.49l-1.297-2.247a1.125 1.125 0 01.26-1.431l1.004-.827c.292-.24.437-.613.43-.992a6.932 6.932 0 010-.255c.007-.378-.138-.75-.43-.99l-1.004-.828a1.125 1.125 0 01-.26-1.43l1.297-2.247a1.125 1.125 0 011.37-.491l1.216.456c.356.133.751.072 1.076-.124.072-.044.146-.087.22-.128.332-.183.582-.495.644-.869l.214-1.281z"/><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>`,
+    },
   ];
 
   $: visibleTabs = tabs.filter(t => t.id !== 'query' || $showQueryTab);
@@ -39,18 +61,27 @@
 
   let unsubMonth;
   let budgetStatus = [];
+  let initialLoaded = false;
+
   onMount(async () => {
     // On desktop (≥768px), show sidebar by default
     if (window.innerWidth >= 768) sidebarOpen = true;
+  });
 
-    try {
-      await fetchAllData($selectedMonth);
-      try { budgetStatus = await fetchBudgetAnalytics($selectedMonth); } catch {}
-    } catch (e) {
-      error = 'Could not connect to the backend. Make sure the API is running on port 8000.';
-    } finally {
-      loading = false;
-    }
+  $: if ($authSalt && !initialLoaded) {
+    initialLoaded = true;
+    loading = true;
+    fetchAllData($selectedMonth)
+      .then(async () => {
+        try { budgetStatus = await fetchBudgetAnalytics($selectedMonth); } catch {}
+      })
+      .catch((e) => {
+        error = 'Could not connect to the backend. Make sure the API is running on port 8000.';
+      })
+      .finally(() => {
+        loading = false;
+      });
+
     let skipFirst = true;
     unsubMonth = selectedMonth.subscribe((month) => {
       if (skipFirst) { skipFirst = false; return; }
@@ -61,7 +92,7 @@
         fetchBudgetAnalytics(month).then((rows) => { budgetStatus = rows; }),
       ]);
     });
-  });
+  }
 
   onDestroy(() => { if (unsubMonth) unsubMonth(); });
 
@@ -85,7 +116,10 @@
   }
 </script>
 
-<div class="flex h-screen bg-neutral-950 text-white font-inter overflow-hidden relative">
+{#if !$authSalt}
+  <Login />
+{:else}
+  <div class="flex h-screen bg-neutral-950 text-white font-inter overflow-hidden relative">
 
   <!-- ── Mobile overlay backdrop ──────────────────────────────────────────── -->
   {#if sidebarOpen}
@@ -153,7 +187,7 @@
                    ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/50'
                    : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'}"
         >
-          <span class="text-base leading-none">{tab.icon}</span>
+          <span class="flex-none leading-none">{@html tab.icon}</span>
           <span class="font-medium">{tab.label}</span>
         </button>
       {/each}
@@ -261,8 +295,16 @@
                 {@const color = row.pct_used >= 90 ? 'red' : row.pct_used >= 70 ? 'yellow' : 'green'}
                 {@const barColor = color === 'red' ? 'bg-red-500' : color === 'yellow' ? 'bg-yellow-400' : 'bg-emerald-500'}
                 {@const textColor = color === 'red' ? 'text-red-400' : color === 'yellow' ? 'text-yellow-400' : 'text-emerald-400'}
+                {@const isStanding = !row.budget_month || row.budget_month === 'ALL'}
                 <div class="bg-neutral-950 border border-neutral-800 rounded-xl p-3">
-                  <p class="text-[11px] text-neutral-500 font-medium uppercase truncate">{row.category}</p>
+                  <div class="flex items-start justify-between gap-1 mb-0.5">
+                    <p class="text-[11px] text-neutral-500 font-medium uppercase truncate">{row.category}</p>
+                    {#if isStanding}
+                      <span class="flex-none text-[9px] font-semibold uppercase tracking-wide text-neutral-600 bg-neutral-800 rounded px-1 py-0.5 leading-none">standing</span>
+                    {:else}
+                      <span class="flex-none text-[9px] font-semibold uppercase tracking-wide text-indigo-500 bg-indigo-950/60 rounded px-1 py-0.5 leading-none">this month</span>
+                    {/if}
+                  </div>
                   <p class="text-xs font-semibold text-neutral-200 mt-0.5 tabular-nums">
                     {$currencySymbol}{(row.actual_cents/100).toFixed(0)} <span class="text-neutral-600 font-normal">/ {$currencySymbol}{(row.limit_cents/100).toFixed(0)}</span>
                   </p>
@@ -546,3 +588,4 @@
 
   </main>
 </div>
+{/if}

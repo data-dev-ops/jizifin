@@ -147,8 +147,20 @@
   </div>
 
   {#if categories.length === 0}
-    <div class="flex flex-col items-center justify-center py-10 text-center">
-      <p class="text-neutral-500 text-sm">No category data yet for this month.</p>
+    <div class="flex flex-col items-center justify-center py-10 text-center gap-2">
+      <!-- Chart / donut icon -->
+      <div class="w-12 h-12 rounded-2xl bg-neutral-800/80 flex items-center justify-center mb-1">
+        <svg class="w-6 h-6 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M10.5 6a7.5 7.5 0 107.5 7.5h-7.5V6z" />
+          <path stroke-linecap="round" stroke-linejoin="round"
+            d="M13.5 10.5H21A7.5 7.5 0 0013.5 3v7.5z" />
+        </svg>
+      </div>
+      <p class="text-neutral-400 text-sm font-medium">No category data yet.</p>
+      <p class="text-neutral-600 text-xs max-w-xs">
+        Log an expense on the Expenses tab and the breakdown will appear here.
+      </p>
     </div>
   {:else}
     <!-- Category breakdown list -->

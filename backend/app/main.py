@@ -231,6 +231,33 @@ async def root() -> dict:
 
 
 # ---------------------------------------------------------------------------
+# Auth / First Boot
+# ---------------------------------------------------------------------------
+
+class AuthSaltRequest(BaseModel):
+    value: str
+
+@app.get("/auth/salt", tags=["auth"])
+async def get_auth_salt(db: DbDep) -> dict:
+    """Return the encrypted magic word to validate the salt on login."""
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=404, detail="Not initialized")
+    return {"value": row["value"]}
+
+@app.post("/auth/salt", tags=["auth"])
+async def set_auth_salt(payload: AuthSaltRequest, db: DbDep) -> dict:
+    """Set the encrypted magic word on first boot."""
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        if await cur.fetchone() is not None:
+            raise HTTPException(status_code=409, detail="Already initialized")
+    await db.execute("INSERT INTO app_config (key, value) VALUES ('magic_word', ?)", (payload.value,))
+    await db.commit()
+    return {"status": "ok"}
+
+
+# ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
 
@@ -1045,18 +1072,31 @@ async def get_budget_status(db: DbDep, month: str | None = None) -> list[BudgetS
         (target_month,),
     ) as cur:
         actuals = {r["category"]: r["actual_cents"] for r in await cur.fetchall()}
+    # Capture both the winning limit_cents and which budget row won (specific month vs ALL)
     async with db.execute(
-        "SELECT category, COALESCE(MAX(CASE WHEN month=? THEN limit_cents END), MAX(CASE WHEN month='ALL' THEN limit_cents END), 0) AS limit_cents FROM budgets GROUP BY category",
-        (target_month,),
+        """
+        SELECT
+            category,
+            COALESCE(MAX(CASE WHEN month=? THEN limit_cents END),
+                     MAX(CASE WHEN month='ALL' THEN limit_cents END), 0) AS limit_cents,
+            CASE
+                WHEN MAX(CASE WHEN month=? THEN 1 END) = 1 THEN ?
+                WHEN MAX(CASE WHEN month='ALL' THEN 1 END) = 1 THEN 'ALL'
+                ELSE 'ALL'
+            END AS budget_month
+        FROM budgets
+        GROUP BY category
+        """,
+        (target_month, target_month, target_month),
     ) as cur:
-        budget_map = {r["category"]: r["limit_cents"] for r in await cur.fetchall()}
-    all_cats = set(actuals) | set(budget_map)
+        budget_rows = {r["category"]: (r["limit_cents"], r["budget_month"]) for r in await cur.fetchall()}
+    all_cats = set(actuals) | set(budget_rows)
     result: list[BudgetStatusRow] = []
     for cat in sorted(all_cats):
-        limit  = budget_map.get(cat, 0)
+        limit, bmonth = budget_rows.get(cat, (0, 'ALL'))
         actual = actuals.get(cat, 0)
         pct    = round(actual / limit * 100.0, 2) if limit > 0 else 0.0
-        result.append(BudgetStatusRow(category=cat, limit_cents=limit, actual_cents=actual, pct_used=pct))
+        result.append(BudgetStatusRow(category=cat, limit_cents=limit, actual_cents=actual, pct_used=pct, budget_month=bmonth))
     return result
 
 
@@ -1149,6 +1189,7 @@ async def create_settlement(payload: SettlementCreate, db: DbDep) -> SettlementR
 # ---------------------------------------------------------------------------
 # Raw SQL query console
 # ---------------------------------------------------------------------------
+
 
 class QueryRequest(BaseModel):
     sql: str

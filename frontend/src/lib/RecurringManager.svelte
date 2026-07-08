@@ -10,6 +10,10 @@
   let saving = false;
   let error = '';
 
+  // Per-row delete confirmation state
+  let confirmDeleteId = null;
+  let deletingId = null;
+
   async function handleSubmit() {
     error = '';
     const cost_cents = Math.round(parseFloat(form.cost_euros) * 100);
@@ -34,12 +38,24 @@
     }
   }
 
-  async function handleDelete(id) {
+  function requestDelete(id) {
+    confirmDeleteId = id;
+  }
+
+  function cancelDelete() {
+    confirmDeleteId = null;
+  }
+
+  async function confirmDelete(id) {
     error = '';
+    deletingId = id;
     try {
       await deleteRecurring(id);
+      confirmDeleteId = null;
     } catch (e) {
       error = e.message;
+    } finally {
+      deletingId = null;
     }
   }
 
@@ -50,44 +66,69 @@
   }
 </script>
 
-<div class="recurring-manager">
-  <h2 class="section-title">Recurring Expenses</h2>
-  <p class="section-sub">Templates are automatically inserted as expenses each month on their scheduled day.</p>
+<div>
+  <h2 class="text-base font-semibold text-neutral-200 mb-1">Recurring Expenses</h2>
+  <p class="text-xs text-neutral-500 mb-5">Templates are automatically inserted as expenses each month on their scheduled day.</p>
 
   <!-- ── Existing templates ─────────────────────────────── -->
   {#if $recurringExpenses.length === 0}
-    <div class="empty-state">No recurring expenses configured yet.</div>
+    <div class="text-center text-neutral-600 text-sm py-8 border border-dashed border-neutral-800 rounded-xl mb-5">
+      No recurring expenses configured yet.
+    </div>
   {:else}
-    <div class="table-wrap">
-      <table class="rec-table">
+    <div class="overflow-x-auto rounded-xl border border-neutral-800 mb-5">
+      <table class="w-full text-sm border-collapse">
         <thead>
-          <tr>
-            <th>Name</th>
-            <th>Amount</th>
-            <th>Paid by</th>
-            <th>Category</th>
-            <th>Day</th>
-            <th></th>
+          <tr class="bg-neutral-950/60">
+            <th class="text-left text-xs font-semibold text-neutral-500 uppercase tracking-wider px-4 py-2.5">Name</th>
+            <th class="text-left text-xs font-semibold text-neutral-500 uppercase tracking-wider px-4 py-2.5">Amount</th>
+            <th class="text-left text-xs font-semibold text-neutral-500 uppercase tracking-wider px-4 py-2.5">Paid by</th>
+            <th class="text-left text-xs font-semibold text-neutral-500 uppercase tracking-wider px-4 py-2.5">Category</th>
+            <th class="text-left text-xs font-semibold text-neutral-500 uppercase tracking-wider px-4 py-2.5">Day</th>
+            <th class="px-4 py-2.5"></th>
           </tr>
         </thead>
         <tbody>
           {#each $recurringExpenses as rec (rec.id)}
-            <tr>
-              <td class="name-cell">{rec.name}</td>
-              <td class="amount-cell">{$currencySymbol}{(rec.cost_cents / 100).toFixed(2)}</td>
-              <td>
-                <span class="payer-badge" style="background-color:{($users.find(u=>u.name===rec.who_paid)?.color ?? '#6366f1') + '33'}; color:{$users.find(u=>u.name===rec.who_paid)?.color ?? '#a5b4fc'}">
-                  {rec.who_paid}
-                </span>
+            {@const payerColor = ($users.find(u => u.name === rec.who_paid)?.color ?? '#6366f1')}
+            <tr class="border-t border-neutral-800/70 hover:bg-neutral-800/30 transition-colors group">
+              <td class="px-4 py-3 font-medium text-neutral-100">{rec.name}</td>
+              <td class="px-4 py-3 font-semibold tabular-nums text-sky-400">{$currencySymbol}{(rec.cost_cents / 100).toFixed(2)}</td>
+              <td class="px-4 py-3">
+                <span
+                  class="inline-block px-2 py-0.5 rounded-full text-xs font-semibold"
+                  style="background-color:{payerColor}22; color:{payerColor}"
+                >{rec.who_paid}</span>
               </td>
-              <td class="cat-cell">{rec.category}</td>
-              <td class="day-cell">{ordinal(rec.day_of_month)}</td>
-              <td>
-                <button class="btn-delete" on:click={() => handleDelete(rec.id)} title="Remove">
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
-                    <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
-                  </svg>
-                </button>
+              <td class="px-4 py-3 text-xs text-neutral-400">{rec.category}</td>
+              <td class="px-4 py-3 text-neutral-400 text-xs">{ordinal(rec.day_of_month)}</td>
+              <td class="px-4 py-3 text-right whitespace-nowrap">
+                {#if confirmDeleteId === rec.id}
+                  <span class="inline-flex items-center gap-1.5">
+                    <span class="text-xs text-neutral-400">Remove?</span>
+                    <button
+                      on:click={() => confirmDelete(rec.id)}
+                      disabled={deletingId === rec.id}
+                      class="px-2 py-0.5 rounded text-xs font-semibold bg-red-600 hover:bg-red-500
+                             disabled:opacity-40 transition-colors"
+                    >{deletingId === rec.id ? '…' : 'Yes'}</button>
+                    <button
+                      on:click={cancelDelete}
+                      class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-700 hover:bg-neutral-600 transition-colors"
+                    >No</button>
+                  </span>
+                {:else}
+                  <button
+                    on:click={() => requestDelete(rec.id)}
+                    title="Remove"
+                    class="opacity-0 group-hover:opacity-100 p-1 rounded-lg text-neutral-500
+                           hover:text-red-400 hover:bg-red-950/40 transition-all duration-150"
+                  >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                      <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
+                    </svg>
+                  </button>
+                {/if}
               </td>
             </tr>
           {/each}
@@ -97,189 +138,80 @@
   {/if}
 
   <!-- ── Add new template ───────────────────────────────── -->
-  <div class="add-card">
-    <h3 class="add-title">Add Recurring Expense</h3>
+  <div class="bg-neutral-950/60 border border-neutral-800 rounded-xl p-5">
+    <h3 class="text-sm font-semibold text-neutral-200 mb-4">Add Recurring Expense</h3>
     {#if error}
-      <div class="error-banner">{error}</div>
+      <div class="bg-red-950/40 border border-red-900/60 text-red-400 rounded-lg px-3 py-2 text-xs mb-4">{error}</div>
     {/if}
-    <form class="rec-form" on:submit|preventDefault={handleSubmit}>
-      <div class="field-row">
-        <div class="field">
-          <label for="rec-name">Name</label>
-          <input id="rec-name" type="text" bind:value={form.name} placeholder="e.g. Spotify" maxlength="96" />
+    <form class="flex flex-col gap-4" on:submit|preventDefault={handleSubmit}>
+      <div class="flex flex-wrap gap-3">
+        <div class="flex flex-col gap-1 flex-1 min-w-[140px]">
+          <label for="rec-name" class="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Name</label>
+          <input
+            id="rec-name" type="text" bind:value={form.name}
+            placeholder="e.g. Spotify" maxlength="96"
+            class="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100
+                   placeholder-neutral-600 focus:outline-none focus:border-indigo-500 focus:ring-1
+                   focus:ring-indigo-500 transition-colors"
+          />
         </div>
-        <div class="field field--sm">
-          <label for="rec-amount">Amount ({$currencySymbol})</label>
-          <input id="rec-amount" type="number" min="0.01" step="0.01" bind:value={form.cost_euros} placeholder="0.00" />
+        <div class="flex flex-col gap-1 min-w-[120px] max-w-[140px]">
+          <label for="rec-amount" class="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Amount ({$currencySymbol})</label>
+          <input
+            id="rec-amount" type="number" min="0.01" step="0.01"
+            bind:value={form.cost_euros} placeholder="0.00"
+            class="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100
+                   placeholder-neutral-600 focus:outline-none focus:border-indigo-500 focus:ring-1
+                   focus:ring-indigo-500 transition-colors"
+          />
         </div>
       </div>
-      <div class="field-row">
-        <div class="field">
-          <label for="rec-payer">Paid by</label>
-          <select id="rec-payer" bind:value={form.who_paid}>
+      <div class="flex flex-wrap gap-3">
+        <div class="flex flex-col gap-1 flex-1 min-w-[130px]">
+          <label for="rec-payer" class="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Paid by</label>
+          <select
+            id="rec-payer" bind:value={form.who_paid}
+            class="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100
+                   focus:outline-none focus:border-indigo-500 transition-colors"
+          >
             {#each activeUsers as u (u.name)}
               <option value={u.name}>{u.name}</option>
             {/each}
           </select>
         </div>
-        <div class="field">
-          <label for="rec-cat">Category</label>
-          <select id="rec-cat" bind:value={form.category}>
+        <div class="flex flex-col gap-1 flex-1 min-w-[130px]">
+          <label for="rec-cat" class="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Category</label>
+          <select
+            id="rec-cat" bind:value={form.category}
+            class="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100
+                   focus:outline-none focus:border-indigo-500 transition-colors"
+          >
             <option value="">— select —</option>
             {#each $splits as s}
               <option value={s.category}>{s.category}</option>
             {/each}
           </select>
         </div>
-        <div class="field field--xs">
-          <label for="rec-day">Day of month</label>
-          <input id="rec-day" type="number" min="1" max="31" bind:value={form.day_of_month} />
+        <div class="flex flex-col gap-1 max-w-[90px]">
+          <label for="rec-day" class="text-[11px] font-semibold text-neutral-500 uppercase tracking-wider">Day</label>
+          <input
+            id="rec-day" type="number" min="1" max="31"
+            bind:value={form.day_of_month}
+            class="bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100
+                   focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+          />
         </div>
       </div>
-      <button class="btn-save" type="submit" disabled={saving}>
+      <button
+        type="submit" disabled={saving}
+        class="self-start bg-gradient-to-r from-indigo-600 to-violet-600
+               hover:from-indigo-500 hover:to-violet-500
+               text-white text-sm font-semibold rounded-lg px-5 py-2
+               disabled:opacity-50 disabled:cursor-not-allowed
+               transition-all duration-150 shadow-md shadow-indigo-900/30 active:scale-[0.98]"
+      >
         {saving ? 'Saving…' : '+ Add Recurring'}
       </button>
     </form>
   </div>
 </div>
-
-<style>
-  .recurring-manager {
-    max-width: 860px;
-    margin: 0 auto;
-    padding: 0 0 2rem;
-  }
-  .section-title {
-    font-size: 1.4rem;
-    font-weight: 700;
-    color: #e2e8f0;
-    margin-bottom: 0.25rem;
-  }
-  .section-sub {
-    font-size: 0.82rem;
-    color: #64748b;
-    margin-bottom: 1.5rem;
-  }
-  .empty-state {
-    text-align: center;
-    color: #475569;
-    padding: 2rem;
-    border: 1px dashed #334155;
-    border-radius: 10px;
-    margin-bottom: 1.5rem;
-  }
-  .table-wrap {
-    overflow-x: auto;
-    border-radius: 12px;
-    border: 1px solid #1e293b;
-    margin-bottom: 1.5rem;
-  }
-  .rec-table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 0.875rem;
-  }
-  .rec-table thead tr {
-    background: #0f172a;
-  }
-  .rec-table th {
-    text-align: left;
-    padding: 0.65rem 1rem;
-    color: #475569;
-    font-weight: 600;
-    font-size: 0.75rem;
-    text-transform: uppercase;
-    letter-spacing: 0.06em;
-  }
-  .rec-table tbody tr {
-    border-top: 1px solid #1e293b;
-    transition: background 0.15s;
-  }
-  .rec-table tbody tr:hover {
-    background: rgba(99,102,241,0.05);
-  }
-  .rec-table td {
-    padding: 0.65rem 1rem;
-    color: #cbd5e1;
-  }
-  .name-cell { font-weight: 500; color: #e2e8f0; }
-  .amount-cell { font-variant-numeric: tabular-nums; color: #38bdf8; font-weight: 600; }
-  .cat-cell { font-size: 0.78rem; color: #94a3b8; }
-  .day-cell { color: #94a3b8; }
-  .payer-badge {
-    display: inline-block;
-    padding: 0.15rem 0.55rem;
-    border-radius: 999px;
-    font-size: 0.72rem;
-    font-weight: 600;
-  }
-  .btn-delete {
-    background: transparent;
-    border: 1px solid #ef4444;
-    color: #ef4444;
-    border-radius: 6px;
-    padding: 0.3rem 0.4rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    opacity: 0.7;
-    transition: opacity 0.15s;
-  }
-  .btn-delete:hover { opacity: 1; }
-  .add-card {
-    background: #0f172a;
-    border: 1px solid #1e293b;
-    border-radius: 14px;
-    padding: 1.5rem;
-  }
-  .add-title {
-    font-size: 1rem;
-    font-weight: 600;
-    color: #e2e8f0;
-    margin-bottom: 1rem;
-  }
-  .error-banner {
-    background: rgba(239,68,68,0.1);
-    border: 1px solid rgba(239,68,68,0.3);
-    color: #fca5a5;
-    border-radius: 8px;
-    padding: 0.6rem 0.9rem;
-    font-size: 0.82rem;
-    margin-bottom: 1rem;
-  }
-  .rec-form { display: flex; flex-direction: column; gap: 1rem; }
-  .field-row { display: flex; gap: 0.75rem; flex-wrap: wrap; }
-  .field { display: flex; flex-direction: column; gap: 0.3rem; flex: 1; min-width: 140px; }
-  .field--sm { max-width: 140px; }
-  .field--xs { max-width: 100px; }
-  label { font-size: 0.75rem; font-weight: 600; color: #64748b; text-transform: uppercase; letter-spacing: 0.05em; }
-  input, select {
-    background: #1e293b;
-    border: 1px solid #334155;
-    border-radius: 8px;
-    color: #e2e8f0;
-    padding: 0.5rem 0.75rem;
-    font-size: 0.875rem;
-    transition: border-color 0.15s;
-    font-family: inherit;
-  }
-  input:focus, select:focus {
-    outline: none;
-    border-color: #6366f1;
-    box-shadow: 0 0 0 3px rgba(99,102,241,0.15);
-  }
-  .btn-save {
-    align-self: flex-start;
-    background: linear-gradient(135deg, #6366f1, #8b5cf6);
-    color: #fff;
-    border: none;
-    border-radius: 9px;
-    padding: 0.6rem 1.4rem;
-    font-size: 0.875rem;
-    font-weight: 600;
-    cursor: pointer;
-    transition: opacity 0.15s, transform 0.1s;
-  }
-  .btn-save:hover:not(:disabled) { opacity: 0.9; transform: translateY(-1px); }
-  .btn-save:disabled { opacity: 0.5; cursor: not-allowed; }
-</style>

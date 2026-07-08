@@ -74,12 +74,18 @@
 </script>
 
 {#if filtered.length === 0}
-  <div class="flex flex-col items-center justify-center py-16 text-center">
-    <div class="w-12 h-12 rounded-2xl bg-neutral-800 flex items-center justify-center text-2xl mb-4">
-      ₂
+  <div class="flex flex-col items-center justify-center py-16 text-center gap-3">
+    <div class="w-14 h-14 rounded-2xl bg-neutral-800/80 flex items-center justify-center mb-1">
+      <!-- Receipt icon -->
+      <svg class="w-7 h-7 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+        <path stroke-linecap="round" stroke-linejoin="round"
+          d="M9 14l2 2 4-4M7.5 3.75A1.5 1.5 0 006 5.25v13.5A1.5 1.5 0 007.5 20.25h9A1.5 1.5 0 0018 18.75V5.25A1.5 1.5 0 0016.5 3.75H7.5z" />
+      </svg>
     </div>
-    <p class="text-neutral-400 text-sm">No expenses for this month.</p>
-    <p class="text-neutral-600 text-xs mt-1">Use the form on the left to add your first entry.</p>
+    <p class="text-neutral-400 text-sm font-medium">No expenses for this month.</p>
+    <p class="text-neutral-600 text-xs max-w-xs">
+      Expenses you log will appear here. Use the form on the left to add your first entry.
+    </p>
   </div>
 
 {:else}

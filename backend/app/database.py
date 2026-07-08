@@ -49,12 +49,23 @@ async def init_db() -> None:
         await conn.execute("PRAGMA foreign_keys=ON;")
         conn.row_factory = aiosqlite.Row
 
+        # ── app_config ─────────────────────────────────────────────────────────
+        # Key-value store for app-wide settings.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS app_config (
+                key   TEXT PRIMARY KEY,
+                value TEXT NOT NULL
+            )
+            """
+        )
+
         # ── users ──────────────────────────────────────────────────────────
         # Household members.  Manage via the Settings tab in the UI.
         await conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
-                name       TEXT    PRIMARY KEY CHECK(length(name) <= 64),
+                name       TEXT    PRIMARY KEY CHECK(length(name) <= 256),
                 color      TEXT    NOT NULL DEFAULT '#6366f1',
                 is_active  INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
                 created_at TEXT    NOT NULL DEFAULT (datetime('now'))
@@ -66,7 +77,7 @@ async def init_db() -> None:
         # Category registry.  Each category's per-user percentages live in
         # split_allocations, not here.
         await conn.execute(
-            "CREATE TABLE IF NOT EXISTS splits (category TEXT PRIMARY KEY CHECK(length(category) <= 32))"
+            "CREATE TABLE IF NOT EXISTS splits (category TEXT PRIMARY KEY CHECK(length(category) <= 256))"
         )
 
         # ── projects ───────────────────────────────────────────────────────
@@ -74,7 +85,7 @@ async def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS projects (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT    NOT NULL UNIQUE CHECK(length(name) <= 96),
+                name         TEXT    NOT NULL UNIQUE CHECK(length(name) <= 256),
                 target_cents INTEGER NOT NULL CHECK(target_cents > 0),
                 target_date  TEXT    NOT NULL
                                      CHECK(target_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
@@ -87,7 +98,7 @@ async def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS expenses (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT    NOT NULL CHECK(length(name) <= 96),
+                name         TEXT    NOT NULL CHECK(length(name) <= 256),
                 cost_cents   INTEGER NOT NULL CHECK(cost_cents > 0),
                 expense_date TEXT    NOT NULL
                                      CHECK(expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
@@ -119,10 +130,10 @@ async def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS income (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT    NOT NULL CHECK(length(name) <= 96),
+                name         TEXT    NOT NULL CHECK(length(name) <= 256),
                 amount_cents INTEGER NOT NULL CHECK(amount_cents > 0),
                 who          TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE,
-                category     TEXT    NOT NULL CHECK(length(category) <= 32),
+                category     TEXT    NOT NULL CHECK(length(category) <= 256),
                 income_date  TEXT    NOT NULL
                                      CHECK(income_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]')
             )
@@ -138,7 +149,7 @@ async def init_db() -> None:
             """
             CREATE TABLE IF NOT EXISTS recurring_expenses (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
-                name         TEXT    NOT NULL CHECK(length(name) <= 96),
+                name         TEXT    NOT NULL CHECK(length(name) <= 256),
                 cost_cents   INTEGER NOT NULL CHECK(cost_cents > 0),
                 who_paid     TEXT    NOT NULL REFERENCES users(name)      ON UPDATE CASCADE,
                 category     TEXT    NOT NULL REFERENCES splits(category) ON UPDATE CASCADE,

@@ -1,15 +1,31 @@
 /**
  * api.js — All HTTP interactions with the FastAPI backend.
  * Functions update the shared Svelte stores after every successful fetch.
+ * Integrates client-side encryption/decryption transparently.
  */
 
+import { get } from 'svelte/store';
+import { cryptoKey } from './stores.js';
+import { encryptText, decryptText } from './crypto.js';
 import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users } from './stores.js';
 
 const BASE = `http://${window.location.hostname}:8000`;
 
 // ---------------------------------------------------------------------------
-// Internal helpers
+// Encryption / Decryption Helpers
 // ---------------------------------------------------------------------------
+
+async function enc(txt) {
+  const key = get(cryptoKey);
+  if (!key) return txt;
+  return encryptText(txt, key);
+}
+
+async function dec(txt) {
+  const key = get(cryptoKey);
+  if (!key) return txt;
+  return decryptText(txt, key);
+}
 
 async function request(path, options = {}) {
   const res = await fetch(`${BASE}${path}`, options);
@@ -24,53 +40,63 @@ async function request(path, options = {}) {
 // Users
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch household users and update the users store.
- * Pass includeDeactivated=true to load inactive users as well (used by QueryConsole).
- * @param {boolean} [includeDeactivated=false]
- */
 export async function fetchUsers(includeDeactivated = false) {
   const qs = includeDeactivated ? '?include_deactivated=true' : '';
   const data = await request(`/users${qs}`);
-  users.set(data);
-  return data;
+  
+  // Decrypt users
+  const decrypted = await Promise.all(
+    data.map(async (u) => ({
+      ...u,
+      name: await dec(u.name)
+    }))
+  );
+  
+  users.set(decrypted);
+  return decrypted;
 }
 
-/**
- * Create a new household user.
- * @param {{ name: string, color: string, is_active?: boolean }} payload
- */
 export async function createUser(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name)
+  };
+  
   const data = await request('/users', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  users.update((prev) => [...prev, data]);
-  return data;
+  
+  const decrypted = {
+    ...data,
+    name: await dec(data.name)
+  };
+  
+  users.update((prev) => [...prev, decrypted]);
+  return decrypted;
 }
 
-/**
- * Update a user's color or active flag.
- * @param {string} name
- * @param {{ color?: string, is_active?: boolean }} payload
- */
 export async function updateUser(name, payload) {
-  const data = await request(`/users/${encodeURIComponent(name)}`, {
+  const encName = await enc(name);
+  const data = await request(`/users/${encodeURIComponent(encName)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(payload), // payload only color/is_active, no encryption needed
   });
-  users.update((prev) => prev.map((u) => (u.name === name ? data : u)));
-  return data;
+  
+  const decrypted = {
+    ...data,
+    name: await dec(data.name)
+  };
+  
+  users.update((prev) => prev.map((u) => (u.name === name ? decrypted : u)));
+  return decrypted;
 }
 
-/**
- * Hard-delete a user (only succeeds if they have no expense/income history).
- * @param {string} name
- */
 export async function deleteUser(name) {
-  const res = await fetch(`${BASE}/users/${encodeURIComponent(name)}`, { method: 'DELETE' });
+  const encName = await enc(name);
+  const res = await fetch(`${BASE}/users/${encodeURIComponent(encName)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /users/${name} → ${res.status}: ${body}`);
@@ -82,116 +108,168 @@ export async function deleteUser(name) {
 // Expenses
 // ---------------------------------------------------------------------------
 
-/** Fetch all expenses and push to the expenses store. */
-export async function fetchExpenses() {
-  const data = await request('/expenses');
-  expenses.set(data);
-  return data;
+async function decryptExpense(e) {
+  return {
+    ...e,
+    name: await dec(e.name),
+    category: await dec(e.category),
+    who_paid: await dec(e.who_paid),
+    overrides: e.overrides
+      ? await Promise.all(
+          e.overrides.map(async (o) => ({
+            ...o,
+            user_name: await dec(o.user_name)
+          }))
+        )
+      : []
+  };
 }
 
-/**
- * Create a new expense, update the store, then refresh analytics for the
- * current selected month so cards and charts update immediately.
- * @param {{ name: string, cost_cents: number, expense_date: string, who_paid: string, category: string }} payload
- * @param {string} month  YYYY-MM used to refresh analytics after creation
- */
+export async function fetchExpenses() {
+  const data = await request('/expenses');
+  const decrypted = await Promise.all(data.map(decryptExpense));
+  expenses.set(decrypted);
+  return decrypted;
+}
+
 export async function createExpense(payload, month) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    category: await enc(payload.category),
+    who_paid: await enc(payload.who_paid),
+    overrides: payload.overrides
+      ? await Promise.all(
+          payload.overrides.map(async (o) => ({
+            ...o,
+            user_name: await enc(o.user_name)
+          }))
+        )
+      : []
+  };
+
   const data = await request('/expenses', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  // Prepend to store so the list stays newest-first
-  expenses.update((prev) => [data, ...prev]);
-  // Refresh analytics so the dashboard reflects the new expense
+  
+  const decrypted = await decryptExpense(data);
+  expenses.update((prev) => [decrypted, ...prev]);
   if (month) await fetchAnalytics(month);
-  return data;
+  return decrypted;
 }
 
-/**
- * Delete an expense by id, remove it from the local store, and refresh
- * analytics for the current month so cards update immediately.
- * @param {number} id
- * @param {string} month  YYYY-MM used to refresh analytics after deletion
- */
 export async function deleteExpense(id, month) {
   const res = await fetch(`${BASE}/expenses/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API DELETE /expenses/${id} \u2192 ${res.status}: ${body}`);
+    throw new Error(`API DELETE /expenses/${id} → ${res.status}: ${body}`);
   }
   expenses.update((prev) => prev.filter((e) => e.id !== id));
-  // Refresh analytics so the dashboard reflects the removed expense
   if (month) await fetchAnalytics(month);
 }
 
-/**
- * Update an existing expense by id.
- * @param {number} id
- * @param {object} payload  Partial ExpenseUpdate fields
- * @param {string} [month]  YYYY-MM to refresh analytics after update
- */
 export async function updateExpense(id, payload, month) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+  if (payload.category !== undefined) encryptedPayload.category = await enc(payload.category);
+  if (payload.who_paid !== undefined) encryptedPayload.who_paid = await enc(payload.who_paid);
+  if (payload.overrides !== undefined) {
+    encryptedPayload.overrides = await Promise.all(
+      payload.overrides.map(async (o) => ({
+        ...o,
+        user_name: await enc(o.user_name)
+      }))
+    );
+  }
+
   const data = await request(`/expenses/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  expenses.update((prev) => prev.map((e) => (e.id === id ? data : e)));
+  
+  const decrypted = await decryptExpense(data);
+  expenses.update((prev) => prev.map((e) => (e.id === id ? decrypted : e)));
   if (month) await fetchAnalytics(month);
-  return data;
+  return decrypted;
 }
 
 // ---------------------------------------------------------------------------
 // Splits
 // ---------------------------------------------------------------------------
 
-/** Fetch all split categories and push to the splits store. */
-export async function fetchSplits() {
-  const data = await request('/splits');
-  splits.set(data);
-  return data;
+async function decryptSplit(s) {
+  return {
+    ...s,
+    category: await dec(s.category),
+    allocations: s.allocations
+      ? await Promise.all(
+          s.allocations.map(async (a) => ({
+            ...a,
+            user_name: await dec(a.user_name)
+          }))
+        )
+      : []
+  };
 }
 
-/**
- * Create a new split category with allocations.
- * @param {{ category: string, allocations: Array<{user_name:string, pct:number}> }} payload
- */
+export async function fetchSplits() {
+  const data = await request('/splits');
+  const decrypted = await Promise.all(data.map(decryptSplit));
+  splits.set(decrypted);
+  return decrypted;
+}
+
 export async function createSplit(payload) {
+  const encryptedPayload = {
+    category: await enc(payload.category),
+    allocations: await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    )
+  };
+
   const data = await request('/splits', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  splits.update((prev) => [...prev, data]);
-  return data;
+  
+  const decrypted = await decryptSplit(data);
+  splits.update((prev) => [...prev, decrypted]);
+  return decrypted;
 }
 
-/**
- * Replace split allocations for an existing category.
- * @param {string} category
- * @param {{ allocations: Array<{user_name:string, pct:number}> }} payload
- */
 export async function updateSplit(category, payload) {
-  const data = await request(`/splits/${encodeURIComponent(category)}`, {
+  const encCategory = await enc(category);
+  const encryptedPayload = {
+    allocations: await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    )
+  };
+
+  const data = await request(`/splits/${encodeURIComponent(encCategory)}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  splits.update((prev) => prev.map((s) => (s.category === category ? data : s)));
-  return data;
+  
+  const decrypted = await decryptSplit(data);
+  splits.update((prev) => prev.map((s) => (s.category === category ? decrypted : s)));
+  return decrypted;
 }
-
 
 // ---------------------------------------------------------------------------
 // Analytics
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch all three analytics views for the given month and merge into the
- * analytics store.  Pass `month` as YYYY-MM; omit for the current month.
- * @param {string} [month]
- */
 export async function fetchAnalytics(month) {
   const qs = month ? `?month=${encodeURIComponent(month)}` : '';
   const [monthly_total, by_category, by_payer] = await Promise.all([
@@ -199,57 +277,106 @@ export async function fetchAnalytics(month) {
     request(`/analytics/by-category${qs}`),
     request(`/analytics/by-payer${qs}`),
   ]);
-  analytics.set({ monthly_total, by_category, by_payer });
-  return { monthly_total, by_category, by_payer };
+
+  const decryptedByCategory = await Promise.all(
+    by_category.map(async (c) => ({
+      ...c,
+      category: await dec(c.category)
+    }))
+  );
+
+  const decryptedByPayer = await Promise.all(
+    by_payer.map(async (p) => ({
+      ...p,
+      who_paid: await dec(p.who_paid)
+    }))
+  );
+
+  const finalData = {
+    monthly_total,
+    by_category: decryptedByCategory,
+    by_payer: decryptedByPayer
+  };
+
+  analytics.set(finalData);
+  return finalData;
 }
 
-/**
- * Fetch payback and settlement analytics for `month` and update the paybacks store.
- * @param {string} [month]  YYYY-MM
- */
 export async function fetchPaybacks(month) {
   const qs = month ? `?month=${encodeURIComponent(month)}` : '';
   const data = await request(`/analytics/paybacks${qs}`);
-  paybacks.set(data);
-  return data;
+  
+  const decrypted = {
+    ...data,
+    rows: data.rows
+      ? await Promise.all(
+          data.rows.map(async (r) => ({
+            ...r,
+            category: await dec(r.category)
+          }))
+        )
+      : [],
+    debts: data.debts
+      ? await Promise.all(
+          data.debts.map(async (d) => ({
+            ...d,
+            from_user: await dec(d.from_user),
+            to_user: await dec(d.to_user)
+          }))
+        )
+      : []
+  };
+
+  paybacks.set(decrypted);
+  return decrypted;
 }
 
 // ---------------------------------------------------------------------------
 // Income
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch income-by-person analytics (with salary carry-forward) for `month`.
- * Updates the incomeAnalytics store.
- * @param {string} [month]  YYYY-MM; defaults to current month on the server
- */
 export async function fetchIncomeByPerson(month) {
   const qs = month ? `?month=${encodeURIComponent(month)}` : '';
   const data = await request(`/analytics/income-by-person${qs}`);
-  incomeAnalytics.set(data);
-  return data;
+  
+  const decrypted = await Promise.all(
+    data.map(async (i) => ({
+      ...i,
+      who: await dec(i.who)
+    }))
+  );
+
+  incomeAnalytics.set(decrypted);
+  return decrypted;
 }
 
-/**
- * Fetch the latest 'Salary' income entry for each person.
- * Returns an array of { who, amount_cents, income_date, name }.
- */
 export async function fetchLatestSalaries() {
-  return request('/income/latest-salary');
+  const data = await request('/income/latest-salary');
+  return Promise.all(
+    data.map(async (s) => ({
+      ...s,
+      who: await dec(s.who),
+      name: await dec(s.name)
+    }))
+  );
 }
 
-/**
- * POST one or more income entries in a single batch call.
- * @param {Array<{ name, amount_cents, who, category, income_date }>} entries
- * @param {string} [month]  YYYY-MM to refresh income analytics after save
- */
 export async function createIncome(entries, month) {
+  const encryptedEntries = await Promise.all(
+    entries.map(async (e) => ({
+      ...e,
+      name: await enc(e.name),
+      who: await enc(e.who),
+      category: await enc(e.category)
+    }))
+  );
+
   const data = await request('/income', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(entries),
+    body: JSON.stringify(encryptedEntries),
   });
-  // Refresh income analytics so the chart updates immediately
+  
   if (month) await fetchIncomeByPerson(month);
   return data;
 }
@@ -258,46 +385,59 @@ export async function createIncome(entries, month) {
 // Projects
 // ---------------------------------------------------------------------------
 
-/** Fetch all projects with computed stats and update projects store. */
-export async function fetchProjects() {
-  const data = await request('/projects');
-  projects.set(data);
-  return data;
+async function decryptProject(p) {
+  return {
+    ...p,
+    name: await dec(p.name),
+    last_payment: p.last_payment
+      ? {
+          ...p.last_payment,
+          who_paid: await dec(p.last_payment.who_paid),
+          name: await dec(p.last_payment.name)
+        }
+      : null
+  };
 }
 
-/**
- * Create a new project.
- * @param {{ name: string, target_cents: number, target_date: string }} payload
- */
+export async function fetchProjects() {
+  const data = await request('/projects');
+  const decrypted = await Promise.all(data.map(decryptProject));
+  projects.set(decrypted);
+  return decrypted;
+}
+
 export async function createProject(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name)
+  };
+
   const data = await request('/projects', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  projects.update((prev) => [...prev, data]);
-  return data;
+  
+  const decrypted = await decryptProject(data);
+  projects.update((prev) => [...prev, decrypted]);
+  return decrypted;
 }
 
-/**
- * Update a project by id.
- * @param {number} id
- * @param {{ name?: string, target_cents?: number, target_date?: string }} payload
- */
 export async function updateProject(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+
   const data = await request(`/projects/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  projects.update((prev) => prev.map((p) => (p.id === id ? data : p)));
-  return data;
+  
+  const decrypted = await decryptProject(data);
+  projects.update((prev) => prev.map((p) => (p.id === id ? decrypted : p)));
+  return decrypted;
 }
 
-/**
- * Delete a project. Associated expenses keep their history (project_id → NULL).
- * @param {number} id
- */
 export async function deleteProject(id) {
   const res = await fetch(`${BASE}/projects/${id}`, { method: 'DELETE' });
   if (!res.ok) {
@@ -311,10 +451,9 @@ export async function deleteProject(id) {
 // Bootstrap
 // ---------------------------------------------------------------------------
 
-/** Convenience — bootstrap all store data in one call (used in App.svelte onMount). */
 export async function fetchAllData(month) {
   await Promise.all([
-    fetchUsers(true),  // load all users (active + inactive) — UI filters as needed
+    fetchUsers(true),
     fetchExpenses(),
     fetchSplits(),
     fetchAnalytics(month),
@@ -331,36 +470,46 @@ export async function fetchAllData(month) {
 // Recurring expenses
 // ---------------------------------------------------------------------------
 
-/** Fetch all recurring expense templates and update the store. */
-export async function fetchRecurring() {
-  const data = await request('/recurring');
-  recurringExpenses.set(data);
-  return data;
+async function decryptRecurring(r) {
+  return {
+    ...r,
+    name: await dec(r.name),
+    who_paid: await dec(r.who_paid),
+    category: await dec(r.category)
+  };
 }
 
-/**
- * Create a recurring expense template.
- * @param {{ name, cost_cents, who_paid, category, day_of_month }} payload
- */
+export async function fetchRecurring() {
+  const data = await request('/recurring');
+  const decrypted = await Promise.all(data.map(decryptRecurring));
+  recurringExpenses.set(decrypted);
+  return decrypted;
+}
+
 export async function createRecurring(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    who_paid: await enc(payload.who_paid),
+    category: await enc(payload.category)
+  };
+
   const data = await request('/recurring', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
-  recurringExpenses.update((prev) => [...prev, data]);
-  return data;
+  
+  const decrypted = await decryptRecurring(data);
+  recurringExpenses.update((prev) => [...prev, decrypted]);
+  return decrypted;
 }
 
-/**
- * Delete a recurring expense template by id.
- * @param {number} id
- */
 export async function deleteRecurring(id) {
   const res = await fetch(`${BASE}/recurring/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API DELETE /recurring/${id} \u2192 ${res.status}: ${body}`);
+    throw new Error(`API DELETE /recurring/${id} → ${res.status}: ${body}`);
   }
   recurringExpenses.update((prev) => prev.filter((r) => r.id !== id));
 }
@@ -369,69 +518,71 @@ export async function deleteRecurring(id) {
 // Budgets
 // ---------------------------------------------------------------------------
 
-/** Fetch all raw budget config rows and update the store. */
-export async function fetchBudgets() {
-  const data = await request('/budgets');
-  budgets.set(data);
-  return data;
+async function decryptBudget(b) {
+  return {
+    ...b,
+    category: await dec(b.category)
+  };
 }
 
-/**
- * Upsert a budget limit.
- * @param {{ category, month, limit_cents }} payload
- */
+export async function fetchBudgets() {
+  const data = await request('/budgets');
+  const decrypted = await Promise.all(data.map(decryptBudget));
+  budgets.set(decrypted);
+  return decrypted;
+}
+
 export async function upsertBudget(payload) {
+  const encryptedPayload = {
+    ...payload,
+    category: await enc(payload.category)
+  };
+
   const data = await request('/budgets', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify(encryptedPayload),
   });
+  
+  const decrypted = await decryptBudget(data);
   budgets.update((prev) => {
-    const idx = prev.findIndex((b) => b.category === data.category && b.month === data.month);
-    return idx >= 0 ? prev.map((b, i) => (i === idx ? data : b)) : [...prev, data];
+    const idx = prev.findIndex((b) => b.category === decrypted.category && b.month === decrypted.month);
+    return idx >= 0 ? prev.map((b, i) => (i === idx ? decrypted : b)) : [...prev, decrypted];
   });
-  return data;
+  return decrypted;
 }
 
-/**
- * Delete a budget row.
- * @param {string} category
- * @param {string} month  YYYY-MM or 'ALL'
- */
 export async function deleteBudget(category, month) {
-  const res = await fetch(`${BASE}/budgets/${encodeURIComponent(category)}/${encodeURIComponent(month)}`, { method: 'DELETE' });
+  const encCategory = await enc(category);
+  const res = await fetch(`${BASE}/budgets/${encodeURIComponent(encCategory)}/${encodeURIComponent(month)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API DELETE /budgets \u2192 ${res.status}: ${body}`);
+    throw new Error(`API DELETE /budgets → ${res.status}: ${body}`);
   }
   budgets.update((prev) => prev.filter((b) => !(b.category === category && b.month === month)));
 }
 
-/**
- * Fetch budget status (actuals vs. limits) for a month.
- * Returns BudgetStatusRow[]: { category, limit_cents, actual_cents, pct_used }
- * @param {string} [month]  YYYY-MM
- */
 export async function fetchBudgetAnalytics(month) {
   const qs = month ? `?month=${encodeURIComponent(month)}` : '';
-  return request(`/analytics/budgets${qs}`);
+  const data = await request(`/analytics/budgets${qs}`);
+  return Promise.all(
+    data.map(async (r) => ({
+      ...r,
+      category: await dec(r.category)
+    }))
+  );
 }
 
 // ---------------------------------------------------------------------------
 // Settlements
 // ---------------------------------------------------------------------------
 
-/** Fetch all locked months and update the settlements store. */
 export async function fetchSettlements() {
   const data = await request('/settlements');
   settlements.set(data);
   return data;
 }
 
-/**
- * Lock a month.
- * @param {{ month: string, net_balance_transferred_cents: number }} payload
- */
 export async function createSettlement(payload) {
   const data = await request('/settlements', {
     method: 'POST',

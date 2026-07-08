@@ -7,7 +7,7 @@
    * and a category-level breakdown table showing per-user paid amounts and net balances.
    */
 
-  import { paybacks, settlements, selectedMonth, users } from './stores.js';
+  import { paybacks, settlements, selectedMonth, users, currencySymbol } from './stores.js';
   import { createSettlement, fetchSettlements } from './api.js';
 
   let settling = false;
@@ -28,7 +28,7 @@
   }
 
   function fmt(n) {
-    return `€${Number(n).toFixed(2)}`;
+    return `${$currencySymbol}${Number(n).toFixed(2)}`;
   }
 
   /** Total net transfer amount across all debt items. */
@@ -146,8 +146,17 @@
     </div>
 
     {#if $paybacks.rows.length === 0}
-      <div class="flex flex-col items-center justify-center py-10 text-center">
-        <p class="text-neutral-500 text-sm">No transactions logged for this month.</p>
+      <div class="flex flex-col items-center justify-center py-10 text-center gap-2">
+        <div class="w-12 h-12 rounded-2xl bg-neutral-800/80 flex items-center justify-center mb-1">
+          <svg class="w-6 h-6 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+              d="M12 3v2.25m6.364.386l-1.591 1.591M21 12h-2.25m-.386 6.364l-1.591-1.591M12 18.75V21m-4.773-4.227l-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0z" />
+          </svg>
+        </div>
+        <p class="text-neutral-400 text-sm font-medium">No transactions yet.</p>
+        <p class="text-neutral-600 text-xs max-w-xs">
+          Log expenses on the Expenses tab — per-category adjustments will appear here once there's spending to compare.
+        </p>
       </div>
     {:else}
       <div class="space-y-6">

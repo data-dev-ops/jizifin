@@ -52,8 +52,10 @@
   let projectId    = null;     // optional: link expense to a project
 
   let submitting   = false;
+  let submitSuccess = false; // brief checkmark state on the button
   let errorMsg     = null;
   let successName  = null;
+  let successTimer = null;
 
   function reset() {
     name        = '';
@@ -65,6 +67,11 @@
     errorMsg    = null;
     customSplit = false;
     overridePcts = {};
+  }
+
+  function dismissSuccess() {
+    if (successTimer) clearTimeout(successTimer);
+    successName = null;
   }
 
   // ── Submit ────────────────────────────────────────────────────────────────
@@ -139,7 +146,13 @@
       }
       await createExpense(payload, $selectedMonth);
       successName = name.trim();
+      submitSuccess = true;
       reset();
+      // Auto-dismiss success banner after 3 s
+      if (successTimer) clearTimeout(successTimer);
+      successTimer = setTimeout(() => { successName = null; }, 3000);
+      // Reset button checkmark after 800 ms
+      setTimeout(() => { submitSuccess = false; }, 800);
     } catch (err) {
       errorMsg = err.message ?? 'An unexpected error occurred.';
     } finally {
@@ -344,13 +357,19 @@
 
   <!-- Feedback -->
   {#if errorMsg}
-    <p class="text-red-400 text-xs bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">
+    <p class="text-red-400 text-xs bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 animate-flash-in">
       {errorMsg}
     </p>
   {/if}
   {#if successName}
-    <p class="text-emerald-400 text-xs bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2">
-      ✓ "{successName}" logged successfully.
+    <!-- svelte-ignore a11y-click-events-have-key-events -->
+    <!-- svelte-ignore a11y-no-static-element-interactions -->
+    <p class="text-emerald-400 text-xs bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2
+              flex items-center justify-between gap-2 animate-flash-in cursor-pointer"
+       on:click={dismissSuccess}
+       title="Click to dismiss">
+      <span>✓ &ldquo;{successName}&rdquo; logged successfully.</span>
+      <span class="text-emerald-700 hover:text-emerald-400 transition-colors text-xs leading-none" aria-hidden="true">✕</span>
     </p>
   {/if}
 
@@ -366,6 +385,25 @@
            transition-all duration-150 shadow-md shadow-indigo-900/30
            active:scale-[0.98]"
   >
-    {submitting ? 'Saving…' : 'Log Expense'}
+    {#if submitting}
+      Saving…
+    {:else if submitSuccess}
+      <span class="flex items-center justify-center gap-1.5">
+        <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"/></svg>
+        Logged!
+      </span>
+    {:else}
+      Log Expense
+    {/if}
   </button>
 </form>
+
+<style>
+  @keyframes flash-in {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .animate-flash-in {
+    animation: flash-in 0.25s ease-out both;
+  }
+</style>

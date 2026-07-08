@@ -116,3 +116,7 @@ export const defaultCategory = persistedString('defaultCategory', '');
 export const showQueryTab = persistedBoolean('showQueryTab', true);
 export const currencySymbol = persistedString('currencySymbol', '€');
 
+export const authSalt = writable('');
+export const cryptoKey = writable(null);
+
+
