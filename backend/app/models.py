@@ -110,6 +110,67 @@ class ProjectResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+class TagCreate(BaseModel):
+    """Payload to create a new open-ended expense tag (vacation, repair, etc.)."""
+    name:        Annotated[str, Field(min_length=1, max_length=256)]
+    color:       str = Field(default="#f59e0b", description="CSS hex colour for chart rendering")
+    description: Optional[Annotated[str, Field(max_length=512)]] = None
+
+
+class TagUpdate(BaseModel):
+    """Partial update — all fields optional."""
+    name:        Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    color:       Optional[str]  = None
+    description: Optional[Annotated[str, Field(max_length=512)]] = None
+
+
+class TagResponse(BaseModel):
+    id:          int
+    name:        str
+    color:       str
+    description: Optional[str] = None
+    created_at:  str
+
+    model_config = {"from_attributes": True}
+
+
+class TagTotalRow(BaseModel):
+    """One row from view_tag_totals: all-time aggregate for a single tag."""
+    id:            int
+    name:          str
+    color:         str
+    description:   Optional[str] = None
+    total_amount:  float
+    expense_count: int
+    first_date:    Optional[str] = None
+    last_date:     Optional[str] = None
+
+
+class TagMonthRow(BaseModel):
+    """Spending total for one tag in one calendar month."""
+    month:        str
+    total_amount: float
+    expense_count: int
+
+
+class TagCategoryRow(BaseModel):
+    """Spending total for one tag broken down by expense category."""
+    category:      str
+    total_amount:  float
+    expense_count: int
+
+
+class TagDetailResponse(BaseModel):
+    """Full cross-month detail for a single tag (drives the TagsTab charts)."""
+    tag:         TagTotalRow
+    by_month:    list[TagMonthRow]
+    by_category: list[TagCategoryRow]
+
+
+# ---------------------------------------------------------------------------
 # Splits
 # ---------------------------------------------------------------------------
 
@@ -161,6 +222,7 @@ class ExpenseCreate(BaseModel):
     who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
     category:     Annotated[str, Field(max_length=256)]
     project_id:   Optional[int] = None
+    tag_id:       Optional[int] = None
     overrides:    Optional[list[AllocationEntry]] = None
 
     @field_validator("expense_date")
@@ -185,6 +247,7 @@ class ExpenseUpdate(BaseModel):
     who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
     category:     Optional[Annotated[str, Field(max_length=256)]] = None
     project_id:   Optional[int] = None
+    tag_id:       Optional[int] = None
     overrides:    Optional[list[AllocationEntry]] = None  # None = keep existing; [] = clear all
 
     @field_validator("expense_date")
@@ -209,6 +272,7 @@ class ExpenseResponse(BaseModel):
     who_paid:     str
     category:     str
     project_id:   Optional[int] = None
+    tag_id:       Optional[int] = None
     overrides:    list[AllocationEntry] = []
 
     model_config = {"from_attributes": True}

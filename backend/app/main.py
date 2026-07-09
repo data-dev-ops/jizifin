@@ -86,6 +86,13 @@ from .models import (
     SplitCreate,
     SplitResponse,
     SplitUpdate,
+    TagCategoryRow,
+    TagCreate,
+    TagDetailResponse,
+    TagMonthRow,
+    TagResponse,
+    TagTotalRow,
+    TagUpdate,
     UserCreate,
     UserResponse,
     UserUpdate,
@@ -429,6 +436,7 @@ async def _build_expense_responses(
             who_paid=r["who_paid"],
             category=r["category"],
             project_id=r["project_id"],
+            tag_id=r["tag_id"],
             overrides=overrides_map[r["id"]],
         )
         for r in rows
@@ -548,7 +556,7 @@ async def list_expenses(
         params.append(category)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     query = f"""
-        SELECT id, name, cost_cents, expense_date, who_paid, category, project_id
+        SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id
         FROM   expenses
         {where}
         ORDER  BY expense_date DESC, id DESC
@@ -580,8 +588,8 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
             )
 
     async with db.execute(
-        "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, project_id) VALUES (?, ?, ?, ?, ?, ?)",
-        (expense.name, expense.cost_cents, expense.expense_date, expense.who_paid, expense.category, expense.project_id),
+        "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, project_id, tag_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (expense.name, expense.cost_cents, expense.expense_date, expense.who_paid, expense.category, expense.project_id, expense.tag_id),
     ) as cur:
         new_id = cur.lastrowid
 
@@ -595,7 +603,7 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
     await db.commit()
 
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id FROM expenses WHERE id = ?",
         (new_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -612,7 +620,7 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
 @app.put("/expenses/{expense_id}", response_model=ExpenseResponse, tags=["expenses"])
 async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> ExpenseResponse:
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id FROM expenses WHERE id = ?",
         (expense_id,),
     ) as cur:
         existing = await cur.fetchone()
@@ -631,10 +639,11 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
     new_who_paid     = update.who_paid     if update.who_paid     is not None else existing["who_paid"]
     new_category     = update.category     if update.category     is not None else existing["category"]
     new_project_id   = update.project_id   if update.project_id   is not None else existing["project_id"]
+    new_tag_id       = update.tag_id       if update.tag_id       is not None else existing["tag_id"]
 
     await db.execute(
-        "UPDATE expenses SET name=?, cost_cents=?, expense_date=?, who_paid=?, category=?, project_id=? WHERE id=?",
-        (new_name, new_cost_cents, new_expense_date, new_who_paid, new_category, new_project_id, expense_id),
+        "UPDATE expenses SET name=?, cost_cents=?, expense_date=?, who_paid=?, category=?, project_id=?, tag_id=? WHERE id=?",
+        (new_name, new_cost_cents, new_expense_date, new_who_paid, new_category, new_project_id, new_tag_id, expense_id),
     )
 
     # Overrides: None = keep as-is; [] = clear all; [items] = replace
@@ -649,7 +658,7 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
     await db.commit()
 
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id FROM expenses WHERE id = ?",
         (expense_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -777,6 +786,182 @@ async def delete_project(project_id: int, db: DbDep) -> None:
     await db.execute("UPDATE expenses SET project_id = NULL WHERE project_id = ?", (project_id,))
     await db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Tags
+# ---------------------------------------------------------------------------
+
+@app.get("/tags", response_model=list[TagTotalRow], tags=["tags"])
+async def list_tags(db: DbDep) -> list[TagTotalRow]:
+    """Return all tags with all-time aggregated totals from view_tag_totals."""
+    async with db.execute(
+        "SELECT id, name, color, description, total_amount, expense_count, first_date, last_date"
+        " FROM view_tag_totals ORDER BY name"
+    ) as cur:
+        rows = await cur.fetchall()
+    return [
+        TagTotalRow(
+            id=r["id"],
+            name=r["name"],
+            color=r["color"],
+            description=r["description"],
+            total_amount=r["total_amount"],
+            expense_count=r["expense_count"],
+            first_date=r["first_date"],
+            last_date=r["last_date"],
+        )
+        for r in rows
+    ]
+
+
+@app.post("/tags", response_model=TagResponse, status_code=status.HTTP_201_CREATED, tags=["tags"])
+async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
+    """Create a new expense tag."""
+    try:
+        async with db.execute(
+            "INSERT INTO tags (name, color, description) VALUES (?, ?, ?)",
+            (tag.name, tag.color, tag.description),
+        ) as cur:
+            new_id = cur.lastrowid
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Tag name '{tag.name}' already exists.",
+        ) from exc
+    await db.commit()
+    async with db.execute(
+        "SELECT id, name, color, description, created_at FROM tags WHERE id = ?", (new_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    return TagResponse(
+        id=row["id"],
+        name=row["name"],
+        color=row["color"],
+        description=row["description"],
+        created_at=row["created_at"],
+    )
+
+
+@app.put("/tags/{tag_id}", response_model=TagResponse, tags=["tags"])
+async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
+    """Rename, recolor, or update the description of a tag."""
+    async with db.execute(
+        "SELECT id, name, color, description, created_at FROM tags WHERE id = ?", (tag_id,)
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tag {tag_id} not found.")
+
+    new_name        = update.name        if update.name        is not None else existing["name"]
+    new_color       = update.color       if update.color       is not None else existing["color"]
+    new_description = update.description if update.description is not None else existing["description"]
+
+    await db.execute(
+        "UPDATE tags SET name=?, color=?, description=? WHERE id=?",
+        (new_name, new_color, new_description, tag_id),
+    )
+    await db.commit()
+    async with db.execute(
+        "SELECT id, name, color, description, created_at FROM tags WHERE id = ?", (tag_id,)
+    ) as cur:
+        row = await cur.fetchone()
+    return TagResponse(
+        id=row["id"],
+        name=row["name"],
+        color=row["color"],
+        description=row["description"],
+        created_at=row["created_at"],
+    )
+
+
+@app.delete("/tags/{tag_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["tags"])
+async def delete_tag(tag_id: int, db: DbDep) -> None:
+    """Delete a tag. Linked expenses become untagged (tag_id SET NULL) but are not deleted."""
+    async with db.execute("SELECT id FROM tags WHERE id = ?", (tag_id,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tag {tag_id} not found.")
+    # ON DELETE SET NULL handled by FK; explicit update kept for explicit clarity
+    await db.execute("UPDATE expenses SET tag_id = NULL WHERE tag_id = ?", (tag_id,))
+    await db.execute("DELETE FROM tags WHERE id = ?", (tag_id,))
+    await db.commit()
+
+
+@app.get("/analytics/tags/{tag_id}", response_model=TagDetailResponse, tags=["tags"])
+async def get_tag_detail(tag_id: int, db: DbDep) -> TagDetailResponse:
+    """
+    Full cross-month breakdown for a single tag.
+    Returns the tag summary row, spending by calendar month, and spending by category.
+    This endpoint is unconstrained by the sidebar month-picker — it aggregates all time.
+    """
+    # ── Verify tag exists and fetch aggregate summary ────────────────────────────
+    async with db.execute(
+        "SELECT id, name, color, description, total_amount, expense_count, first_date, last_date"
+        " FROM view_tag_totals WHERE id = ?",
+        (tag_id,),
+    ) as cur:
+        tag_row = await cur.fetchone()
+    if tag_row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Tag {tag_id} not found.")
+
+    tag_summary = TagTotalRow(
+        id=tag_row["id"],
+        name=tag_row["name"],
+        color=tag_row["color"],
+        description=tag_row["description"],
+        total_amount=tag_row["total_amount"],
+        expense_count=tag_row["expense_count"],
+        first_date=tag_row["first_date"],
+        last_date=tag_row["last_date"],
+    )
+
+    # ── Spending by calendar month (chronological) ────────────────────────────────
+    async with db.execute(
+        """
+        SELECT
+            strftime('%Y-%m', expense_date) AS month,
+            ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
+            COUNT(*) AS expense_count
+        FROM expenses
+        WHERE tag_id = ?
+        GROUP BY month
+        ORDER BY month
+        """,
+        (tag_id,),
+    ) as cur:
+        by_month = [
+            TagMonthRow(
+                month=r["month"],
+                total_amount=r["total_amount"],
+                expense_count=r["expense_count"],
+            )
+            async for r in cur
+        ]
+
+    # ── Spending by category ─────────────────────────────────────────────────
+    async with db.execute(
+        """
+        SELECT
+            category,
+            ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
+            COUNT(*) AS expense_count
+        FROM expenses
+        WHERE tag_id = ?
+        GROUP BY category
+        ORDER BY total_amount DESC
+        """,
+        (tag_id,),
+    ) as cur:
+        by_category = [
+            TagCategoryRow(
+                category=r["category"],
+                total_amount=r["total_amount"],
+                expense_count=r["expense_count"],
+            )
+            async for r in cur
+        ]
+
+    return TagDetailResponse(tag=tag_summary, by_month=by_month, by_category=by_category)
 
 
 # ---------------------------------------------------------------------------

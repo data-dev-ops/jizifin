@@ -7,7 +7,7 @@
 import { get } from 'svelte/store';
 import { cryptoKey } from './stores.js';
 import { encryptText, decryptText } from './crypto.js';
-import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users } from './stores.js';
+import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags } from './stores.js';
 
 const BASE = `/api`;
 
@@ -469,6 +469,82 @@ export async function deleteProject(id) {
 }
 
 // ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+async function decryptTag(t) {
+  return {
+    ...t,
+    name: await dec(t.name),
+    description: t.description ? await dec(t.description) : null,
+  };
+}
+
+export async function fetchTags() {
+  const data = await request('/tags');
+  const decrypted = await Promise.all(data.map(decryptTag));
+  tags.set(decrypted);
+  return decrypted;
+}
+
+export async function createTag(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    description: payload.description ? await enc(payload.description) : null,
+  };
+  const data = await request('/tags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  const decrypted = await decryptTag(data);
+  tags.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function updateTag(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined)        encryptedPayload.name = await enc(payload.name);
+  if (payload.description !== undefined) {
+    encryptedPayload.description = payload.description ? await enc(payload.description) : null;
+  }
+  const data = await request(`/tags/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  const decrypted = await decryptTag(data);
+  tags.update((prev) => prev.map((t) => (t.id === id ? { ...decrypted, total_amount: t.total_amount, expense_count: t.expense_count, first_date: t.first_date, last_date: t.last_date } : t)));
+  return decrypted;
+}
+
+export async function deleteTag(id) {
+  const res = await fetch(`${BASE}/tags/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /tags/${id} → ${res.status}: ${body}`);
+  }
+  tags.update((prev) => prev.filter((t) => t.id !== id));
+}
+
+export async function fetchTagAnalytics(tagId) {
+  const data = await request(`/analytics/tags/${tagId}`);
+  // Decrypt category names in by_category breakdown
+  const decryptedByCategory = await Promise.all(
+    (data.by_category ?? []).map(async (c) => ({
+      ...c,
+      category: await dec(c.category),
+    }))
+  );
+  return {
+    tag: await decryptTag(data.tag),
+    by_month: data.by_month ?? [],
+    by_category: decryptedByCategory,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Bootstrap / Import / Export
 // ---------------------------------------------------------------------------
 
@@ -481,6 +557,7 @@ export async function fetchAllData(month) {
     fetchIncomeByPerson(month),
     fetchPaybacks(month),
     fetchProjects(),
+    fetchTags(),
     fetchBudgets(),
     fetchRecurring(),
     fetchSettlements(),

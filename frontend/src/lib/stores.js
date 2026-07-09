@@ -12,6 +12,7 @@
  * recurringExpenses → array of RecurringResponse objects
  * settlements       → array of SettlementResponse rows (locked months)
  * projects          → array of ProjectResponse objects
+ * tags              → array of TagTotalRow objects (all-time aggregates per tag)
  */
 
 import { writable } from 'svelte/store';
@@ -76,6 +77,12 @@ export const paybacks = writable({
  *         avg_monthly_payment_cents, last_payment, estimated_completion_date
  */
 export const projects = writable([]);
+
+/**
+ * Tags (open-ended event labels). Each entry: TagTotalRow from /tags.
+ * Fields: id, name, color, description, total_amount, expense_count, first_date, last_date
+ */
+export const tags = writable([]);
 
 /**
  * Budget raw config rows. Each entry: { category, month, limit_cents }

@@ -8,7 +8,7 @@
    */
 
   import { createExpense } from './api.js';
-  import { splits, selectedMonth, projects, settlements, users, defaultPayer, defaultCategory, currencySymbol } from './stores.js';
+  import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, currencySymbol } from './stores.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
 
@@ -50,6 +50,7 @@
   let whoPaid      = $defaultPayer;
   let category     = $defaultCategory;
   let projectId    = null;     // optional: link expense to a project
+  let tagId        = null;     // optional: link expense to a tag
 
   let submitting   = false;
   let submitSuccess = false; // brief checkmark state on the button
@@ -64,6 +65,7 @@
     whoPaid     = $defaultPayer;
     category    = $defaultCategory;
     projectId   = null;
+    tagId       = null;
     errorMsg    = null;
     customSplit = false;
     overridePcts = {};
@@ -137,6 +139,7 @@
         who_paid:     whoPaid,
         category,
         project_id:   projectId ? Number(projectId) : null,
+        tag_id:       tagId ? Number(tagId) : null,
       };
       if (customSplit && overrideOk) {
         payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
@@ -302,6 +305,30 @@
         <option value={null}>— No project —</option>
         {#each $projects as p}
           <option value={p.id}>{p.name}</option>
+        {/each}
+      </select>
+    </div>
+  {/if}
+
+  <!-- Tag (optional) -->
+  {#if $tags.length > 0}
+    <div>
+      <label for="expense-tag" class="block text-xs font-medium text-neutral-400 mb-1.5">
+        Tag <span class="text-neutral-600">(optional)</span>
+      </label>
+      <select
+        id="expense-tag"
+        bind:value={tagId}
+        class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm
+               text-neutral-100
+               focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500
+               transition-colors"
+      >
+        <option value={null}>— No tag —</option>
+        {#each $tags as t}
+          <option value={t.id}>
+            {t.name}{t.total_amount > 0 ? ` (${t.total_amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total)` : ''}
+          </option>
         {/each}
       </select>
     </div>

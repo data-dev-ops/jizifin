@@ -10,7 +10,7 @@
    * Delete requires click-through confirmation.
    */
 
-  import { expenses, selectedMonth, projects, settlements, users, currencySymbol } from './stores.js';
+  import { expenses, selectedMonth, projects, tags, settlements, users, currencySymbol } from './stores.js';
   import { deleteExpense } from './api.js';
 
   /** Lookup user color from the users store. */
@@ -26,6 +26,9 @@
 
   /** Build id→name lookup map from projects store */
   $: projectMap = Object.fromEntries($projects.map((p) => [p.id, p.name]));
+
+  /** Build id→tag lookup map from tags store */
+  $: tagMap = Object.fromEntries($tags.map((t) => [t.id, t]));
 
   /** YYYY-MM-DD → DD/MM/YYYY */
   function formatDate(iso) {
@@ -115,11 +118,21 @@
                   ▰ {projectMap[expense.project_id]}
                 </span>
               {/if}
+              {#if expense.tag_id && tagMap[expense.tag_id]}
+                {@const tag = tagMap[expense.tag_id]}
+                <span
+                  class="inline-flex items-center mt-0.5 px-1.5 py-0.5 rounded text-[10px] border"
+                  style="background-color: {tag.color}18; color: {tag.color}; border-color: {tag.color}40;"
+                  title="Tag: {tag.name}"
+                >
+                  ● {tag.name}
+                </span>
+              {/if}
               {#if expense.overrides && expense.overrides.length > 0}
                 <span class="inline-flex items-center mt-0.5 px-1.5 py-0.5 rounded text-[10px]
                              bg-amber-950/60 text-amber-400 border border-amber-800/60"
                       title="Custom split: {expense.overrides.map(o => o.user_name + ' ' + o.pct + '%').join(' / ')}">
-                  ✦ custom split
+                  ✶ custom split
                 </span>
               {/if}
             </td>

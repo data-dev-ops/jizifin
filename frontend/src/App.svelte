@@ -8,13 +8,14 @@
   import IncomeChart from './lib/IncomeChart.svelte';
   import PaybackVisual from './lib/PaybackVisual.svelte';
   import QueryConsole from './lib/QueryConsole.svelte';
+  import TagsTab from './lib/TagsTab.svelte';
   import ProjectsTab from './lib/ProjectsTab.svelte';
   import RecurringManager from './lib/RecurringManager.svelte';
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
   import Login from './lib/Login.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
@@ -53,6 +54,10 @@
     {
       id: 'projects', label: 'Projects',
       icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z"/></svg>`,
+    },
+    {
+      id: 'tags', label: 'Tags',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3z"/><path stroke-linecap="round" stroke-linejoin="round" d="M6 6h.008v.008H6V6z"/></svg>`,
     },
     {
       id: 'recurring', label: 'Recurring',
@@ -397,6 +402,38 @@
             </div>
           </div>
         {/if}
+
+        <!-- Tags summary widget -->
+        {#if $tags.length > 0}
+          <div class="mt-6 bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
+            <div class="flex items-center justify-between mb-4">
+              <div>
+                <h2 class="text-sm font-semibold text-neutral-200">Tags</h2>
+                <p class="text-xs text-neutral-500 mt-0.5">All-time accumulation per event tag</p>
+              </div>
+              <button
+                id="goto-tags"
+                on:click={() => selectTab('tags')}
+                class="text-xs text-amber-400 hover:text-amber-300 transition-colors"
+              >View all →</button>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              {#each $tags as tag (tag.id)}
+                <button
+                  id="dashboard-tag-chip-{tag.id}"
+                  on:click={() => selectTab('tags')}
+                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium
+                         transition-all duration-150 hover:brightness-110 active:scale-[0.97]"
+                  style="background-color: {tag.color}15; color: {tag.color}; border-color: {tag.color}35;"
+                >
+                  <span class="w-2 h-2 rounded-full flex-none" style="background-color: {tag.color}"></span>
+                  {tag.name}
+                  <span class="text-[10px] opacity-70">{$currencySymbol}{tag.total_amount.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                </button>
+              {/each}
+            </div>
+          </div>
+        {/if}
       </div>
 
     {:else if activeTab === 'expenses'}
@@ -438,6 +475,15 @@
           <p class="text-neutral-400 text-sm mt-1">Track savings goals and see estimated completion times</p>
         </header>
         <ProjectsTab />
+      </div>
+
+    {:else if activeTab === 'tags'}
+      <div class="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
+        <header class="mb-6 md:mb-8">
+          <h1 class="text-xl sm:text-2xl font-bold text-white">Tags</h1>
+          <p class="text-neutral-400 text-sm mt-1">Track open-ended events — vacations, repairs, and more — across all months</p>
+        </header>
+        <TagsTab />
       </div>
 
     {:else if activeTab === 'query'}

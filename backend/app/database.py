@@ -93,6 +93,21 @@ async def init_db() -> None:
             """
         )
 
+        # ── tags ────────────────────────────────────────────────────────────
+        # Open-ended event labels (vacation, repair, etc.) that accumulate cost
+        # over time without a fixed budget or target date.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS tags (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                name        TEXT    NOT NULL UNIQUE CHECK(length(name) <= 256),
+                color       TEXT    NOT NULL DEFAULT '#f59e0b',
+                description TEXT             CHECK(length(description) <= 512),
+                created_at  TEXT    NOT NULL DEFAULT (datetime('now'))
+            )
+            """  
+        )
+
         # ── expenses ────────────────────────────────────────────────────────
         await conn.execute(
             """
@@ -104,10 +119,21 @@ async def init_db() -> None:
                                      CHECK(expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
                 who_paid     TEXT    NOT NULL REFERENCES users(name)           ON UPDATE CASCADE,
                 category     TEXT    NOT NULL REFERENCES splits(category)      ON UPDATE CASCADE,
-                project_id   INTEGER          REFERENCES projects(id)          ON DELETE SET NULL
+                project_id   INTEGER          REFERENCES projects(id)          ON DELETE SET NULL,
+                tag_id       INTEGER          REFERENCES tags(id)              ON DELETE SET NULL
             )
             """
         )
+
+        # ── Migrate existing expenses table: add tag_id column if missing ───
+        # SQLite does not support IF NOT EXISTS on ALTER TABLE ADD COLUMN,
+        # so we query the column list first and add only when absent.
+        async with conn.execute("PRAGMA table_info(expenses)") as cur:
+            cols = {row[1] async for row in cur}
+        if "tag_id" not in cols:
+            await conn.execute(
+                "ALTER TABLE expenses ADD COLUMN tag_id INTEGER REFERENCES tags(id) ON DELETE SET NULL"
+            )
 
         # ── expense_overrides ──────────────────────────────────────────────
         # Per-transaction split overrides.  Present only when a custom split
@@ -205,7 +231,12 @@ async def init_db() -> None:
         # ── Analytics views ─────────────────────────────────────────────────
         # Dropped and recreated on every boot so schema changes take effect
         # without a manual migration step.
-        for view in ("view_monthly_total", "view_monthly_by_category", "view_monthly_by_payer"):
+        for view in (
+            "view_monthly_total",
+            "view_monthly_by_category",
+            "view_monthly_by_payer",
+            "view_tag_totals",
+        ):
             await conn.execute(f"DROP VIEW IF EXISTS {view}")
 
         await conn.execute(
@@ -241,6 +272,26 @@ async def init_db() -> None:
             FROM   expenses
             WHERE  strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')
             GROUP  BY who_paid
+            """
+        )
+
+        # ── view_tag_totals ─────────────────────────────────────────────────
+        # Aggregates all-time totals per tag across every month.
+        await conn.execute(
+            """
+            CREATE VIEW view_tag_totals AS
+            SELECT
+                t.id,
+                t.name,
+                t.color,
+                t.description,
+                COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount,
+                COUNT(e.id)                                          AS expense_count,
+                MIN(e.expense_date)                                  AS first_date,
+                MAX(e.expense_date)                                  AS last_date
+            FROM tags t
+            LEFT JOIN expenses e ON e.tag_id = t.id
+            GROUP BY t.id, t.name, t.color, t.description
             """
         )
 
