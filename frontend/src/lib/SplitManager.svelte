@@ -15,7 +15,7 @@
 
   import { onMount } from 'svelte';
   import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson, createSplit } from './api.js';
-  import { splits, selectedMonth, users, mobileSplitsEditable, currencySymbol } from './stores.js';
+  import { splits, selectedMonth, users, mobileSplitsEditable, currencySymbol, splitInputMode } from './stores.js';
 
   /** True when viewport width < 768 px (Tailwind's md breakpoint). */
   let isMobile = false;
@@ -326,63 +326,135 @@
               </div>
             </div>
           {:else}
-            <!-- ── Editable row (desktop always, mobile when unlocked) ── -->
-            <div class="grid gap-3 items-center" style="grid-template-columns: minmax(80px,1fr) {activeUsers.map(() => 'minmax(70px,1fr)').join(' ')} auto">
+            {#if $splitInputMode === 'slider' && activeUsers.length === 2}
+              <!-- ── Slider mode (2-user households) ── -->
+              {@const sliderVal = parseFloat(editValues[split.category][activeUsers[0].name] || '0')}
+              <div class="flex items-center gap-3">
+                <!-- Category badge -->
+                <div class="min-w-[80px]">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium truncate max-w-full">
+                    {split.category}
+                  </span>
+                </div>
 
-            <!-- Category badge -->
-            <div>
-              <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium truncate max-w-full">
-                {split.category}
-              </span>
-            </div>
+                <!-- Slider column -->
+                <div class="flex-1 min-w-0">
+                  <div class="flex justify-between text-xs font-semibold tabular-nums mb-1.5">
+                    <span style="color: {activeUsers[0].color}">
+                      {activeUsers[0].name}: {parseFloat(editValues[split.category][activeUsers[0].name] || '0').toFixed(1)}%
+                    </span>
+                    <span style="color: {activeUsers[1].color}">
+                      {activeUsers[1].name}: {parseFloat(editValues[split.category][activeUsers[1].name] || '0').toFixed(1)}%
+                    </span>
+                  </div>
+                  <input
+                    id="slider-{split.category}"
+                    type="range" min="0" max="100" step="0.1"
+                    value={sliderVal}
+                    on:input={(e) => {
+                      const val = parseFloat(e.target.value);
+                      editValues[split.category][activeUsers[0].name] = String(parseFloat(val.toFixed(1)));
+                      editValues[split.category][activeUsers[1].name] = String(parseFloat((100 - val).toFixed(1)));
+                      editValues = {...editValues};
+                    }}
+                    class="w-full h-2 rounded-full cursor-pointer slider-split"
+                    style="background: linear-gradient(to right, {activeUsers[0].color} {sliderVal}%, {activeUsers[1].color} {sliderVal}%)"
+                  />
+                </div>
 
-            <!-- One input per active user -->
-            {#each activeUsers as u}
-              <div class="flex items-center gap-1">
-                <input
-                  id="split-{u.name}-{split.category}"
-                  type="number" min="0" max="100" step="0.1"
-                  bind:value={editValues[split.category][u.name]}
-                  class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-2 text-sm
-                         font-semibold tabular-nums text-neutral-200
-                         focus:outline-none focus:ring-1 transition-colors"
-                  style="--tw-ring-color: {u.color}; border-color: {editValues[split.category][u.name] !== '0' ? u.color + '60' : ''}"
-                />
-                <span class="text-xs text-neutral-500 shrink-0">%</span>
+                <!-- Actions -->
+                <div class="flex flex-col items-end gap-1 min-w-[80px]">
+                  <div class="flex gap-1.5">
+                    <button
+                      id="reset-split-{split.category}"
+                      on:click={() => resetToSalary(split.category)}
+                      disabled={totalSalary === 0}
+                      title={totalSalary === 0 ? 'Enter salaries above to enable reset' : 'Reset to salary ratio'}
+                      class="px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                             bg-neutral-700 hover:bg-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed
+                             transition-colors active:scale-95"
+                    >Reset</button>
+                    <button
+                      id="save-split-{split.category}"
+                      on:click={() => save(split.category)}
+                      disabled={saving[split.category] || !sumOk}
+                      class="px-3 py-1.5 rounded-lg text-xs font-semibold
+                             bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed
+                             transition-colors active:scale-95"
+                    >
+                      {saving[split.category] ? '…' : 'Save'}
+                    </button>
+                  </div>
+                  {#if rowSuccess[split.category]}
+                    <span class="text-[10px] text-emerald-400">Saved ✓</span>
+                  {/if}
+                  {#if rowError[split.category]}
+                    <span class="text-[10px] text-red-400">{rowError[split.category]}</span>
+                  {/if}
+                </div>
               </div>
-            {/each}
+            {:else}
+              <!-- ── Editable row (inputs mode, or >2 users fallback) ── -->
+              {#if $splitInputMode === 'slider' && activeUsers.length !== 2}
+                <p class="text-[10px] text-amber-500/70 mb-1">Slider mode requires exactly 2 active users — using inputs</p>
+              {/if}
+              <div class="grid gap-3 items-center" style="grid-template-columns: minmax(80px,1fr) {activeUsers.map(() => 'minmax(70px,1fr)').join(' ')} auto">
 
-            <!-- Actions -->
-            <div class="flex flex-col items-end gap-1 min-w-[80px]">
-              <div class="flex gap-1.5">
-                <button
-                  id="reset-split-{split.category}"
-                  on:click={() => resetToSalary(split.category)}
-                  disabled={totalSalary === 0}
-                  title={totalSalary === 0 ? 'Enter salaries above to enable reset' : 'Reset to salary ratio'}
-                  class="px-2.5 py-1.5 rounded-lg text-xs font-semibold
-                         bg-neutral-700 hover:bg-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed
-                         transition-colors active:scale-95"
-                >Reset</button>
-                <button
-                  id="save-split-{split.category}"
-                  on:click={() => save(split.category)}
-                  disabled={saving[split.category] || !sumOk}
-                  class="px-3 py-1.5 rounded-lg text-xs font-semibold
-                         bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed
-                         transition-colors active:scale-95"
-                >
-                  {saving[split.category] ? '…' : 'Save'}
-                </button>
+              <!-- Category badge -->
+              <div>
+                <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium truncate max-w-full">
+                  {split.category}
+                </span>
               </div>
-              {#if rowSuccess[split.category]}
-                <span class="text-[10px] text-emerald-400">Saved ✓</span>
-              {/if}
-              {#if rowError[split.category]}
-                <span class="text-[10px] text-red-400">{rowError[split.category]}</span>
-              {/if}
+
+              <!-- One input per active user -->
+              {#each activeUsers as u}
+                <div class="flex items-center gap-1">
+                  <input
+                    id="split-{u.name}-{split.category}"
+                    type="number" min="0" max="100" step="0.1"
+                    bind:value={editValues[split.category][u.name]}
+                    class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-2 text-sm
+                           font-semibold tabular-nums text-neutral-200
+                           focus:outline-none focus:ring-1 transition-colors"
+                    style="--tw-ring-color: {u.color}; border-color: {editValues[split.category][u.name] !== '0' ? u.color + '60' : ''}"
+                  />
+                  <span class="text-xs text-neutral-500 shrink-0">%</span>
+                </div>
+              {/each}
+
+              <!-- Actions -->
+              <div class="flex flex-col items-end gap-1 min-w-[80px]">
+                <div class="flex gap-1.5">
+                  <button
+                    id="reset-split-{split.category}"
+                    on:click={() => resetToSalary(split.category)}
+                    disabled={totalSalary === 0}
+                    title={totalSalary === 0 ? 'Enter salaries above to enable reset' : 'Reset to salary ratio'}
+                    class="px-2.5 py-1.5 rounded-lg text-xs font-semibold
+                           bg-neutral-700 hover:bg-neutral-600 disabled:opacity-30 disabled:cursor-not-allowed
+                           transition-colors active:scale-95"
+                  >Reset</button>
+                  <button
+                    id="save-split-{split.category}"
+                    on:click={() => save(split.category)}
+                    disabled={saving[split.category] || !sumOk}
+                    class="px-3 py-1.5 rounded-lg text-xs font-semibold
+                           bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed
+                           transition-colors active:scale-95"
+                  >
+                    {saving[split.category] ? '…' : 'Save'}
+                  </button>
+                </div>
+                {#if rowSuccess[split.category]}
+                  <span class="text-[10px] text-emerald-400">Saved ✓</span>
+                {/if}
+                {#if rowError[split.category]}
+                  <span class="text-[10px] text-red-400">{rowError[split.category]}</span>
+                {/if}
+              </div>
             </div>
-          </div>
+            {/if}
           {/if}
 
           <!-- Sum indicator bar -->
@@ -446,3 +518,34 @@
   {/if}
 
 </div>
+
+<style>
+  .slider-split {
+    -webkit-appearance: none;
+    appearance: none;
+  }
+  .slider-split::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid rgba(99, 102, 241, 0.6);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+    transition: transform 0.15s ease;
+  }
+  .slider-split::-webkit-slider-thumb:hover {
+    transform: scale(1.15);
+  }
+  .slider-split::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid rgba(99, 102, 241, 0.6);
+    cursor: pointer;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  }
+</style>

@@ -9,7 +9,7 @@
    */
 
   import { onMount, onDestroy } from 'svelte';
-  import { analytics, users, currencySymbol } from './stores.js';
+  import { analytics, users, currencySymbol, chartStyle } from './stores.js';
   import Chart from 'chart.js/auto';
 
   // ── Doughnut chart state & refs ───────────────────────────────────────────
@@ -50,30 +50,45 @@
     doughnutChart.update();
   }
 
-  onMount(() => {
+  /** Creates (or recreates) the Chart.js instance for the given chart type. */
+  function createChart(type) {
     if (!doughnutCanvas) return;
+    if (doughnutChart) { doughnutChart.destroy(); doughnutChart = null; }
     const ctx = doughnutCanvas.getContext('2d');
+    const isBar = (type === 'bar');
     doughnutChart = new Chart(ctx, {
-      type: 'doughnut',
+      type: isBar ? 'bar' : 'doughnut',
       data: {
         labels:   categories.map((c) => c.category),
         datasets: [
           {
             data:            categories.map((c) => c.total_amount),
             backgroundColor: PALETTE,
-            borderColor:     '#0a0a14',
-            borderWidth:     3,
-            hoverOffset:     6,
+            borderColor:     isBar ? 'transparent' : '#0a0a14',
+            borderWidth:     isBar ? 0 : 3,
+            hoverOffset:     isBar ? 0 : 6,
+            borderRadius:    isBar ? 6 : 0,
           },
         ],
       },
       options: {
         responsive:          true,
         maintainAspectRatio: false,
-        cutout:              '70%',
-        animation:           { duration: 600, easing: 'easeInOutQuart' },
+        ...(isBar ? {} : { cutout: '70%' }),
+        indexAxis: isBar ? 'y' : undefined,
+        animation: { duration: 600, easing: 'easeInOutQuart' },
+        scales: isBar ? {
+          x: {
+            grid: { color: 'rgba(255,255,255,0.04)' },
+            ticks: { color: '#6b7280', font: { family: 'Inter, system-ui, sans-serif', size: 11 } },
+          },
+          y: {
+            grid: { display: false },
+            ticks: { color: '#9ca3af', font: { family: 'Inter, system-ui, sans-serif', size: 11 } },
+          },
+        } : undefined,
         plugins: {
-          legend: {
+          legend: isBar ? { display: false } : {
             position: 'bottom',
             labels: {
               color:     '#9ca3af',
@@ -96,10 +111,18 @@
         },
       },
     });
+  }
 
-    // Trigger an initial draw if data is already loaded
-    updateDoughnut();
+  onMount(() => {
+    createChart($chartStyle);
   });
+
+  /** Recreate chart when user toggles chart style in settings. */
+  let prevChartStyle = $chartStyle;
+  $: if ($chartStyle !== prevChartStyle) {
+    prevChartStyle = $chartStyle;
+    createChart($chartStyle);
+  }
 
   onDestroy(() => {
     unsubscribe();

@@ -7,7 +7,7 @@
    * and a category-level breakdown table showing per-user paid amounts and net balances.
    */
 
-  import { paybacks, settlements, selectedMonth, users, currencySymbol } from './stores.js';
+  import { paybacks, settlements, selectedMonth, users, currencySymbol, paybackDisplayMode } from './stores.js';
   import { createSettlement, fetchSettlements } from './api.js';
 
   let settling = false;
@@ -159,44 +159,95 @@
         </p>
       </div>
     {:else}
-      <div class="space-y-6">
-        {#each $paybacks.rows as row}
-          {@const catUsers = Object.keys(row.per_user_paid ?? {})}
+      {#if $paybackDisplayMode === 'bar'}
+        <!-- ── Stacked Bar Mode ── -->
+        <div class="space-y-5">
+          {#each $paybacks.rows as row}
+            {@const catUsers = Object.keys(row.per_user_paid ?? {})}
+            {@const totalPaid = catUsers.reduce((s, u) => s + (row.per_user_paid[u] ?? 0), 0)}
 
-          <div class="border-b border-neutral-800/60 pb-5 last:border-0 last:pb-0">
-            <!-- Row header -->
-            <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-              <div>
+            <div class="border-b border-neutral-800/60 pb-4 last:border-0 last:pb-0">
+              <!-- Row header -->
+              <div class="flex items-baseline justify-between mb-2">
                 <span class="text-sm font-bold text-neutral-100">{row.category}</span>
-                <span class="text-xs text-neutral-500 ml-2">Total: {fmt(row.total_amount)}</span>
+                <span class="text-xs text-neutral-500 tabular-nums">{fmt(row.total_amount)}</span>
+              </div>
+
+              <!-- Stacked horizontal bar -->
+              <div class="flex h-6 rounded-lg overflow-hidden bg-neutral-800/40">
+                {#each catUsers as userName}
+                  {@const paid = row.per_user_paid[userName] ?? 0}
+                  {@const widthPct = totalPaid > 0 ? (paid / totalPaid) * 100 : 0}
+                  {#if widthPct > 0}
+                    <div
+                      class="h-full flex items-center justify-center text-[10px] font-bold tabular-nums text-white/90 transition-all duration-300"
+                      style="width: {widthPct}%; background-color: {userColor(userName)};{widthPct < 5 ? ' min-width: 4px;' : ''}"
+                      title="{userName}: {fmt(paid)}"
+                    >
+                      {#if widthPct > 15}{fmt(paid)}{/if}
+                    </div>
+                  {/if}
+                {/each}
+              </div>
+
+              <!-- Compact legend -->
+              <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
+                {#each catUsers as userName}
+                  {@const net = row.net_per_user[userName] ?? 0}
+                  {@const paid = row.per_user_paid[userName] ?? 0}
+                  <span class="text-[11px] tabular-nums">
+                    <span class="font-semibold" style="color: {userColor(userName)}">{userName}</span>
+                    <span class="text-neutral-500 ml-1">{fmt(paid)}</span>
+                    <span class="ml-1 font-semibold {net > 0.005 ? 'text-emerald-400' : net < -0.005 ? 'text-red-400' : 'text-neutral-600'}">
+                      {net > 0.005 ? `+${fmt(net)}` : net < -0.005 ? fmt(net) : '='}
+                    </span>
+                  </span>
+                {/each}
               </div>
             </div>
+          {/each}
+        </div>
+      {:else}
+        <!-- ── Card Mode (default) ── -->
+        <div class="space-y-6">
+          {#each $paybacks.rows as row}
+            {@const catUsers = Object.keys(row.per_user_paid ?? {})}
 
-            <!-- Per-user spending grid -->
-            <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
-              {#each catUsers as userName}
-                {@const color = userColor(userName)}
-                {@const paid  = row.per_user_paid[userName] ?? 0}
-                {@const net   = row.net_per_user[userName]  ?? 0}
-                {@const pct   = row.per_user_share_pct[userName] ?? 0}
-
-                <div class="bg-neutral-950/60 border border-neutral-800 rounded-xl p-3">
-                  <div class="flex items-center gap-2 mb-1.5">
-                    <div class="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold"
-                         style="background-color:{color}">{initial(userName)}</div>
-                    <span class="text-xs font-semibold text-neutral-200">{userName}</span>
-                  </div>
-                  <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-200 font-semibold tabular-nums">{fmt(paid)}</span></p>
-                  <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color}">{pct.toFixed(1)}%</span></p>
-                  <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0.005 ? 'text-emerald-400' : net < -0.005 ? 'text-red-400' : 'text-neutral-500'}">
-                    {net > 0.005 ? `+${fmt(net)} owed back` : net < -0.005 ? `${fmt(net)} owes` : 'settled'}
-                  </p>
+            <div class="border-b border-neutral-800/60 pb-5 last:border-0 last:pb-0">
+              <!-- Row header -->
+              <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
+                <div>
+                  <span class="text-sm font-bold text-neutral-100">{row.category}</span>
+                  <span class="text-xs text-neutral-500 ml-2">Total: {fmt(row.total_amount)}</span>
                 </div>
-              {/each}
+              </div>
+
+              <!-- Per-user spending grid -->
+              <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
+                {#each catUsers as userName}
+                  {@const color = userColor(userName)}
+                  {@const paid  = row.per_user_paid[userName] ?? 0}
+                  {@const net   = row.net_per_user[userName]  ?? 0}
+                  {@const pct   = row.per_user_share_pct[userName] ?? 0}
+
+                  <div class="bg-neutral-950/60 border border-neutral-800 rounded-xl p-3">
+                    <div class="flex items-center gap-2 mb-1.5">
+                      <div class="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold"
+                           style="background-color:{color}">{initial(userName)}</div>
+                      <span class="text-xs font-semibold text-neutral-200">{userName}</span>
+                    </div>
+                    <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-200 font-semibold tabular-nums">{fmt(paid)}</span></p>
+                    <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color}">{pct.toFixed(1)}%</span></p>
+                    <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0.005 ? 'text-emerald-400' : net < -0.005 ? 'text-red-400' : 'text-neutral-500'}">
+                      {net > 0.005 ? `+${fmt(net)} owed back` : net < -0.005 ? `${fmt(net)} owes` : 'settled'}
+                    </p>
+                  </div>
+                {/each}
+              </div>
             </div>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
     {/if}
   </div>
 

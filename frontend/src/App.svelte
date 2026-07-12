@@ -15,7 +15,7 @@
   import UserManager from './lib/UserManager.svelte';
   import Login from './lib/Login.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags, splitInputMode, paybackDisplayMode, chartStyle } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
@@ -619,6 +619,91 @@
                          {$showQueryTab ? 'translate-x-5' : 'translate-x-0'}"
                 ></span>
               </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visualization & Controls -->
+        <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6 mb-6">
+          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Visualization & Controls</p>
+
+          <div class="space-y-5">
+            <!-- Split Input Mode -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-5">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Split Input Mode</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Slider links two users to 100% — drag one, the other follows.</p>
+              </div>
+              <div class="flex bg-neutral-800 rounded-lg p-0.5 flex-none">
+                <button
+                  id="setting-split-inputs"
+                  on:click={() => splitInputMode.set('inputs')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$splitInputMode === 'inputs'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Inputs</button>
+                <button
+                  id="setting-split-slider"
+                  on:click={() => splitInputMode.set('slider')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$splitInputMode === 'slider'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Slider</button>
+              </div>
+            </div>
+
+            <!-- Payback Display -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-5">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Payback Display</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Cards show detail per person. Bars give a compact visual overview.</p>
+              </div>
+              <div class="flex bg-neutral-800 rounded-lg p-0.5 flex-none">
+                <button
+                  id="setting-payback-cards"
+                  on:click={() => paybackDisplayMode.set('cards')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$paybackDisplayMode === 'cards'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Cards</button>
+                <button
+                  id="setting-payback-bars"
+                  on:click={() => paybackDisplayMode.set('bar')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$paybackDisplayMode === 'bar'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Bars</button>
+              </div>
+            </div>
+
+            <!-- Category Chart Style -->
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Category Chart</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Switch between a doughnut and a horizontal bar chart on the dashboard.</p>
+              </div>
+              <div class="flex bg-neutral-800 rounded-lg p-0.5 flex-none">
+                <button
+                  id="setting-chart-doughnut"
+                  on:click={() => chartStyle.set('doughnut')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$chartStyle === 'doughnut'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Doughnut</button>
+                <button
+                  id="setting-chart-bar"
+                  on:click={() => chartStyle.set('bar')}
+                  class="px-3.5 py-1.5 rounded-md text-xs font-semibold transition-all duration-200
+                         {$chartStyle === 'bar'
+                           ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/40'
+                           : 'text-neutral-400 hover:text-neutral-200'}"
+                >Bar Chart</button>
+              </div>
             </div>
           </div>
         </div>

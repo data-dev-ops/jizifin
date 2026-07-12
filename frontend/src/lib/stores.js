@@ -123,6 +123,28 @@ export const defaultCategory = persistedString('defaultCategory', '');
 export const showQueryTab = persistedBoolean('showQueryTab', true);
 export const currencySymbol = persistedString('currencySymbol', '€');
 
+/**
+ * UI display mode: how split percentages are entered.
+ * 'inputs' — individual number fields per user (default, works for any user count).
+ * 'slider' — single linked range slider when exactly 2 active users; drag one side,
+ *            the other auto-complements to 100%. Falls back to inputs if >2 users.
+ */
+export const splitInputMode = persistedString('splitInputMode', 'inputs');
+
+/**
+ * UI display mode: how per-category payback breakdown is rendered.
+ * 'cards' — current grid of per-user cards showing paid/share/net (default).
+ * 'bar'   — horizontal stacked bars per category, segments proportional to amount paid.
+ */
+export const paybackDisplayMode = persistedString('paybackDisplayMode', 'cards');
+
+/**
+ * UI display mode: category spending chart type on the dashboard.
+ * 'doughnut' — current doughnut/donut chart (default).
+ * 'bar'      — horizontal bar chart with categories on the Y axis.
+ */
+export const chartStyle = persistedString('chartStyle', 'doughnut');
+
 export const authSalt = writable('');
 export const cryptoKey = writable(null);
 
