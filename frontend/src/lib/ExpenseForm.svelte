@@ -31,6 +31,27 @@
   let customSplit = false;
   /** { [userName]: pctNumber } */
   let overridePcts = {};
+  let useSlider = true;
+  let sliderVal = 50;
+
+  function handleSliderInput(e) {
+    const val = parseFloat(e.target.value);
+    sliderVal = val;
+    if (activeUsers.length === 2) {
+      const u0 = activeUsers[0].name;
+      const u1 = activeUsers[1].name;
+      overridePcts[u0] = val;
+      overridePcts[u1] = parseFloat((100 - val).toFixed(1));
+    }
+  }
+
+  // Sync sliderVal from overridePcts if modified in manual mode or initialized
+  $: if (customSplit && activeUsers.length === 2) {
+    const val = overridePcts[activeUsers[0].name];
+    if (val !== undefined && val !== sliderVal) {
+      sliderVal = val;
+    }
+  }
 
   // Initialise override inputs whenever activeUsers changes
   $: if (customSplit && activeUsers.length > 0) {
@@ -70,6 +91,8 @@
     errorMsg    = null;
     customSplit = false;
     overridePcts = {};
+    useSlider   = true;
+    sliderVal   = 50;
   }
 
   function dismissSuccess() {
@@ -347,28 +370,98 @@
     </label>
     {#if customSplit}
       <div class="mt-3 p-3 bg-neutral-900 border border-indigo-800/40 rounded-xl space-y-2">
-        {#each activeUsers as u (u.name)}
-          <div class="flex items-center gap-3">
-            <span class="text-xs font-semibold w-14 truncate" style="color: {u.color}">{u.name}</span>
-            <input
-              type="number" min="0" max="100" step="0.1"
-              bind:value={overridePcts[u.name]}
-              class="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100
-                     focus:outline-none focus:ring-1 transition-colors"
-              style="--tw-ring-color: {u.color}"
-            />
-            <span class="text-xs text-neutral-500">%</span>
-            <div class="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-              <div class="h-full transition-all" style="width:{Math.min(parseFloat(overridePcts[u.name])||0, 100)}%; background-color:{u.color}"></div>
+        {#if activeUsers.length === 2 && useSlider}
+          <!-- Slider split view -->
+          <div class="flex items-center justify-between gap-4 py-2">
+            <div class="text-right w-24 flex-shrink-0">
+              <span class="text-xs font-semibold block truncate" style="color: {activeUsers[0].color}">
+                {activeUsers[0].name}
+              </span>
+              <span class="text-lg font-bold text-neutral-100">{overridePcts[activeUsers[0].name] ?? 50}%</span>
+            </div>
+
+            <div class="flex-1 relative flex items-center">
+              <input
+                type="range"
+                min="0"
+                max="100"
+                step="0.1"
+                value={sliderVal}
+                on:input={handleSliderInput}
+                class="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                style="background: linear-gradient(to right, {activeUsers[0].color} 0%, {activeUsers[0].color} {sliderVal}%, {activeUsers[1].color} {sliderVal}%, {activeUsers[1].color} 100%);"
+              />
+            </div>
+
+            <div class="text-left w-24 flex-shrink-0">
+              <span class="text-xs font-semibold block truncate" style="color: {activeUsers[1].color}">
+                {activeUsers[1].name}
+              </span>
+              <span class="text-lg font-bold text-neutral-100">{overridePcts[activeUsers[1].name] ?? 50}%</span>
             </div>
           </div>
-        {/each}
-        <div class="pt-1 flex items-center justify-between">
-          <p class="text-[10px] text-neutral-600">Must sum to exactly 100%.</p>
-          <span class="text-[10px] font-semibold {overrideOk ? 'text-emerald-400' : 'text-amber-400'}">
-            Sum: {overrideSum.toFixed(2)}%
-          </span>
-        </div>
+
+          <div class="pt-1 flex justify-between items-center text-[10px] text-neutral-500 border-t border-neutral-850 pt-2 mt-1">
+            <button
+              type="button"
+              on:click={() => useSlider = false}
+              class="hover:text-neutral-300 transition-colors underline"
+            >
+              Switch to manual inputs
+            </button>
+            <button
+              type="button"
+              on:click={() => {
+                sliderVal = 50;
+                overridePcts[activeUsers[0].name] = 50;
+                overridePcts[activeUsers[1].name] = 50;
+              }}
+              class="hover:text-neutral-300 transition-colors"
+            >
+              Reset to 50/50
+            </button>
+          </div>
+        {:else}
+          <!-- Manual / N-user split inputs -->
+          {#each activeUsers as u (u.name)}
+            <div class="flex items-center gap-3">
+              <span class="text-xs font-semibold w-14 truncate" style="color: {u.color}">{u.name}</span>
+              <input
+                type="number" min="0" max="100" step="0.1"
+                bind:value={overridePcts[u.name]}
+                class="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100
+                       focus:outline-none focus:ring-1 transition-colors"
+                style="--tw-ring-color: {u.color}"
+              />
+              <span class="text-xs text-neutral-500">%</span>
+              <div class="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+                <div class="h-full transition-all" style="width:{Math.min(parseFloat(overridePcts[u.name])||0, 100)}%; background-color:{u.color}"></div>
+              </div>
+            </div>
+          {/each}
+          
+          <div class="pt-1 flex items-center justify-between">
+            <p class="text-[10px] text-neutral-600">Must sum to exactly 100%.</p>
+            <span class="text-[10px] font-semibold {overrideOk ? 'text-emerald-400' : 'text-amber-400'}">
+              Sum: {overrideSum.toFixed(2)}%
+            </span>
+          </div>
+
+          {#if activeUsers.length === 2}
+            <div class="pt-1 flex justify-start border-t border-neutral-850 pt-2 mt-1">
+              <button
+                type="button"
+                on:click={() => {
+                  useSlider = true;
+                  sliderVal = overridePcts[activeUsers[0].name] || 50;
+                }}
+                class="text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors underline"
+              >
+                Switch to slider
+              </button>
+            </div>
+          {/if}
+        {/if}
       </div>
     {/if}
   </div>
