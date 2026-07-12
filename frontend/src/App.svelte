@@ -6,6 +6,7 @@
   import SplitManager from './lib/SplitManager.svelte';
   import AnalyticsSummary from './lib/AnalyticsSummary.svelte';
   import IncomeChart from './lib/IncomeChart.svelte';
+  import IncomeTab from './lib/IncomeTab.svelte';
   import PaybackVisual from './lib/PaybackVisual.svelte';
   import QueryConsole from './lib/QueryConsole.svelte';
   import TagsTab from './lib/TagsTab.svelte';
@@ -14,8 +15,8 @@
   import BudgetManager from './lib/BudgetManager.svelte';
   import UserManager from './lib/UserManager.svelte';
   import Login from './lib/Login.svelte';
-  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags, splitInputMode, paybackDisplayMode, chartStyle } from './lib/stores.js';
+  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase, fetchIncome, fetchIncomeCategories } from './lib/api.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags, splitInputMode, paybackDisplayMode, chartStyle, incomeEntries, incomeCategories } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
@@ -46,6 +47,10 @@
     {
       id: 'expenses', label: 'Expenses',
       icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 14l2 2 4-4M7.5 3.75A1.5 1.5 0 006 5.25v13.5A1.5 1.5 0 007.5 20.25h9A1.5 1.5 0 0018 18.75V5.25A1.5 1.5 0 0016.5 3.75H7.5z"/></svg>`,
+    },
+    {
+      id: 'income', label: 'Income',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`,
     },
     {
       id: 'splits', label: 'Splits',
@@ -108,6 +113,7 @@
         fetchAnalytics(month),
         fetchIncomeByPerson(month),
         fetchPaybacks(month),
+        fetchIncome(month),
         fetchBudgetAnalytics(month).then((rows) => { budgetStatus = rows; }),
       ]);
     });
@@ -434,6 +440,11 @@
             </div>
           </div>
         {/if}
+      </div>
+
+    {:else if activeTab === 'income'}
+      <div class="p-4 sm:p-6 md:p-8 max-w-7xl mx-auto">
+        <IncomeTab />
       </div>
 
     {:else if activeTab === 'expenses'}

@@ -49,6 +49,7 @@ def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
     target_columns = {
         "users": ["name"],
         "splits": ["category"],
+        "income_categories": ["category"],
         "projects": ["name"],
         "expenses": ["name", "who_paid", "category"],
         "expense_overrides": ["user_name"],

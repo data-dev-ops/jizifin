@@ -68,6 +68,8 @@ from .models import (
     ExpenseResponse,
     ExpenseUpdate,
     IncomeByPersonRow,
+    IncomeCategoryCreate,
+    IncomeCategoryResponse,
     IncomeCreate,
     IncomeResponse,
     LatestSalaryRow,
@@ -1292,6 +1294,53 @@ async def create_income(entries: list[IncomeCreate], db: DbDep) -> list[IncomeRe
         created.append(IncomeResponse(**dict(row)))
     await db.commit()
     return created
+
+
+@app.delete("/income/{income_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["income"])
+async def delete_income(income_id: int, db: DbDep) -> None:
+    """Hard-delete a single income entry by id."""
+    async with db.execute("SELECT id FROM income WHERE id = ?", (income_id,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Income entry {income_id} not found.")
+    await db.execute("DELETE FROM income WHERE id = ?", (income_id,))
+    await db.commit()
+
+
+# ---------------------------------------------------------------------------
+# Income Categories
+# ---------------------------------------------------------------------------
+
+@app.get("/income-categories", response_model=list[IncomeCategoryResponse], tags=["income"])
+async def list_income_categories(db: DbDep) -> list[IncomeCategoryResponse]:
+    """Return all user-defined income category labels."""
+    async with db.execute("SELECT category FROM income_categories ORDER BY category") as cur:
+        rows = await cur.fetchall()
+    return [IncomeCategoryResponse(category=r["category"]) for r in rows]
+
+
+@app.post("/income-categories", response_model=IncomeCategoryResponse,
+          status_code=status.HTTP_201_CREATED, tags=["income"])
+async def create_income_category(payload: IncomeCategoryCreate, db: DbDep) -> IncomeCategoryResponse:
+    """Add a new income category to the registry."""
+    try:
+        await db.execute("INSERT INTO income_categories (category) VALUES (?)", (payload.category,))
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Income category already exists.",
+        ) from exc
+    await db.commit()
+    return IncomeCategoryResponse(category=payload.category)
+
+
+@app.delete("/income-categories/{category}", status_code=status.HTTP_204_NO_CONTENT, tags=["income"])
+async def delete_income_category(category: str, db: DbDep) -> None:
+    """Remove an income category from the registry."""
+    async with db.execute("SELECT category FROM income_categories WHERE category = ?", (category,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Income category not found.")
+    await db.execute("DELETE FROM income_categories WHERE category = ?", (category,))
+    await db.commit()
 
 
 @app.get("/income/latest-salary", response_model=list[LatestSalaryRow], tags=["income"])

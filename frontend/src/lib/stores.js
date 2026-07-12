@@ -7,6 +7,8 @@
  * analytics         → { monthly_total, by_category, by_payer } from the three views
  * selectedMonth     → currently selected YYYY-MM string used to filter Dashboard & Expenses
  * incomeAnalytics   → array of IncomeByPersonRow for the selected month (with carry-forward)
+ * incomeEntries     → raw list of decrypted income entries for the selected month
+ * incomeCategories  → user-defined income category registry (decrypted)
  * paybacks          → PaybackSummary: { rows, debts, month }
  * budgets           → array of BudgetResponse rows (raw config)
  * recurringExpenses → array of RecurringResponse objects
@@ -58,6 +60,12 @@ export const selectedMonth = writable(
  * Each entry: { who: string, total_cents: number, is_carried: boolean }
  */
 export const incomeAnalytics = writable([]);
+
+// Raw list of decrypted income entries for the selected month
+export const incomeEntries = writable([]);
+
+// User-defined income category registry (decrypted)
+export const incomeCategories = writable([]);
 
 /**
  * Payback/settlement analytics summary.

@@ -341,6 +341,17 @@ class LatestSalaryRow(BaseModel):
     name:         str
 
 
+class IncomeCategoryCreate(BaseModel):
+    """Payload for creating a new income category."""
+    category: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class IncomeCategoryResponse(BaseModel):
+    """A single income category returned from the registry."""
+    category: str
+    model_config = {"from_attributes": True}
+
+
 class IncomeByPersonRow(BaseModel):
     """Income total per person for an analytics query (with carry-forward)."""
     who:        str

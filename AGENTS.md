@@ -52,7 +52,7 @@ To maintain zero-knowledge privacy for the household financial history, data is 
 3. **Deterministic AES-GCM Implications**:
    - **Queryability & Referential Integrity:** Because the encryption is deterministic (static IV), the exact same plaintext string always encrypts to the exact same ciphertext Base64URL string. This allows the backend to perform exact matches (`who_paid = ?`), enforce `PRIMARY KEY` uniqueness (e.g. `splits.category`), group records (`GROUP BY category`), and validate foreign keys (e.g. `expenses.who_paid` matching `users.name`).
    - **Security Weakness:** The use of a static IV breaks the semantic security of AES-GCM. It exposes the ciphertexts to frequency analysis and XOR pattern/replay leakages if an attacker obtains the database file.
-   - **Encrypted Columns:** `users.name`, `splits.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`.
+   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`.
    - **Plaintext Columns:** Numeric amounts (cents), dates, integer primary/foreign keys, and the `settlements` table.
 
 ### 🚨 Coding Style Conventions & Deviations
@@ -80,7 +80,11 @@ All database interactions are defined in `backend/app/database.py`. The tables a
 3. **`splits`** (Category registry)
    - `category` (TEXT PRIMARY KEY, CHECK(length(category) <= 256)) — Encrypted.
 
-4. **`projects`** (Target budget goals)
+4. **`income_categories`** (Income category registry)
+   - `category` (TEXT PRIMARY KEY, CHECK(length(category) <= 256)) — Encrypted.
+   - No FK from `income.category` — historical entries survive category deletion intentionally.
+
+5. **`projects`** (Target budget goals)
    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
    - `name` (TEXT NOT NULL UNIQUE CHECK(length(name) <= 256)) — Encrypted.
    - `target_cents` (INTEGER NOT NULL CHECK(target_cents > 0))
@@ -253,6 +257,7 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`frontend/src/lib/ExpenseForm.svelte`**: Forms for creating/updating expenses, supporting splits, overrides, project/tag selection, and date-locks.
 - **`frontend/src/lib/ExpenseList.svelte`**: Renders a list of the month's expenses, handling deletion confirmations.
 - **`frontend/src/lib/IncomeChart.svelte`**: Displays incomes, using dashed segments to represent carried-forward salary entries.
+- **`frontend/src/lib/IncomeTab.svelte`**: Full income management panel — per-month ledger with delete, Log Income form (name, amount, who, dynamic category, date), and inline income category manager (add/remove). All crypto transparent via api.js.
 - **`frontend/src/lib/Login.svelte`**: Prompts for master passphrase, derives key, imports/restores databases, and unlocks the app.
 - **`frontend/src/lib/PaybackVisual.svelte`**: Visualizes payback debts and settlement operations.
 - **`frontend/src/lib/ProjectsTab.svelte`**: Manages projects with targets and estimated completions.

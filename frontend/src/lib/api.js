@@ -7,7 +7,7 @@
 import { get } from 'svelte/store';
 import { cryptoKey } from './stores.js';
 import { encryptText, decryptText } from './crypto.js';
-import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags } from './stores.js';
+import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories } from './stores.js';
 
 const BASE = `/api`;
 
@@ -34,6 +34,22 @@ async function request(path, options = {}) {
     throw new Error(`API ${options.method ?? 'GET'} ${path} → ${res.status}: ${body}`);
   }
   return res.json();
+}
+
+/**
+ * Remaps the string keys of a plain-value dict through dec().
+ * Used wherever an API response uses encrypted field values as dictionary keys
+ * (e.g. PaybackRow.per_user_paid, .per_user_share_pct, .net_per_user).
+ * Values are copied as-is; only the keys are decrypted.
+ *
+ * @param {Record<string, unknown>} dict  — object with encrypted string keys
+ * @returns {Promise<Record<string, unknown>>} — same values, decrypted keys
+ */
+async function decryptDictKeys(dict) {
+  const entries = await Promise.all(
+    Object.entries(dict).map(async ([encKey, value]) => [await dec(encKey), value])
+  );
+  return Object.fromEntries(entries);
 }
 
 // ---------------------------------------------------------------------------
@@ -327,7 +343,12 @@ export async function fetchPaybacks(month) {
       ? await Promise.all(
           data.rows.map(async (r) => ({
             ...r,
-            category: await dec(r.category)
+            // Decrypt the plaintext category label
+            category: await dec(r.category),
+            // Decrypt the encrypted user-name keys in each per-user dict
+            per_user_paid:      await decryptDictKeys(r.per_user_paid      ?? {}),
+            per_user_share_pct: await decryptDictKeys(r.per_user_share_pct ?? {}),
+            net_per_user:       await decryptDictKeys(r.net_per_user        ?? {}),
           }))
         )
       : [],
@@ -336,7 +357,7 @@ export async function fetchPaybacks(month) {
           data.debts.map(async (d) => ({
             ...d,
             from_user: await dec(d.from_user),
-            to_user: await dec(d.to_user)
+            to_user:   await dec(d.to_user)
           }))
         )
       : []
@@ -400,6 +421,87 @@ export async function createIncome(entries, month) {
   
   if (month) await fetchIncomeByPerson(month);
   return data;
+}
+
+/**
+ * Decrypts a single raw IncomeResponse row from the backend.
+ * Single responsibility: maps encrypted income fields to plaintext.
+ */
+async function decryptIncomeEntry(e) {
+  return {
+    ...e,
+    name:     await dec(e.name),
+    who:      await dec(e.who),
+    category: await dec(e.category),
+  };
+}
+
+/**
+ * Fetch income entries for the given month (or all if omitted),
+ * decrypt each entry, and update the incomeEntries store.
+ */
+export async function fetchIncome(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/income${qs}`);
+  const decrypted = await Promise.all(data.map(decryptIncomeEntry));
+  incomeEntries.set(decrypted);
+  return decrypted;
+}
+
+/**
+ * Delete a single income entry by id and remove it from the store.
+ */
+export async function deleteIncome(id) {
+  const res = await fetch(`${BASE}/income/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /income/${id} → ${res.status}: ${body}`);
+  }
+  incomeEntries.update((prev) => prev.filter((e) => e.id !== id));
+}
+
+// ---------------------------------------------------------------------------
+// Income Categories
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all income categories from the registry, decrypt each, and update
+ * the incomeCategories store.
+ */
+export async function fetchIncomeCategories() {
+  const data = await request('/income-categories');
+  const decrypted = await Promise.all(
+    data.map(async (c) => ({ ...c, category: await dec(c.category) }))
+  );
+  incomeCategories.set(decrypted);
+  return decrypted;
+}
+
+/**
+ * Create a new income category and push it to the store.
+ */
+export async function createIncomeCategory(name) {
+  const data = await request('/income-categories', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ category: await enc(name) }),
+  });
+  const decrypted = { ...data, category: await dec(data.category) };
+  incomeCategories.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+/**
+ * Delete an income category from the registry and remove it from the store.
+ */
+export async function deleteIncomeCategory(name) {
+  const encName = await enc(name);
+  const res = await fetch(`${BASE}/income-categories/${encodeURIComponent(encName)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /income-categories → ${res.status}: ${body}`);
+  }
+  incomeCategories.update((prev) => prev.filter((c) => c.category !== name));
 }
 
 // ---------------------------------------------------------------------------
@@ -561,6 +663,8 @@ export async function fetchAllData(month) {
     fetchBudgets(),
     fetchRecurring(),
     fetchSettlements(),
+    fetchIncome(month),
+    fetchIncomeCategories(),
   ]);
 }
 

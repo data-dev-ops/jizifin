@@ -80,6 +80,14 @@ async def init_db() -> None:
             "CREATE TABLE IF NOT EXISTS splits (category TEXT PRIMARY KEY CHECK(length(category) <= 256))"
         )
 
+        # ── income_categories ──────────────────────────────────────────────
+        # Registry of user-defined income category labels (encrypted).
+        # No FK from income.category — historical entries survive category
+        # deletion intentionally.
+        await conn.execute(
+            "CREATE TABLE IF NOT EXISTS income_categories (category TEXT PRIMARY KEY CHECK(length(category) <= 256))"
+        )
+
         # ── projects ───────────────────────────────────────────────────────
         await conn.execute(
             """
