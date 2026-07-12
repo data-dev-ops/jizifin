@@ -122,7 +122,7 @@
   <!-- Monthly total -->
   <div class="bg-neutral-900 rounded-2xl border border-neutral-800 px-5 py-4 min-w-0">
     <p class="text-xs font-medium text-neutral-500 uppercase tracking-wider mb-2">Monthly Total</p>
-    <p class="font-bold text-white tabular-nums truncate" style="font-size: clamp(1.25rem, 4vw, 1.875rem)">{fmt(total)}</p>
+    <p class="font-bold text-white tabular-nums truncate text-[clamp(1.25rem,4vw,1.875rem)]">{fmt(total)}</p>
     <p class="text-xs text-neutral-600 mt-1">This calendar month</p>
   </div>
 
@@ -131,7 +131,7 @@
     {@const color = userColor(row.who_paid)}
     <div class="bg-neutral-900 rounded-2xl border px-5 py-4 min-w-0" style="border-color:{color}40">
       <p class="text-xs font-medium uppercase tracking-wider mb-2" style="color:{color}">{row.who_paid}</p>
-      <p class="font-bold tabular-nums truncate" style="font-size: clamp(1.25rem, 4vw, 1.875rem); color:{color}">{fmt(row.total_amount)}</p>
+      <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,4vw,1.875rem)]" style="color:{color}">{fmt(row.total_amount)}</p>
       <p class="text-xs text-neutral-600 mt-1">{pct(row.total_amount, total)} of total spend</p>
     </div>
   {/each}

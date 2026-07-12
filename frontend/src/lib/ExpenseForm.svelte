@@ -7,6 +7,7 @@
    * On success: expense store is updated via api.js and analytics are refreshed.
    */
 
+  import { fly } from 'svelte/transition';
   import { createExpense } from './api.js';
   import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, currencySymbol } from './stores.js';
 
@@ -384,7 +385,7 @@
 
   <!-- Feedback -->
   {#if errorMsg}
-    <p class="text-red-400 text-xs bg-red-950/40 border border-red-900 rounded-lg px-3 py-2 animate-flash-in">
+    <p class="text-red-400 text-xs bg-red-950/40 border border-red-900 rounded-lg px-3 py-2" transition:fly={{ y: -6, duration: 250 }}>
       {errorMsg}
     </p>
   {/if}
@@ -392,7 +393,8 @@
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <p class="text-emerald-400 text-xs bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2
-              flex items-center justify-between gap-2 animate-flash-in cursor-pointer"
+              flex items-center justify-between gap-2 cursor-pointer"
+       transition:fly={{ y: -6, duration: 250 }}
        on:click={dismissSuccess}
        title="Click to dismiss">
       <span>✓ &ldquo;{successName}&rdquo; logged successfully.</span>
@@ -424,13 +426,3 @@
     {/if}
   </button>
 </form>
-
-<style>
-  @keyframes flash-in {
-    from { opacity: 0; transform: translateY(-6px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .animate-flash-in {
-    animation: flash-in 0.25s ease-out both;
-  }
-</style>
