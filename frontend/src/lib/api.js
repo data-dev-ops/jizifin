@@ -22,8 +22,14 @@ export async function enc(txt) {
 }
 
 export async function dec(txt) {
+  if (!txt) return txt;
   const key = get(cryptoKey);
   if (!key) return txt;
+  if (typeof txt === 'string' && txt.includes(' ')) {
+    const parts = txt.split(' ');
+    const decrypted = await Promise.all(parts.map((p) => decryptText(p, key)));
+    return decrypted.join(' ');
+  }
   return decryptText(txt, key);
 }
 
