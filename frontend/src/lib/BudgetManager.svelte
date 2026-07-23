@@ -1,6 +1,7 @@
 <script>
   import { onMount } from 'svelte';
   import { budgets, splits, selectedMonth, currencySymbol } from './stores.js';
+  import * as api from './api.js';
   import { upsertBudget, deleteBudget, fetchBudgetAnalytics } from './api.js';
 
   let budgetStatus = []; // BudgetStatusRow[]
@@ -18,7 +19,7 @@
 
   async function loadStatus() {
     try {
-      budgetStatus = await fetchBudgetAnalytics(monthStr);
+      budgetStatus = await api.fetchBudgetAnalytics(monthStr);
     } catch (e) {
       error = e.message;
     }

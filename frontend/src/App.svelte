@@ -476,7 +476,7 @@
                 >
                   <span class="w-2 h-2 rounded-full flex-none" style="background-color: {tag.color}"></span>
                   {tag.name}
-                  <span class="text-[10px] opacity-70">{$currencySymbol}{tag.total_amount.toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
+                  <span class="text-[10px] opacity-70">{$currencySymbol}{(tag.total_amount ?? 0).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
                 </button>
               {/each}
             </div>

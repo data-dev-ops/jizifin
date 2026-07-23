@@ -23,7 +23,8 @@
 
   /** Integer cents → formatted amount */
   function fmtAmt(euros) {
-    return `${$currencySymbol}${euros.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const val = Number(euros) || 0;
+    return `${$currencySymbol}${val.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
   }
 
   /** YYYY-MM-DD → DD/MM/YYYY */

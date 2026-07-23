@@ -8,7 +8,7 @@ WORKDIR /app
 # The node_modules anonymous volume in compose keeps them even if the
 # host ./frontend directory is mounted over /app.
 COPY package*.json ./
-RUN npm ci
+RUN npm install
 
 EXPOSE 5173
 

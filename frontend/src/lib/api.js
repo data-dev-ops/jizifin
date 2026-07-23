@@ -9,7 +9,7 @@ import { cryptoKey } from './stores.js';
 import { encryptText, decryptText } from './crypto.js';
 import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories } from './stores.js';
 
-const BASE = `/api`;
+const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
 
 // ---------------------------------------------------------------------------
 // Encryption / Decryption Helpers
@@ -582,6 +582,10 @@ export async function deleteProject(id) {
 
 async function decryptTag(t) {
   return {
+    total_amount: 0,
+    expense_count: 0,
+    first_date: null,
+    last_date: null,
     ...t,
     name: await dec(t.name),
     description: t.description ? await dec(t.description) : null,

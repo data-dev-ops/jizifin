@@ -91,6 +91,29 @@ This starts the Vite server on `http://localhost:5173`. Note that local client d
 
 ---
 
+## 🧪 Frontend Testing & Quality Assurance
+
+The application features a comprehensive automated testing suite built with **Vitest**, **@testing-library/svelte**, **JSDOM**, and **jsdom-testing-mocks**.
+
+### Test Suite Structure
+- **Setup & Polyfills (`src/test/setup.js`)**: Polyfills Node `webcrypto` for browser AES-GCM 256-bit encryption, Canvas 2D context for Chart.js graphics, `ResizeObserver`, and establishes a global fetch router for API endpoints.
+- **Unit & Component Tests (`src/test/`)**: Contains 18 test files with 72 tests covering cryptographic key derivation, API error handling, Svelte components (`App.svelte`, `ExpenseForm`, `BudgetManager`, `IncomeTab`, `SplitManager`, `ProjectsTab`, `TagsTab`, `QueryConsole`, `PaybackVisual`, `UserManager`, etc.), form validations, date locking, and inline deletion flows.
+
+### Running Frontend Tests
+Run the test suite from the root or frontend directory:
+```bash
+# From project root:
+/Users/jim/.nvm/versions/node/v24.18.0/bin/npm --prefix frontend test
+
+# Or from frontend directory:
+cd frontend
+/Users/jim/.nvm/versions/node/v24.18.0/bin/npm test
+```
+
+> ⚠️ **Mandatory Verification Directive:** Whenever modifying or adding code in `frontend/src/lib/*` or `frontend/src/App.svelte`, developers and AI agents MUST run the test suite to verify 100% pass rate with zero regressions before declaring a task complete.
+
+---
+
 ## 🏗 Architecture & Design Principles
 
 - **Database Constraints:** Currency amounts are strictly `INTEGER` cents to prevent floating-point calculation errors. Conversion to decimal euros (`cents / 100.0`) happens only at presentation/response boundaries.

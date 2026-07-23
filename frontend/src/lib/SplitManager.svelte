@@ -14,16 +14,13 @@
    */
 
   import { onMount } from 'svelte';
+  import * as api from './api.js';
   import { updateSplit, fetchLatestSalaries, createIncome, fetchIncomeByPerson, createSplit } from './api.js';
   import { splits, selectedMonth, users, mobileSplitsEditable, currencySymbol, splitInputMode } from './stores.js';
 
   /** True when viewport width < 768 px (Tailwind's md breakpoint). */
   let isMobile = false;
-  onMount(() => {
-    const mq = window.matchMedia('(max-width: 767px)');
-    isMobile = mq.matches;
-    mq.addEventListener('change', (e) => { isMobile = e.matches; });
-  });
+
 
   /** Editing splits is locked when on mobile AND the user hasn't enabled it in Settings. */
   $: splitsLocked = isMobile && !$mobileSplitsEditable;
@@ -47,15 +44,22 @@
   // ── Salary inputs ─────────────────────────────────────────────────────────
   /** { [userName]: euroAmount } */
   let salaryValues  = {};
-  let salaryLoading = true;
+  let salaryLoading = false;
   let salarySaving  = false;
   let salarySuccess = false;
   let salaryError   = null;
 
   $: {
-    // Initialise missing entries for newly visible active users
+    let updated = false;
+    const fresh = { ...salaryValues };
     for (const u of activeUsers) {
-      if (!(u.name in salaryValues)) salaryValues[u.name] = 0;
+      if (!(u.name in fresh)) {
+        fresh[u.name] = 0;
+        updated = true;
+      }
+    }
+    if (updated) {
+      salaryValues = fresh;
     }
   }
 
@@ -111,6 +115,10 @@
   }
 
   onMount(async () => {
+    const mq = window.matchMedia('(max-width: 767px)');
+    isMobile = mq?.matches ?? false;
+    mq?.addEventListener?.('change', (e) => { isMobile = e.matches; });
+
     try {
       const latest = await fetchLatestSalaries();
       const fresh = { ...salaryValues };
@@ -118,7 +126,9 @@
         fresh[row.who] = row.amount_cents / 100;
       }
       salaryValues = fresh;
-    } catch (_) { /* non-fatal */ } finally {
+    } catch (err) {
+      console.error("ONMOUNT SALARY ERROR:", err);
+    } finally {
       salaryLoading = false;
     }
   });
@@ -265,7 +275,7 @@
     }
     saving[category] = true;
     try {
-      await updateSplit(category, { allocations });
+      await api.updateSplit(category, { allocations });
       rowSuccess[category] = true;
       setTimeout(() => { rowSuccess[category] = false; }, 3000);
     } catch (err) {
