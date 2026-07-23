@@ -19,6 +19,7 @@ Do NOT assume standard system locations. You MUST use the following binary paths
 - Add Python Package: `/Users/jim/.local/bin/uv add <package>`
 - Frontend Dev Server: `/Users/jim/.nvm/versions/node/v24.18.0/bin/npm run dev`
 - Frontend Install: `/Users/jim/.nvm/versions/node/v24.18.0/bin/npm install <package>`
+- Frontend Test Suite: `/Users/jim/.nvm/versions/node/v24.18.0/bin/npm --prefix frontend test`
 - **Docker Compose Cluster:** Orchestrates `backend` and `frontend` containers via `docker-compose.yml`. Run `docker compose up --build -d` from the root to start the full stack.
 
 ---
@@ -293,6 +294,10 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`frontend/src/lib/RecurringManager.svelte`**: Formulates templates to log expenses on a specified day of the month automatically.
 - **`frontend/src/lib/SplitManager.svelte`**: Renders percentage allocations per category.
 - **`frontend/src/lib/TagsTab.svelte`**: Configures tags, showing tag details and charts.
+- **`frontend/vitest.config.js`**: Configures Vitest with JSDOM environment, Svelte plugin, setup file, and testing globals.
+- **`frontend/src/test/setup.js`**: Global test setup polyfilling WebCrypto (`globalThis.crypto`), Canvas 2D context, ResizeObserver, matchMedia, and establishing the mock `fetch` router.
+- **`frontend/src/test/crypto.test.js` & `api.test.js`**: Unit tests for Web Crypto PBKDF2/AES-GCM routines and API service layer.
+- **`frontend/src/test/components/`**: Houses 16 Svelte component test files (`App.test.js`, `ExpenseForm.test.js`, `BudgetManager.test.js`, `IncomeTab.test.js`, etc.) testing UI rendering, form validations, date locking, deletion confirmations, and user interactions.
 - **`frontend/src/lib/UserManager.svelte`**: Manages active users, colours, and deletions.
 
 ---
@@ -357,3 +362,4 @@ Whenever developer workflows, directory layouts, database schemas, or architectu
 4. **Data Integrity:** Never hallucinate or alter the whole-cent to float-euro conversion math. Database receives whole integers. UI presents decimals.
 5. **SOLID Principles:** Adhere rigorously to SOLID principles. Target single-responsibility functions and classes, keeping components open for extension but closed for modification.
 6. **Use-of-Understanding:** Produce readable, explicitly clear "use-of-understanding" code. Prioritize clear, maintainable logic and comments over opaque, clever one-liners.
+7. **Mandatory Test Verification:** After making ANY modification or addition to frontend components or libraries (`frontend/src/lib/*` or `frontend/src/App.svelte`), you MUST execute the Vitest suite using `/Users/jim/.nvm/versions/node/v24.18.0/bin/npm --prefix frontend test` and verify that all 18 test suites and 72 tests pass with zero regressions.
