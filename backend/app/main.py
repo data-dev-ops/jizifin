@@ -690,11 +690,11 @@ async def _build_project_response(db: aiosqlite.Connection, row: aiosqlite.Row) 
     target_cents = row["target_cents"]
 
     async with db.execute(
-        "SELECT COALESCE(SUM(cost_cents), 0) AS total FROM expenses WHERE project_id = ?",
+        "SELECT total_spent_cents FROM view_project_summary WHERE id = ?",
         (project_id,),
     ) as cur:
         total_row = await cur.fetchone()
-    total_spent = total_row["total"] if total_row else 0
+    total_spent = total_row["total_spent_cents"] if total_row else 0
 
     async with db.execute(
         "SELECT cost_cents, expense_date, who_paid, name FROM expenses WHERE project_id = ? ORDER BY expense_date DESC, id DESC LIMIT 1",
@@ -1046,8 +1046,8 @@ async def get_monthly_by_category(db: DbDep, month: str | None = None) -> list[M
     if month:
         async with db.execute(
             """
-            SELECT category, ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count
-            FROM expenses WHERE strftime('%Y-%m', expense_date) = ? GROUP BY category
+            SELECT category, total_amount, expense_count
+            FROM view_expenses_by_month_category WHERE month = ?
             """,
             (month,),
         ) as cur:

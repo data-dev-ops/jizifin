@@ -31,9 +31,18 @@
   /** Categories where the payer always bears 100% — percentages are irrelevant. */
   const PERSONAL_PAY = new Set(['PERSONAL COST', 'GIFT', 'LEISURE']);
 
+  function uniqueByCategory(list) {
+    const seen = new Set();
+    return list.filter((s) => {
+      if (!s || !s.category || seen.has(s.category)) return false;
+      seen.add(s.category);
+      return true;
+    });
+  }
+
   $: activeUsers    = $users.filter((u) => u.is_active);
-  $: variableSplits = $splits.filter((s) => !PERSONAL_PAY.has(s.category));
-  $: personalSplits = $splits.filter((s) =>  PERSONAL_PAY.has(s.category));
+  $: variableSplits = uniqueByCategory($splits.filter((s) => !PERSONAL_PAY.has(s.category)));
+  $: personalSplits = uniqueByCategory($splits.filter((s) =>  PERSONAL_PAY.has(s.category)));
 
   // ── Salary inputs ─────────────────────────────────────────────────────────
   /** { [userName]: euroAmount } */
@@ -52,10 +61,53 @@
 
   $: totalSalary = activeUsers.reduce((sum, u) => sum + (Number(salaryValues[u.name]) || 0), 0);
 
-  /** Compute salary-implied percentage for a given user. */
+  /**
+   * Calculate integer percentage split allocations based on salary ratios.
+   * Uses Largest Remainder Method (Hamilton Method) with top-earner tie-breaker
+   * for exact middle remainders.
+   */
+  function calculateSalaryRatios(usersList, salariesDict) {
+    if (!usersList || usersList.length === 0) return {};
+    const n = usersList.length;
+    const total = usersList.reduce((sum, u) => sum + (Number(salariesDict[u.name]) || 0), 0);
+
+    const items = usersList.map((u) => {
+      const salary = Number(salariesDict[u.name]) || 0;
+      const exactPct = total > 0 ? (salary / total) * 100 : 100 / n;
+      const floor = Math.floor(exactPct);
+      const remainder = exactPct - floor;
+      return { user: u, salary, exactPct, floor, remainder };
+    });
+
+    const sumFloors = items.reduce((s, item) => s + item.floor, 0);
+    let remainingPoints = 100 - sumFloors;
+
+    // Sort candidates by remainder descending.
+    // On tie in remainder (e.g. 0.5 vs 0.5), sort by salary descending (top earner first), then by name.
+    items.sort((a, b) => {
+      if (Math.abs(b.remainder - a.remainder) > 1e-9) {
+        return b.remainder - a.remainder;
+      }
+      if (b.salary !== a.salary) {
+        return b.salary - a.salary;
+      }
+      return a.user.name.localeCompare(b.user.name);
+    });
+
+    const result = {};
+    items.forEach((item, idx) => {
+      const extra = idx < remainingPoints ? 1 : 0;
+      result[item.user.name] = item.floor + extra;
+    });
+
+    return result;
+  }
+
+  $: salaryRatios = calculateSalaryRatios(activeUsers, salaryValues);
+
+  /** Compute salary-implied percentage for a given user (always whole integer). */
   function salaryPct(userName) {
-    const s = Number(salaryValues[userName]) || 0;
-    return totalSalary > 0 ? (s / totalSalary) * 100 : 100 / (activeUsers.length || 1);
+    return salaryRatios[userName] ?? 0;
   }
 
   onMount(async () => {
@@ -138,14 +190,38 @@
   /** Initialise edit state for a category from the split's current allocations. */
   function initEditValues(split) {
     if (split.category in editValues) return;
+    const storedAllocs = split.allocations ?? [];
     const entry = {};
-    for (const alloc of (split.allocations ?? [])) {
-      entry[alloc.user_name] = String(alloc.pct);
+
+    if (storedAllocs.length > 0) {
+      // Use stored values from the database
+      for (const alloc of storedAllocs) {
+        entry[alloc.user_name] = String(Math.round(alloc.pct));
+      }
+      // Fill in any active users missing from stored allocs with 0
+      for (const u of activeUsers) {
+        if (!(u.name in entry)) entry[u.name] = '0';
+      }
+    } else {
+      // No stored allocations — default to an equal split using LRM so
+      // integer percentages sum to exactly 100 and Save is immediately active.
+      const n = activeUsers.length;
+      if (n === 0) {
+        // no-op
+      } else {
+        const exact = 100 / n;
+        const floor = Math.floor(exact);
+        const remainder = exact - floor;
+        const sumFloors = floor * n;
+        let extra = 100 - sumFloors; // number of users that get floor+1
+
+        // Give the extra point(s) to users in natural order
+        activeUsers.forEach((u, idx) => {
+          entry[u.name] = String(floor + (idx < extra ? 1 : 0));
+        });
+      }
     }
-    // Ensure every active user has an entry (default 0 if missing)
-    for (const u of activeUsers) {
-      if (!(u.name in entry)) entry[u.name] = '0';
-    }
+
     editValues[split.category] = entry;
   }
 
@@ -156,22 +232,17 @@
   /** Sum of the currently-entered percentages for a category. */
   function rowSum(category, values) {
     const vals = values[category] ?? {};
-    return parseFloat(
-      Object.values(vals).reduce((acc, v) => acc + (parseFloat(v) || 0), 0).toFixed(4)
-    );
+    return Object.values(vals).reduce((acc, v) => acc + (parseInt(v, 10) || 0), 0);
   }
 
   /** Reset all percentages for a category to the salary-implied ratio. */
   function resetToSalary(category) {
     if (!editValues[category]) return;
     const fresh = {};
-    const n = activeUsers.length;
-    activeUsers.forEach((u, i) => {
-      const pct = i === n - 1
-        ? parseFloat((100 - activeUsers.slice(0, -1).reduce((s, uu) => s + salaryPct(uu.name), 0)).toFixed(4))
-        : parseFloat(salaryPct(u.name).toFixed(4));
-      fresh[u.name] = String(pct);
-    });
+    const ratios = calculateSalaryRatios(activeUsers, salaryValues);
+    for (const u of activeUsers) {
+      fresh[u.name] = String(ratios[u.name] ?? 0);
+    }
     editValues[category] = fresh;
     editValues = { ...editValues };
   }
@@ -180,13 +251,16 @@
     rowError[category]   = null;
     rowSuccess[category] = false;
     const vals = editValues[category] ?? {};
-    const allocations = activeUsers.map((u) => ({
-      user_name: u.name,
-      pct:       parseFloat(parseFloat(vals[u.name] ?? '0').toFixed(4)),
-    }));
-    const total = parseFloat(allocations.reduce((s, a) => s + a.pct, 0).toFixed(4));
-    if (Math.abs(total - 100.0) > 0.01) {
-      rowError[category] = `Percentages must sum to 100 (currently ${total.toFixed(2)}).`;
+    const allocations = activeUsers.map((u) => {
+      const parsed = Math.round(parseFloat(vals[u.name] ?? '0'));
+      return {
+        user_name: u.name,
+        pct:       isNaN(parsed) ? 0 : parsed,
+      };
+    });
+    const total = allocations.reduce((s, a) => s + a.pct, 0);
+    if (total !== 100) {
+      rowError[category] = `Percentages must sum to 100 (currently ${total}).`;
       return;
     }
     saving[category] = true;
@@ -238,7 +312,7 @@
         {#if totalSalary > 0 && activeUsers.length >= 2}
           <div class="flex items-center self-center gap-1 text-[11px] text-neutral-500">
             {#each activeUsers as u, i}
-              <span class="font-semibold" style="color: {u.color}">{salaryPct(u.name).toFixed(1)}%</span>
+              <span class="font-semibold" style="color: {u.color}">{salaryPct(u.name)}%</span>
               {#if i < activeUsers.length - 1}<span>/</span>{/if}
             {/each}
             <span class="ml-1">ratio</span>
@@ -302,10 +376,10 @@
       <span></span>
     </div>
 
-    {#each variableSplits as split (split.category)}
+    {#each variableSplits as split, i (split.category + '_' + i)}
       {#if editValues[split.category]}
         {@const sum = rowSum(split.category, editValues)}
-        {@const sumOk = Math.abs(sum - 100.0) <= 0.01}
+        {@const sumOk = sum === 100}
 
         <div class="group px-1 py-3 rounded-xl hover:bg-neutral-800/50 transition-colors">
           {#if splitsLocked}
@@ -320,7 +394,7 @@
                     class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold tabular-nums"
                     style="background-color: {u.color}18; color: {u.color}; border: 1px solid {u.color}40"
                   >
-                    {u.name.charAt(0)}: {parseFloat(editValues[split.category][u.name] ?? '0').toFixed(1)}%
+                    {u.name.charAt(0)}: {Math.round(parseFloat(editValues[split.category][u.name] ?? '0'))}%
                   </span>
                 {/each}
               </div>
@@ -328,7 +402,7 @@
           {:else}
             {#if $splitInputMode === 'slider' && activeUsers.length === 2}
               <!-- ── Slider mode (2-user households) ── -->
-              {@const sliderVal = parseFloat(editValues[split.category][activeUsers[0].name] || '0')}
+              {@const sliderVal = Math.round(parseFloat(editValues[split.category][activeUsers[0].name] || '0'))}
               <div class="flex items-center gap-3">
                 <!-- Category badge -->
                 <div class="min-w-[80px]">
@@ -341,20 +415,20 @@
                 <div class="flex-1 min-w-0">
                   <div class="flex justify-between text-xs font-semibold tabular-nums mb-1.5">
                     <span style="color: {activeUsers[0].color}">
-                      {activeUsers[0].name}: {parseFloat(editValues[split.category][activeUsers[0].name] || '0').toFixed(1)}%
+                      {activeUsers[0].name}: {Math.round(parseFloat(editValues[split.category][activeUsers[0].name] || '0'))}%
                     </span>
                     <span style="color: {activeUsers[1].color}">
-                      {activeUsers[1].name}: {parseFloat(editValues[split.category][activeUsers[1].name] || '0').toFixed(1)}%
+                      {activeUsers[1].name}: {Math.round(parseFloat(editValues[split.category][activeUsers[1].name] || '0'))}%
                     </span>
                   </div>
                   <input
                     id="slider-{split.category}"
-                    type="range" min="0" max="100" step="0.1"
+                    type="range" min="0" max="100" step="1"
                     value={sliderVal}
                     on:input={(e) => {
-                      const val = parseFloat(e.target.value);
-                      editValues[split.category][activeUsers[0].name] = String(parseFloat(val.toFixed(1)));
-                      editValues[split.category][activeUsers[1].name] = String(parseFloat((100 - val).toFixed(1)));
+                      const val = Math.round(parseFloat(e.target.value));
+                      editValues[split.category][activeUsers[0].name] = String(val);
+                      editValues[split.category][activeUsers[1].name] = String(100 - val);
                       editValues = {...editValues};
                     }}
                     class="w-full h-2 rounded-full cursor-pointer slider-split"
@@ -412,7 +486,7 @@
                 <div class="flex items-center gap-1">
                   <input
                     id="split-{u.name}-{split.category}"
-                    type="number" min="0" max="100" step="0.1"
+                    type="number" min="0" max="100" step="1"
                     bind:value={editValues[split.category][u.name]}
                     class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-2 text-sm
                            font-semibold tabular-nums text-neutral-200
@@ -466,7 +540,7 @@
               ></div>
             </div>
             {#if !sumOk && !splitsLocked}
-              <p class="text-[10px] text-amber-400 mt-0.5 text-right">sum = {sum.toFixed(2)}%</p>
+              <p class="text-[10px] text-amber-400 mt-0.5 text-right">sum = {sum}%</p>
             {/if}
           </div>
         </div>
@@ -491,7 +565,7 @@
         </div>
       </div>
       <div class="divide-y divide-neutral-800/60">
-        {#each personalSplits as split (split.category)}
+        {#each personalSplits as split, i (split.category + '_' + i)}
           <div class="flex items-center justify-between px-4 py-3 gap-4">
             <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800/50 border border-neutral-700/50 text-xs text-neutral-400 font-medium">
               {split.category}

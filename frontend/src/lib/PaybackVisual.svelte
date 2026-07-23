@@ -237,7 +237,7 @@
                       <span class="text-xs font-semibold text-neutral-200">{userName}</span>
                     </div>
                     <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-200 font-semibold tabular-nums">{fmt(paid)}</span></p>
-                    <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color}">{pct.toFixed(1)}%</span></p>
+                    <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color}">{pct.toFixed(0)}%</span></p>
                     <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0.005 ? 'text-emerald-400' : net < -0.005 ? 'text-red-400' : 'text-neutral-500'}">
                       {net > 0.005 ? `+${fmt(net)} owed back` : net < -0.005 ? `${fmt(net)} owes` : 'settled'}
                     </p>

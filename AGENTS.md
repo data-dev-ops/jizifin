@@ -174,7 +174,19 @@ Views are dropped and recreated on startup to reflect any schema modifications:
    ```
    *Impact:* Because categories are stored as deterministic ciphertexts, they are grouped correctly.
 
-3. **`view_monthly_by_payer`** (Total month spending grouped by payer)
+3. **`view_expenses_by_month_category`** (Monthly spending grouped by month YYYY-MM and category)
+   ```sql
+   CREATE VIEW view_expenses_by_month_category AS
+   SELECT
+       strftime('%Y-%m', expense_date)   AS month,
+       category,
+       ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
+       COUNT(*)                           AS expense_count
+   FROM   expenses
+   GROUP  BY strftime('%Y-%m', expense_date), category
+   ```
+
+4. **`view_monthly_by_payer`** (Total month spending grouped by payer)
    ```sql
    CREATE VIEW view_monthly_by_payer AS
    SELECT
@@ -187,7 +199,22 @@ Views are dropped and recreated on startup to reflect any schema modifications:
    ```
    *Impact:* Payer usernames are grouped correctly as deterministic ciphertexts.
 
-4. **`view_tag_totals`** (All-time tag spending aggregates)
+5. **`view_project_summary`** (Aggregated total spent cents per project)
+   ```sql
+   CREATE VIEW view_project_summary AS
+   SELECT
+       p.id,
+       p.name,
+       p.target_cents,
+       p.target_date,
+       COALESCE(SUM(e.cost_cents), 0) AS total_spent_cents,
+       COUNT(e.id)                     AS expense_count
+   FROM projects p
+   LEFT JOIN expenses e ON e.project_id = p.id
+   GROUP BY p.id, p.name, p.target_cents, p.target_date
+   ```
+
+6. **`view_tag_totals`** (All-time tag spending aggregates)
    ```sql
    CREATE VIEW view_tag_totals AS
    SELECT
@@ -226,7 +253,7 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 
 #### Root Configuration Files
 - **`docker-compose.yml`**: Defines the multi-container application architecture, orchestrating the backend service, Svelte frontend environment, and Caddy proxy server.
-- **`Caddyfile`**: Routes public requests for `jizifin.duckdns.org`, proxying requests for `/api/*` to the backend and other paths to the frontend.
+- **`Caddyfile`**: Routes public requests for `jizifin.duckdns.org` (HTTPS with automatic TLS) and local development requests for `http://localhost` / `http://127.0.0.1` (HTTP), proxying requests for `/api/*` to the backend and other paths to the frontend.
 - **`PROJECT.md`**: Outlines overall project guidelines, architectural boundaries, and technology requirements.
 - **`AGENTS.md`**: This document (developer and LLM instructions).
 - **`README.md`**: General setup and deployment guide.
@@ -292,7 +319,7 @@ The application runs as a cluster coordinated via `docker-compose.yml` in a shar
 ```
 
 ### Caddy Reverse Proxy & TLS Configuration
-1. **Host Entry Point:** Caddy binds to ports `80` and `443` on the host. It auto-provisions and maintains SSL certificates for `jizifin.duckdns.org`.
+1. **Host Entry Point:** Caddy binds to ports `80` and `443` on the host. It auto-provisions and maintains SSL certificates for `jizifin.duckdns.org` over HTTPS, while serving `http://localhost` and `http://127.0.0.1` over HTTP without TLS for local developer setups.
 2. **Backend API Routing:** All requests starting with `/api/*` have their prefix stripped by Caddy's `handle_path` block and are proxied to `http://backend:8000`.
 3. **Frontend Routing:** All other paths are proxied to `http://frontend:5173`, serving the Svelte single page application.
 4. **WebSocket Support:** Caddy handles transparent HTTP connection upgrading. Requests to `/ws/finance` are forwarded directly to the frontend's handler, which routes to the backend correctly when the client establishes the WebSocket connection.

@@ -16,7 +16,7 @@
   import UserManager from './lib/UserManager.svelte';
   import Login from './lib/Login.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, exportDatabase, fetchIncome, fetchIncomeCategories } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags, splitInputMode, paybackDisplayMode, chartStyle, incomeEntries, incomeCategories } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileSplitsEditable, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, defaultPayer, defaultCategory, showQueryTab, currencySymbol, splits, authSalt, tags, splitInputMode, paybackDisplayMode, chartStyle, incomeEntries, incomeCategories } from './lib/stores.js';
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
@@ -26,6 +26,8 @@
 
   // Sidebar collapsed by default (especially for mobile)
   let sidebarOpen = false;
+  let isMobile = false;
+  let tabToggleWarning = '';
 
   async function handleExport() {
     exporting = true;
@@ -78,9 +80,14 @@
     },
   ];
 
-  $: visibleTabs = tabs.filter(t => t.id !== 'query' || $showQueryTab);
-  $: if (activeTab === 'query' && !$showQueryTab) {
-    activeTab = 'dashboard';
+  $: visibleTabs = tabs.filter(t => {
+    if (t.id === 'query' && !$showQueryTab) return false;
+    if (isMobile && !$mobileTabVisibility[t.id]) return false;
+    return true;
+  });
+
+  $: if (isMobile && visibleTabs.length > 0 && !visibleTabs.some(t => t.id === activeTab)) {
+    activeTab = visibleTabs.some(t => t.id === 'settings') ? 'settings' : visibleTabs[0].id;
   }
 
   let unsubMonth;
@@ -88,9 +95,42 @@
   let initialLoaded = false;
 
   onMount(async () => {
-    // On desktop (≥768px), show sidebar by default
-    if (window.innerWidth >= 768) sidebarOpen = true;
+    const checkMobile = () => {
+      isMobile = window.innerWidth < 768;
+      if (window.innerWidth >= 768) sidebarOpen = true;
+    };
+    checkMobile();
+    window.addEventListener('resize', checkMobile);
+
+    return () => {
+      window.removeEventListener('resize', checkMobile);
+    };
   });
+
+  function toggleMobileTab(tabId) {
+    tabToggleWarning = '';
+    if (tabId === 'settings') {
+      tabToggleWarning = 'Settings tab is required and cannot be disabled on mobile.';
+      return;
+    }
+
+    const currentVis = { ...$mobileTabVisibility };
+    const currentState = !!currentVis[tabId];
+    
+    if (currentState) {
+      // Turning off tabId: enforce at least 1 non-settings tab remains active
+      const activeNonSettingsCount = tabs.filter(t => t.id !== 'settings' && currentVis[t.id]).length;
+      if (activeNonSettingsCount <= 1) {
+        tabToggleWarning = 'Settings and at least 1 additional tab must remain active on mobile.';
+        return;
+      }
+    }
+
+    mobileTabVisibility.update(v => ({
+      ...v,
+      [tabId]: !currentState
+    }));
+  }
 
   $: if ($authSalt && !initialLoaded) {
     initialLoaded = true;
@@ -136,8 +176,10 @@
 
   function selectTab(id) {
     activeTab = id;
-    // Auto-close sidebar on mobile after navigation
-    if (window.innerWidth < 768) sidebarOpen = false;
+    // Auto-close sidebar on mobile after navigation if enabled
+    if (isMobile && $mobileAutoCloseMenu) {
+      sidebarOpen = false;
+    }
   }
 </script>
 
@@ -513,42 +555,176 @@
           <p class="text-neutral-400 text-sm mt-1">Household members and display preferences</p>
         </header>
 
-        <!-- Mobile Splits toggle -->
+        <!-- Mobile Preferences -->
         <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6 mb-6">
-          <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-4">Mobile Preferences</p>
-          <div class="flex items-center justify-between gap-4">
-            <div class="flex items-center gap-3">
-              <!-- Lock icon reflects current state -->
-              <span class="text-xl leading-none select-none" aria-hidden="true">
-                {$mobileSplitsEditable ? '🔓' : '🔒'}
-              </span>
-              <div>
-                <p class="text-sm font-medium text-neutral-200">Splits editing on mobile</p>
-                <p class="text-xs text-neutral-500 mt-0.5">
-                  {$mobileSplitsEditable
-                    ? 'Inputs and save buttons are visible on small screens.'
-                    : 'Splits are read-only on mobile — tap to unlock.'}
-                </p>
-              </div>
+          <div class="flex items-center justify-between mb-4">
+            <div>
+              <p class="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Mobile Preferences</p>
+              <p class="text-xs text-neutral-500 mt-1">Configure tab visibility and behavior options for mobile screens.</p>
             </div>
-            <!-- Toggle switch -->
-            <!-- svelte-ignore a11y-click-events-have-key-events -->
-            <!-- svelte-ignore a11y-no-static-element-interactions -->
-            <button
-              id="toggle-mobile-splits"
-              role="switch"
-              aria-checked={$mobileSplitsEditable}
-              on:click={() => mobileSplitsEditable.update(v => !v)}
-              class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
-                     transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
-                     {$mobileSplitsEditable ? 'bg-indigo-600' : 'bg-neutral-700'}"
-            >
-              <span
-                class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
-                       transition duration-200 ease-in-out
-                       {$mobileSplitsEditable ? 'translate-x-5' : 'translate-x-0'}"
-              ></span>
-            </button>
+          </div>
+
+          {#if tabToggleWarning}
+            <div class="mb-4 p-3 bg-amber-950/60 border border-amber-800/80 rounded-xl text-amber-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
+              <div class="flex items-center gap-2">
+                <svg class="w-4 h-4 text-amber-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <span>{tabToggleWarning}</span>
+              </div>
+              <button on:click={() => (tabToggleWarning = '')} class="text-amber-400 hover:text-amber-200 text-sm font-bold flex-none px-1">×</button>
+            </div>
+          {/if}
+
+          <!-- Sub-section: Mobile Tab Visibility -->
+          <div class="mb-6 border-b border-neutral-800 pb-5">
+            <p class="text-xs font-semibold text-neutral-300 mb-1">Tab Visibility Toggles</p>
+            <p class="text-xs text-neutral-500 mb-4">Toggle navigation tabs on mobile screens (Settings + 1 minimum required).</p>
+            
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              {#each tabs as tab (tab.id)}
+                {@const isRequired = tab.id === 'settings'}
+                {@const isActive = !!$mobileTabVisibility[tab.id]}
+                <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-950/80 border border-neutral-800/80 transition-colors">
+                  <div class="flex items-center gap-2.5 min-w-0 pr-2">
+                    <span class="text-neutral-400 flex-none">{@html tab.icon}</span>
+                    <div class="min-w-0">
+                      <p class="text-sm font-medium text-neutral-200 truncate flex items-center gap-1.5">
+                        {tab.label}
+                        {#if isRequired}
+                          <span class="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-400 border border-indigo-800/60">Required</span>
+                        {/if}
+                      </p>
+                      <p class="text-[11px] text-neutral-500 truncate">
+                        {isRequired ? 'Always active' : isActive ? 'Visible on mobile' : 'Hidden on mobile'}
+                      </p>
+                    </div>
+                  </div>
+
+                  <!-- Switch button -->
+                  <button
+                    id="toggle-mobile-tab-{tab.id}"
+                    role="switch"
+                    aria-checked={isActive}
+                    disabled={isRequired}
+                    on:click={() => toggleMobileTab(tab.id)}
+                    class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                           transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                           {isRequired ? 'opacity-60 cursor-not-allowed bg-indigo-600' : isActive ? 'bg-indigo-600' : 'bg-neutral-700'}"
+                  >
+                    <span
+                      class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                             transition duration-200 ease-in-out
+                             {isActive ? 'translate-x-5' : 'translate-x-0'}"
+                    ></span>
+                  </button>
+                </div>
+              {/each}
+            </div>
+          </div>
+
+          <!-- Additional Mobile Preferences -->
+          <div class="space-y-4">
+            <p class="text-xs font-semibold text-neutral-300 mb-1">Mobile Behavior Preferences</p>
+
+            <!-- Splits editing on mobile -->
+            <div class="flex items-center justify-between gap-4 border-b border-neutral-800/60 pb-3.5">
+              <div class="flex items-center gap-3">
+                <span class="text-lg leading-none select-none" aria-hidden="true">
+                  {$mobileSplitsEditable ? '🔓' : '🔒'}
+                </span>
+                <div>
+                  <p class="text-sm font-medium text-neutral-200">Splits editing on mobile</p>
+                  <p class="text-xs text-neutral-500 mt-0.5">
+                    {$mobileSplitsEditable
+                      ? 'Inputs and save buttons are visible on small screens.'
+                      : 'Splits are read-only on mobile — tap to unlock.'}
+                  </p>
+                </div>
+              </div>
+              <button
+                id="toggle-mobile-splits"
+                role="switch"
+                aria-checked={$mobileSplitsEditable}
+                on:click={() => mobileSplitsEditable.update(v => !v)}
+                class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                       {$mobileSplitsEditable ? 'bg-indigo-600' : 'bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {$mobileSplitsEditable ? 'translate-x-5' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+
+            <!-- Auto-close navigation menu -->
+            <div class="flex items-center justify-between gap-4 border-b border-neutral-800/60 pb-3.5">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Auto-close navigation menu</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Automatically dismiss sidebar drawer after selecting a tab on mobile.</p>
+              </div>
+              <button
+                id="toggle-mobile-autoclose"
+                role="switch"
+                aria-checked={$mobileAutoCloseMenu}
+                on:click={() => mobileAutoCloseMenu.update(v => !v)}
+                class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                       {$mobileAutoCloseMenu ? 'bg-indigo-600' : 'bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {$mobileAutoCloseMenu ? 'translate-x-5' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+
+            <!-- Compact mobile layout -->
+            <div class="flex items-center justify-between gap-4 border-b border-neutral-800/60 pb-3.5">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Compact mobile layout</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Use tighter padding and denser margins on mobile viewports.</p>
+              </div>
+              <button
+                id="toggle-mobile-compact"
+                role="switch"
+                aria-checked={$mobileCompactView}
+                on:click={() => mobileCompactView.update(v => !v)}
+                class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                       {$mobileCompactView ? 'bg-indigo-600' : 'bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {$mobileCompactView ? 'translate-x-5' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+
+            <!-- Touch-friendly large targets -->
+            <div class="flex items-center justify-between gap-4">
+              <div>
+                <p class="text-sm font-medium text-neutral-200">Touch-friendly large targets</p>
+                <p class="text-xs text-neutral-500 mt-0.5">Increase tap target height and spacing on touch screens.</p>
+              </div>
+              <button
+                id="toggle-mobile-touch-targets"
+                role="switch"
+                aria-checked={$mobileLargeTouchTargets}
+                on:click={() => mobileLargeTouchTargets.update(v => !v)}
+                class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 focus:ring-offset-neutral-900
+                       {$mobileLargeTouchTargets ? 'bg-indigo-600' : 'bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {$mobileLargeTouchTargets ? 'translate-x-5' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
           </div>
         </div>
 

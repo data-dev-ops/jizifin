@@ -35,13 +35,13 @@
   let sliderVal = 50;
 
   function handleSliderInput(e) {
-    const val = parseFloat(e.target.value);
+    const val = Math.round(parseFloat(e.target.value));
     sliderVal = val;
     if (activeUsers.length === 2) {
       const u0 = activeUsers[0].name;
       const u1 = activeUsers[1].name;
       overridePcts[u0] = val;
-      overridePcts[u1] = parseFloat((100 - val).toFixed(1));
+      overridePcts[u1] = 100 - val;
     }
   }
 
@@ -49,21 +49,24 @@
   $: if (customSplit && activeUsers.length === 2) {
     const val = overridePcts[activeUsers[0].name];
     if (val !== undefined && val !== sliderVal) {
-      sliderVal = val;
+      sliderVal = Math.round(val);
     }
   }
 
   // Initialise override inputs whenever activeUsers changes
   $: if (customSplit && activeUsers.length > 0) {
-    for (const u of activeUsers) {
+    const n = activeUsers.length;
+    const base = Math.floor(100 / n);
+    const rem = 100 - (base * n);
+    activeUsers.forEach((u, i) => {
       if (!(u.name in overridePcts)) {
-        overridePcts[u.name] = parseFloat((100 / activeUsers.length).toFixed(4));
+        overridePcts[u.name] = base + (i < rem ? 1 : 0);
       }
-    }
+    });
   }
 
-  $: overrideSum = Object.values(overridePcts).reduce((s, v) => s + (parseFloat(v) || 0), 0);
-  $: overrideOk  = Math.abs(overrideSum - 100.0) <= 0.01;
+  $: overrideSum = Object.values(overridePcts).reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
+  $: overrideOk  = overrideSum === 100;
 
   // ── Form state ──────────────────────────────────────────────────────────────────
   let name         = '';
@@ -168,7 +171,7 @@
       if (customSplit && overrideOk) {
         payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
           user_name,
-          pct: parseFloat(parseFloat(pct).toFixed(4)),
+          pct: Math.round(parseFloat(pct)),
         }));
       }
       await createExpense(payload, $selectedMonth);
@@ -377,7 +380,7 @@
               <span class="text-xs font-semibold block truncate" style="color: {activeUsers[0].color}">
                 {activeUsers[0].name}
               </span>
-              <span class="text-lg font-bold text-neutral-100">{overridePcts[activeUsers[0].name] ?? 50}%</span>
+              <span class="text-lg font-bold text-neutral-100">{Math.round(overridePcts[activeUsers[0].name] ?? 50)}%</span>
             </div>
 
             <div class="flex-1 relative flex items-center">
@@ -385,7 +388,7 @@
                 type="range"
                 min="0"
                 max="100"
-                step="0.1"
+                step="1"
                 value={sliderVal}
                 on:input={handleSliderInput}
                 class="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
@@ -397,7 +400,7 @@
               <span class="text-xs font-semibold block truncate" style="color: {activeUsers[1].color}">
                 {activeUsers[1].name}
               </span>
-              <span class="text-lg font-bold text-neutral-100">{overridePcts[activeUsers[1].name] ?? 50}%</span>
+              <span class="text-lg font-bold text-neutral-100">{Math.round(overridePcts[activeUsers[1].name] ?? 50)}%</span>
             </div>
           </div>
 
@@ -427,7 +430,7 @@
             <div class="flex items-center gap-3">
               <span class="text-xs font-semibold w-14 truncate" style="color: {u.color}">{u.name}</span>
               <input
-                type="number" min="0" max="100" step="0.1"
+                type="number" min="0" max="100" step="1"
                 bind:value={overridePcts[u.name]}
                 class="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100
                        focus:outline-none focus:ring-1 transition-colors"
@@ -443,7 +446,7 @@
           <div class="pt-1 flex items-center justify-between">
             <p class="text-[10px] text-neutral-600">Must sum to exactly 100%.</p>
             <span class="text-[10px] font-semibold {overrideOk ? 'text-emerald-400' : 'text-amber-400'}">
-              Sum: {overrideSum.toFixed(2)}%
+              Sum: {overrideSum}%
             </span>
           </div>
 

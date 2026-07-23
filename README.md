@@ -47,7 +47,7 @@ You can run the entire production-like stack using Docker Compose. The setup con
 
 #### The Role of Caddy Reverse Proxy
 Caddy orchestrates routing and traffic control for the cluster:
-- **TLS Termination:** Automatically provisions and renews SSL certificates for `jizifin.duckdns.org`.
+- **TLS Termination:** Automatically provisions and renews SSL certificates for `jizifin.duckdns.org` over HTTPS, while serving `http://localhost` and `http://127.0.0.1` over HTTP for local development.
 - **API Routing:** Proxies all paths matching `/api/*` to the backend service at `http://backend:8000` (stripping the `/api` prefix).
 - **Frontend Routing:** Proxies all other requests to the frontend service at `http://frontend:5173`.
 - **WebSocket Upgrade:** Forward HTTP connection upgrade headers automatically, allowing client WebSockets to connect to `/ws/finance` transparently.
@@ -58,7 +58,7 @@ Caddy orchestrates routing and traffic control for the cluster:
    ```bash
    docker compose up --build -d
    ```
-3. Access the application at `https://jizifin.duckdns.org` (or configured host name in `Caddyfile`).
+3. Access the application at `https://jizifin.duckdns.org` in production or `http://localhost` when running locally.
 4. Inspect logs using:
    ```bash
    docker compose logs -f

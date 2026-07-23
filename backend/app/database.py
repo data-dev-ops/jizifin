@@ -34,6 +34,16 @@ async def get_db() -> AsyncGenerator[aiosqlite.Connection, None]:
             raise
 
 
+async def ensure_column(conn: aiosqlite.Connection, table: str, column: str, col_definition: str) -> None:
+    """
+    Ensure a column exists on a table, adding it via ALTER TABLE if missing.
+    """
+    async with conn.execute(f"PRAGMA table_info({table})") as cur:
+        cols = {row[1] async for row in cur}
+    if column not in cols:
+        await conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_definition}")
+
+
 # ---------------------------------------------------------------------------
 # Schema initialisation
 # ---------------------------------------------------------------------------
@@ -134,14 +144,7 @@ async def init_db() -> None:
         )
 
         # ── Migrate existing expenses table: add tag_id column if missing ───
-        # SQLite does not support IF NOT EXISTS on ALTER TABLE ADD COLUMN,
-        # so we query the column list first and add only when absent.
-        async with conn.execute("PRAGMA table_info(expenses)") as cur:
-            cols = {row[1] async for row in cur}
-        if "tag_id" not in cols:
-            await conn.execute(
-                "ALTER TABLE expenses ADD COLUMN tag_id INTEGER REFERENCES tags(id) ON DELETE SET NULL"
-            )
+        await ensure_column(conn, "expenses", "tag_id", "INTEGER REFERENCES tags(id) ON DELETE SET NULL")
 
         # ── expense_overrides ──────────────────────────────────────────────
         # Per-transaction split overrides.  Present only when a custom split
@@ -243,6 +246,8 @@ async def init_db() -> None:
             "view_monthly_total",
             "view_monthly_by_category",
             "view_monthly_by_payer",
+            "view_expenses_by_month_category",
+            "view_project_summary",
             "view_tag_totals",
         ):
             await conn.execute(f"DROP VIEW IF EXISTS {view}")
@@ -272,6 +277,18 @@ async def init_db() -> None:
         )
         await conn.execute(
             """
+            CREATE VIEW view_expenses_by_month_category AS
+            SELECT
+                strftime('%Y-%m', expense_date)   AS month,
+                category,
+                ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
+                COUNT(*)                           AS expense_count
+            FROM   expenses
+            GROUP  BY strftime('%Y-%m', expense_date), category
+            """
+        )
+        await conn.execute(
+            """
             CREATE VIEW view_monthly_by_payer AS
             SELECT
                 who_paid,
@@ -280,6 +297,24 @@ async def init_db() -> None:
             FROM   expenses
             WHERE  strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')
             GROUP  BY who_paid
+            """
+        )
+
+        # ── view_project_summary ─────────────────────────────────────────────
+        # Aggregates total spent cents and expense counts per project.
+        await conn.execute(
+            """
+            CREATE VIEW view_project_summary AS
+            SELECT
+                p.id,
+                p.name,
+                p.target_cents,
+                p.target_date,
+                COALESCE(SUM(e.cost_cents), 0) AS total_spent_cents,
+                COUNT(e.id)                     AS expense_count
+            FROM projects p
+            LEFT JOIN expenses e ON e.project_id = p.id
+            GROUP BY p.id, p.name, p.target_cents, p.target_date
             """
         )
 

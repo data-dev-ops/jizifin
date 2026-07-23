@@ -34,6 +34,14 @@ class AllocationEntry(BaseModel):
     user_name: Annotated[str, Field(min_length=1, max_length=256)]
     pct:       Annotated[float, Field(ge=0.0, le=100.0)]
 
+    @field_validator("pct")
+    @classmethod
+    def validate_pct_is_integer(cls, v: float) -> float:
+        if v % 1 != 0:
+            raise ValueError("Allocation percentage must be an integer value.")
+        return v
+
+
 
 # ---------------------------------------------------------------------------
 # Users

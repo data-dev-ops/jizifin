@@ -116,6 +116,44 @@ export const settlements = writable([]);
 export const mobileSplitsEditable = persistedBoolean('mobileSplitsEditable', false);
 
 /**
+ * Helper: writable store that reads/writes a JSON object to localStorage.
+ */
+function persistedObject(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  let initial = defaultValue;
+  if (stored !== null) {
+    try {
+      initial = { ...defaultValue, ...JSON.parse(stored) };
+    } catch {}
+  }
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, JSON.stringify(val)));
+  return store;
+}
+
+/**
+ * Mobile preferences & tab visibility stores.
+ * Maps tab ID to boolean visibility on mobile devices.
+ * Settings and at least one other tab are always enforced active.
+ */
+export const mobileTabVisibility = persistedObject('mobileTabVisibility', {
+  dashboard: true,
+  expenses: true,
+  income: true,
+  splits: true,
+  projects: true,
+  tags: true,
+  recurring: true,
+  query: true,
+  settings: true,
+});
+
+export const mobileAutoCloseMenu = persistedBoolean('mobileAutoCloseMenu', true);
+export const mobileCompactView = persistedBoolean('mobileCompactView', false);
+export const mobileLargeTouchTargets = persistedBoolean('mobileLargeTouchTargets', false);
+
+
+/**
  * Helper: writable store that reads/writes a string to localStorage.
  */
 function persistedString(key, defaultValue) {

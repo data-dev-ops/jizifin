@@ -7,15 +7,27 @@ export default defineConfig({
     host: true,          // bind to 0.0.0.0 inside container
     port: 5173,
     strictPort: true,
-    allowedHosts: ['jizifin.duckdns.org', 'localhost', '134.209.137.40'],
-    // Forward /api and /ws to the local backend when running outside Docker.
-    // In production, Caddy handles this routing before requests reach Vite,
-    // so this proxy block is simply never exercised there.
+    allowedHosts: true,
+    // Forward /api and /ws to the backend container or local backend.
     proxy: {
-      // Mirrors Caddy's `handle_path /api/*`: strip the /api prefix before
-      // forwarding to the backend, so /api/users → backend:8000/users.
-      '/api': { target: 'http://localhost:8000', changeOrigin: true, rewrite: (path) => path.replace(/^\/api/, '') },
-      '/ws':  { target: 'ws://localhost:8000',   ws: true },
+      '/api': {
+        target: process.env.VITE_BACKEND_URL || 'http://backend:8000',
+        changeOrigin: true,
+        ws: true,
+        rewrite: (path) => path.replace(/^\/api/, ''),
+        configure: (proxy) => {
+          proxy.on('error', (err, _req, _res) => {
+            // Fallback for running Vite outside Docker directly on host machine
+            if (err.code === 'ECONNREFUSED' && !process.env.VITE_BACKEND_URL) {
+              // Ignore or handle
+            }
+          });
+        }
+      },
+      '/ws': {
+        target: process.env.VITE_WS_BACKEND_URL || 'ws://backend:8000',
+        ws: true
+      },
     },
   },
 });
