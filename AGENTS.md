@@ -53,7 +53,7 @@ To maintain zero-knowledge privacy for the household financial history, data is 
 3. **Deterministic AES-GCM Implications**:
    - **Queryability & Referential Integrity:** Because the encryption is deterministic (static IV), the exact same plaintext string always encrypts to the exact same ciphertext Base64URL string. This allows the backend to perform exact matches (`who_paid = ?`), enforce `PRIMARY KEY` uniqueness (e.g. `splits.category`), group records (`GROUP BY category`), and validate foreign keys (e.g. `expenses.who_paid` matching `users.name`).
    - **Security Weakness:** The use of a static IV breaks the semantic security of AES-GCM. It exposes the ciphertexts to frequency analysis and XOR pattern/replay leakages if an attacker obtains the database file.
-   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`.
+   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`, `joint_account.name`, `joint_account_deposits.user_name`, `joint_account_corrections.note`.
    - **Plaintext Columns:** Numeric amounts (cents), dates, integer primary/foreign keys, and the `settlements` table.
 
 ### 🚨 Coding Style Conventions & Deviations
@@ -148,6 +148,32 @@ All database interactions are defined in `backend/app/database.py`. The tables a
     - `pct` (REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0))
     - *Primary Key*: `(category, user_name)`
 
+13. **`joint_account`** (Singleton joint account config — id always 1)
+    - `id` (INTEGER PRIMARY KEY CHECK(id = 1))
+    - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
+    - `balance_cents` (INTEGER NOT NULL DEFAULT 0)
+    - `safety_margin_pct` (INTEGER NOT NULL DEFAULT 10 CHECK(0..100))
+    - `deposit_split_mode` (TEXT NOT NULL DEFAULT 'even' CHECK IN ('salary','even','manual'))
+    - `expected_total_cents` (INTEGER, nullable — overrides per-cat sum when set)
+
+14. **`joint_account_categories`** (Categories paid from joint account)
+    - `category` (TEXT PRIMARY KEY REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE)
+
+15. **`joint_account_deposits`** (Per-user monthly deposit config)
+    - `user_name` (TEXT PRIMARY KEY REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
+    - `amount_cents` (INTEGER NOT NULL DEFAULT 0 CHECK >= 0)
+    - `day_of_month` (INTEGER NOT NULL DEFAULT 1 CHECK 1..31)
+
+16. **`joint_account_expected_costs`** (Per-category expected monthly cost)
+    - `category` (TEXT PRIMARY KEY REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE)
+    - `expected_cents` (INTEGER NOT NULL CHECK >= 0)
+
+17. **`joint_account_corrections`** (Signed balance corrections — deposits and withdrawals)
+    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
+    - `amount_cents` (INTEGER NOT NULL — positive = top-up, negative = withdrawal)
+    - `correction_date` (TEXT NOT NULL GLOB YYYY-MM-DD)
+    - `note` (TEXT CHECK(length <= 512)) — Encrypted, nullable.
+
 ### Database Views (Read-Only)
 Views are dropped and recreated on startup to reflect any schema modifications:
 
@@ -233,14 +259,29 @@ Views are dropped and recreated on startup to reflect any schema modifications:
    ```
    *Impact:* Performs aggregations using the tag integer IDs (unencrypted).
 
+7. **`view_joint_account_monthly`** (Joint-account category spending by month)
+   ```sql
+   CREATE VIEW view_joint_account_monthly AS
+   SELECT
+       strftime('%Y-%m', e.expense_date)   AS month,
+       e.category,
+       ROUND(SUM(e.cost_cents) / 100.0, 2) AS total_amount,
+       COUNT(*)                             AS expense_count
+   FROM expenses e
+   INNER JOIN joint_account_categories jac ON jac.category = e.category
+   GROUP BY strftime('%Y-%m', e.expense_date), e.category
+   ```
+   *Impact:* Only covers categories assigned to the joint account.
+
 ### Complex Domain Logic
 - **Paybacks Calculation (`/analytics/paybacks`)**:
   Computes payback balances based on individual transactions. For each expense:
-  1. It reads the effective split override if present, falling back to split allocations, and finally to an equal split.
-  2. Resolves personal-pay categories (`PERSONAL COST`, `LEISURE`, `GIFT`) by renaming them dynamically to include the payer name and assigning them a 100% split share to the payer.
-  3. Accumulates the net balance per user in cents (positive represents overpayment, negative represents debt).
-  4. **Special Deduction Rule:** Subtracts the smaller of Zina's "Combined Fixed" payment and Jim's "Apartment" payment from Jim's net balance, and adds it to Zina's net balance (simulating Zina paying Jim).
-  5. Runs a greedy debt simplification algorithm that matches creditors against debtors to yield a minimal list of debt transfer objects (`DebtItem`).
+  1. **Joint account exclusion:** Expenses whose category is assigned to the joint account are excluded entirely from payback calculations (loaded from `joint_account_categories`).
+  2. It reads the effective split override if present, falling back to split allocations, and finally to an equal split.
+  3. Resolves personal-pay categories (`PERSONAL COST`, `LEISURE`, `GIFT`) by renaming them dynamically to include the payer name and assigning them a 100% split share to the payer.
+  4. Accumulates the net balance per user in cents (positive represents overpayment, negative represents debt).
+  5. **Special Deduction Rule:** Subtracts the smaller of Zina's "Combined Fixed" payment and Jim's "Apartment" payment from Jim's net balance, and adds it to Zina's net balance (simulating Zina paying Jim).
+  6. Runs a greedy debt simplification algorithm that matches creditors against debtors to yield a minimal list of debt transfer objects (`DebtItem`).
 - **Income Salary Carry-forward (`/analytics/income-by-person`)**:
   Calculates the income logged per active user for a target month. Since salary entries are append-only:
   1. It fetches only the latest `SALARY` category entry per user for the target month.
@@ -297,8 +338,9 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`frontend/vitest.config.js`**: Configures Vitest with JSDOM environment, Svelte plugin, setup file, and testing globals.
 - **`frontend/src/test/setup.js`**: Global test setup polyfilling WebCrypto (`globalThis.crypto`), Canvas 2D context, ResizeObserver, matchMedia, and establishing the mock `fetch` router.
 - **`frontend/src/test/crypto.test.js` & `api.test.js`**: Unit tests for Web Crypto PBKDF2/AES-GCM routines and API service layer.
-- **`frontend/src/test/components/`**: Houses 16 Svelte component test files (`App.test.js`, `ExpenseForm.test.js`, `BudgetManager.test.js`, `IncomeTab.test.js`, etc.) testing UI rendering, form validations, date locking, deletion confirmations, and user interactions.
+- **`frontend/src/test/components/`**: Houses 17 Svelte component test files (`App.test.js`, `ExpenseForm.test.js`, `BudgetManager.test.js`, `IncomeTab.test.js`, `JointAccountTab.test.js`, etc.) testing UI rendering, form validations, date locking, deletion confirmations, and user interactions.
 - **`frontend/src/lib/UserManager.svelte`**: Manages active users, colours, and deletions.
+- **`frontend/src/lib/JointAccountTab.svelte`**: Full joint account management panel — overview (balance, monthly spending vs. expected, deposit status), category assignment, per-user deposit schedule, per-category expected costs, manual balance corrections (top-ups/withdrawals), and settlement (direct-pay diff or adjust-deposits mode). Payback exclusion is enforced on the backend via `joint_account_categories`.
 
 ---
 

@@ -57,7 +57,10 @@ def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
         "recurring_expenses": ["name", "who_paid", "category"],
         "budgets": ["category"],
         "split_allocations": ["category", "user_name"],
-        "tags": ["name", "description"]
+        "tags": ["name", "description"],
+        "joint_account": ["name"],
+        "joint_account_deposits": ["user_name"],
+        "joint_account_corrections": ["note"],
     }
     
     conn = sqlite3.connect(str(db_path))

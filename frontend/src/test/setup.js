@@ -48,6 +48,26 @@ function mockFetchRouter(input, init) {
     return Promise.resolve(new Response(JSON.stringify({ columns: [], rows: [], row_count: 0, truncated: false }), { status: 200 }));
   }
 
+  // Joint account routes
+  if (urlStr.includes('/joint-account/categories') && (!init || init.method === 'GET')) {
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
+  if (urlStr.includes('/joint-account/deposits') && (!init || init.method === 'GET')) {
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
+  if (urlStr.includes('/joint-account/expected-costs') && (!init || init.method === 'GET')) {
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
+  if (urlStr.includes('/joint-account/corrections') && (!init || init.method === 'GET')) {
+    return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
+  if (urlStr.includes('/joint-account/dashboard')) {
+    return Promise.resolve(new Response(null, { status: 404 }));
+  }
+  if (urlStr.includes('/joint-account')) {
+    return Promise.resolve(new Response(JSON.stringify(null), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+  }
+
   return Promise.resolve(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
 }
 

@@ -98,6 +98,17 @@ from .models import (
     UserCreate,
     UserResponse,
     UserUpdate,
+    JointAccountCreate,
+    JointAccountUpdate,
+    JointAccountResponse,
+    JointAccountDepositCreate,
+    JointAccountDepositResponse,
+    JointAccountExpectedCostCreate,
+    JointAccountExpectedCostResponse,
+    JointAccountCorrectionCreate,
+    JointAccountCorrectionResponse,
+    JointAccountCategoryRow,
+    JointAccountDashboardResponse,
 )
 
 
@@ -1108,13 +1119,18 @@ async def get_paybacks(
     for r in alloc_rows:
         splits_dict.setdefault(r["category"], {})[r["user_name"]] = r["pct"]
 
-    # 2. Load expenses for target month
+    # 2. Load joint-account categories to exclude from paybacks
+    async with db.execute("SELECT category FROM joint_account_categories") as cur:
+        ja_cat_rows = await cur.fetchall()
+    joint_categories: set[str] = {r["category"] for r in ja_cat_rows}
+
+    # 3. Load expenses for target month (excluding joint-account categories)
     async with db.execute(
         "SELECT id, name, cost_cents, who_paid, category FROM expenses WHERE strftime('%Y-%m', expense_date) = ?",
         (target_month,),
     ) as cur:
         expense_rows = await cur.fetchall()
-    expenses = [dict(r) for r in expense_rows]
+    expenses = [dict(r) for r in expense_rows if r["category"] not in joint_categories]
 
     if not expenses:
         return PaybackSummary(rows=[], debts=[], month=target_month)
@@ -1536,6 +1552,368 @@ async def create_settlement(payload: SettlementCreate, db: DbDep) -> SettlementR
     async with db.execute("SELECT month, settled_at, net_balance_transferred_cents FROM settlements WHERE month=?", (payload.month,)) as cur:
         row = await cur.fetchone()
     return SettlementResponse(**dict(row))
+
+
+# ---------------------------------------------------------------------------
+# Joint Account
+# ---------------------------------------------------------------------------
+
+async def _get_joint_account(db: aiosqlite.Connection) -> dict | None:
+    """Return the singleton joint account row or None."""
+    async with db.execute(
+        "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_account WHERE id = 1"
+    ) as cur:
+        row = await cur.fetchone()
+    return dict(row) if row else None
+
+
+@app.get("/joint-account", response_model=JointAccountResponse | None, tags=["joint-account"])
+async def get_joint_account(db: DbDep):
+    """Return singleton joint account config, or null if not configured."""
+    return await _get_joint_account(db)
+
+
+@app.post("/joint-account", response_model=JointAccountResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
+async def create_joint_account(payload: JointAccountCreate, db: DbDep) -> JointAccountResponse:
+    """Create the singleton joint account (id=1). Fails if one already exists."""
+    try:
+        await db.execute(
+            """
+            INSERT INTO joint_account (id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents)
+            VALUES (1, ?, ?, ?, ?, ?)
+            """,
+            (payload.name, payload.balance_cents, payload.safety_margin_pct,
+             payload.deposit_split_mode, payload.expected_total_cents),
+        )
+        await db.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Joint account already exists.") from exc
+    row = await _get_joint_account(db)
+    return JointAccountResponse(**row)
+
+
+@app.patch("/joint-account", response_model=JointAccountResponse, tags=["joint-account"])
+async def update_joint_account(payload: JointAccountUpdate, db: DbDep) -> JointAccountResponse:
+    """Partially update the joint account config."""
+    row = await _get_joint_account(db)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+    updates: list[str] = []
+    params: list = []
+    for field, col in [
+        ("name", "name"),
+        ("balance_cents", "balance_cents"),
+        ("safety_margin_pct", "safety_margin_pct"),
+        ("deposit_split_mode", "deposit_split_mode"),
+        ("expected_total_cents", "expected_total_cents"),
+    ]:
+        val = getattr(payload, field)
+        if val is not None:
+            updates.append(f"{col} = ?")
+            params.append(val)
+    if not updates:
+        return JointAccountResponse(**row)
+    params.append(1)
+    await db.execute(f"UPDATE joint_account SET {', '.join(updates)} WHERE id = ?", params)
+    await db.commit()
+    row = await _get_joint_account(db)
+    return JointAccountResponse(**row)
+
+
+@app.delete("/joint-account", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
+async def delete_joint_account(db: DbDep) -> None:
+    """Remove the joint account and all associated config."""
+    await db.execute("DELETE FROM joint_account_corrections")
+    await db.execute("DELETE FROM joint_account_expected_costs")
+    await db.execute("DELETE FROM joint_account_deposits")
+    await db.execute("DELETE FROM joint_account_categories")
+    await db.execute("DELETE FROM joint_account WHERE id = 1")
+    await db.commit()
+
+
+# ── Joint Account Categories ─────────────────────────────────────────────────
+
+@app.get("/joint-account/categories", response_model=list[str], tags=["joint-account"])
+async def list_joint_account_categories(db: DbDep) -> list[str]:
+    async with db.execute("SELECT category FROM joint_account_categories") as cur:
+        rows = await cur.fetchall()
+    return [r["category"] for r in rows]
+
+
+@app.post("/joint-account/categories", status_code=status.HTTP_201_CREATED, tags=["joint-account"])
+async def add_joint_account_category(payload: dict, db: DbDep):
+    """Add a category to the joint account. Payload: {category: str}"""
+    category = payload.get("category")
+    if not category:
+        raise HTTPException(status_code=400, detail="category required")
+    try:
+        await db.execute("INSERT INTO joint_account_categories (category) VALUES (?)", (category,))
+        await db.commit()
+    except Exception as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already assigned.") from exc
+    return {"category": category}
+
+
+@app.delete("/joint-account/categories/{category}", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
+async def remove_joint_account_category(category: str, db: DbDep) -> None:
+    await db.execute("DELETE FROM joint_account_categories WHERE category = ?", (category,))
+    await db.commit()
+
+
+# ── Joint Account Deposits ────────────────────────────────────────────────────
+
+@app.get("/joint-account/deposits", response_model=list[JointAccountDepositResponse], tags=["joint-account"])
+async def list_joint_account_deposits(db: DbDep) -> list[JointAccountDepositResponse]:
+    async with db.execute("SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits") as cur:
+        rows = await cur.fetchall()
+    return [JointAccountDepositResponse(**dict(r)) for r in rows]
+
+
+@app.put("/joint-account/deposits", response_model=list[JointAccountDepositResponse], tags=["joint-account"])
+async def set_joint_account_deposits(
+    deposits: list[JointAccountDepositCreate], db: DbDep
+) -> list[JointAccountDepositResponse]:
+    """Replace all deposit records (upsert per user)."""
+    for d in deposits:
+        await db.execute(
+            """
+            INSERT INTO joint_account_deposits (user_name, amount_cents, day_of_month)
+            VALUES (?, ?, ?)
+            ON CONFLICT(user_name) DO UPDATE SET
+                amount_cents = excluded.amount_cents,
+                day_of_month = excluded.day_of_month
+            """,
+            (d.user_name, d.amount_cents, d.day_of_month),
+        )
+    await db.commit()
+    async with db.execute("SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits") as cur:
+        rows = await cur.fetchall()
+    return [JointAccountDepositResponse(**dict(r)) for r in rows]
+
+
+# ── Joint Account Expected Costs ─────────────────────────────────────────────
+
+@app.get("/joint-account/expected-costs", response_model=list[JointAccountExpectedCostResponse], tags=["joint-account"])
+async def list_joint_account_expected_costs(db: DbDep) -> list[JointAccountExpectedCostResponse]:
+    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+        rows = await cur.fetchall()
+    return [JointAccountExpectedCostResponse(**dict(r)) for r in rows]
+
+
+@app.put("/joint-account/expected-costs", response_model=list[JointAccountExpectedCostResponse], tags=["joint-account"])
+async def set_joint_account_expected_costs(
+    costs: list[JointAccountExpectedCostCreate], db: DbDep
+) -> list[JointAccountExpectedCostResponse]:
+    """Replace all expected cost records."""
+    # Clear and rewrite
+    await db.execute("DELETE FROM joint_account_expected_costs")
+    for c in costs:
+        await db.execute(
+            "INSERT INTO joint_account_expected_costs (category, expected_cents) VALUES (?, ?)",
+            (c.category, c.expected_cents),
+        )
+    await db.commit()
+    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+        rows = await cur.fetchall()
+    return [JointAccountExpectedCostResponse(**dict(r)) for r in rows]
+
+
+# ── Joint Account Corrections ────────────────────────────────────────────────
+
+@app.get("/joint-account/corrections", response_model=list[JointAccountCorrectionResponse], tags=["joint-account"])
+async def list_joint_account_corrections(db: DbDep) -> list[JointAccountCorrectionResponse]:
+    async with db.execute(
+        "SELECT id, amount_cents, correction_date, note FROM joint_account_corrections ORDER BY correction_date DESC, id DESC"
+    ) as cur:
+        rows = await cur.fetchall()
+    return [JointAccountCorrectionResponse(**dict(r)) for r in rows]
+
+
+@app.post("/joint-account/corrections", response_model=JointAccountCorrectionResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
+async def create_joint_account_correction(payload: JointAccountCorrectionCreate, db: DbDep) -> JointAccountCorrectionResponse:
+    """Log a balance correction (positive = top-up, negative = withdrawal)."""
+    row = await _get_joint_account(db)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+    async with db.execute(
+        "INSERT INTO joint_account_corrections (amount_cents, correction_date, note) VALUES (?, ?, ?)",
+        (payload.amount_cents, payload.correction_date, payload.note),
+    ) as cur:
+        new_id = cur.lastrowid
+    # Update balance
+    new_balance = row["balance_cents"] + payload.amount_cents
+    await db.execute("UPDATE joint_account SET balance_cents = ? WHERE id = 1", (new_balance,))
+    await db.commit()
+    async with db.execute(
+        "SELECT id, amount_cents, correction_date, note FROM joint_account_corrections WHERE id = ?", (new_id,)
+    ) as cur:
+        corr_row = await cur.fetchone()
+    return JointAccountCorrectionResponse(**dict(corr_row))
+
+
+@app.delete("/joint-account/corrections/{correction_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
+async def delete_joint_account_correction(correction_id: int, db: DbDep) -> None:
+    """Delete a correction and reverse its effect on balance."""
+    async with db.execute(
+        "SELECT amount_cents FROM joint_account_corrections WHERE id = ?", (correction_id,)
+    ) as cur:
+        corr = await cur.fetchone()
+    if corr is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Correction not found.")
+    row = await _get_joint_account(db)
+    if row:
+        new_balance = row["balance_cents"] - corr["amount_cents"]
+        await db.execute("UPDATE joint_account SET balance_cents = ? WHERE id = 1", (new_balance,))
+    await db.execute("DELETE FROM joint_account_corrections WHERE id = ?", (correction_id,))
+    await db.commit()
+
+
+# ── Joint Account Dashboard ──────────────────────────────────────────────────
+
+@app.get("/joint-account/dashboard", response_model=JointAccountDashboardResponse, tags=["joint-account"])
+async def get_joint_account_dashboard(db: DbDep, month: str | None = None) -> JointAccountDashboardResponse:
+    """Compute actual vs expected spending for joint account categories in a month."""
+    from datetime import date as _date
+    target_month = month or _date.today().strftime("%Y-%m")
+
+    row = await _get_joint_account(db)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+
+    # Actuals per category for the month
+    async with db.execute(
+        "SELECT category, total_amount, expense_count FROM view_joint_account_monthly WHERE month = ?",
+        (target_month,),
+    ) as cur:
+        actual_rows = await cur.fetchall()
+    actual_map: dict[str, int] = {r["category"]: round(r["total_amount"] * 100) for r in actual_rows}
+
+    # Expected costs per category
+    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+        expected_rows = await cur.fetchall()
+    expected_map: dict[str, int] = {r["category"]: r["expected_cents"] for r in expected_rows}
+
+    # All joint categories
+    async with db.execute("SELECT category FROM joint_account_categories") as cur:
+        cat_rows = await cur.fetchall()
+    all_cats = [r["category"] for r in cat_rows]
+
+    # Sum of expected (per-cat or global override)
+    expected_total = row["expected_total_cents"]
+    if expected_total is None:
+        expected_total = sum(expected_map.values())
+
+    actual_total_cents = sum(actual_map.values())
+
+    safety = row["safety_margin_pct"]
+    target_deposit_cents = round(expected_total * (1 + safety / 100.0))
+
+    # Total deposits this month (from corrections with positive amounts)
+    async with db.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0",
+        (target_month,),
+    ) as cur:
+        dep_row = await cur.fetchone()
+    total_deposits_cents = dep_row["total"] if dep_row else 0
+
+    categories: list[JointAccountCategoryRow] = []
+    for cat in all_cats:
+        actual_c   = actual_map.get(cat, 0)
+        expected_c = expected_map.get(cat, 0)
+        pct_used   = round(actual_c / expected_c * 100.0, 1) if expected_c > 0 else 0.0
+        categories.append(JointAccountCategoryRow(
+            category=cat,
+            actual_cents=actual_c,
+            expected_cents=expected_c,
+            pct_used=pct_used,
+        ))
+
+    return JointAccountDashboardResponse(
+        month=target_month,
+        balance_cents=row["balance_cents"],
+        expected_total_cents=expected_total,
+        actual_total_cents=actual_total_cents,
+        total_deposits_cents=total_deposits_cents,
+        safety_margin_pct=safety,
+        target_deposit_cents=target_deposit_cents,
+        categories=categories,
+    )
+
+
+# ── Joint Account Settle ─────────────────────────────────────────────────────
+
+@app.post("/joint-account/settle", tags=["joint-account"])
+async def settle_joint_account(
+    payload: dict,
+    db: DbDep,
+) -> dict:
+    """
+    Settle the joint account balance.
+    Payload: {mode: 'direct_pay' | 'adjust_deposits', month: str, correction_note: str}
+    - direct_pay:       log a correction for the difference; returns suggested transfers.
+    - adjust_deposits:  rebalance deposit amounts to recover deficit/surplus over next month.
+    """
+    from datetime import date as _date
+    mode  = payload.get("mode", "direct_pay")
+    month = payload.get("month") or _date.today().strftime("%Y-%m")
+    note  = payload.get("correction_note", "")
+
+    row = await _get_joint_account(db)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+
+    # Actual spending this month
+    async with db.execute(
+        "SELECT COALESCE(ROUND(SUM(cost_cents) / 100.0, 2), 0.0) AS total FROM expenses e INNER JOIN joint_account_categories jac ON jac.category = e.category WHERE strftime('%Y-%m', e.expense_date) = ?",
+        (month,),
+    ) as cur:
+        spend_row = await cur.fetchone()
+    actual_cents = round((spend_row["total"] or 0) * 100)
+
+    # Deposits this month
+    async with db.execute(
+        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0",
+        (month,),
+    ) as cur:
+        dep_row = await cur.fetchone()
+    deposit_cents = dep_row["total"] if dep_row else 0
+
+    difference_cents = deposit_cents - actual_cents  # positive = surplus, negative = deficit
+
+    if mode == "direct_pay":
+        return {
+            "mode": "direct_pay",
+            "month": month,
+            "difference_cents": difference_cents,
+            "message": "Surplus" if difference_cents >= 0 else "Deficit",
+        }
+    elif mode == "adjust_deposits":
+        # Distribute difference proportionally across deposits
+        async with db.execute(
+            "SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits"
+        ) as cur:
+            dep_rows = await cur.fetchall()
+        deposits = [dict(r) for r in dep_rows]
+        total_deposit = sum(d["amount_cents"] for d in deposits) or 1
+        adjustments = []
+        for d in deposits:
+            share = d["amount_cents"] / total_deposit
+            adj = round(-difference_cents * share)  # distribute recovery
+            new_amt = max(0, d["amount_cents"] + adj)
+            await db.execute(
+                "UPDATE joint_account_deposits SET amount_cents = ? WHERE user_name = ?",
+                (new_amt, d["user_name"]),
+            )
+            adjustments.append({"user_name": d["user_name"], "old_cents": d["amount_cents"], "new_cents": new_amt})
+        await db.commit()
+        return {
+            "mode": "adjust_deposits",
+            "month": month,
+            "difference_cents": difference_cents,
+            "adjustments": adjustments,
+        }
+    else:
+        raise HTTPException(status_code=400, detail="mode must be direct_pay or adjust_deposits")
 
 
 # ---------------------------------------------------------------------------

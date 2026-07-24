@@ -7,7 +7,7 @@
 import { get } from 'svelte/store';
 import { cryptoKey } from './stores.js';
 import { encryptText, decryptText } from './crypto.js';
-import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories } from './stores.js';
+import { expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, jointAccount, jointCategories, jointDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
 
 const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
 
@@ -675,6 +675,12 @@ export async function fetchAllData(month) {
     fetchSettlements(),
     fetchIncome(month),
     fetchIncomeCategories(),
+    fetchJointAccount(),
+    fetchJointCategories(),
+    fetchJointDeposits(),
+    fetchJointExpectedCosts(),
+    fetchJointCorrections(),
+    fetchJointDashboard(month),
   ]);
 }
 
@@ -824,4 +830,229 @@ export async function createSettlement(payload) {
   });
   settlements.update((prev) => [data, ...prev]);
   return data;
+}
+
+// ---------------------------------------------------------------------------
+// Joint Account
+// ---------------------------------------------------------------------------
+
+/**
+ * Decrypt a joint account config object. Only `name` is encrypted.
+ */
+async function decryptJointAccount(ja) {
+  if (!ja) return null;
+  return { ...ja, name: await dec(ja.name) };
+}
+
+/**
+ * Decrypt a deposit entry. user_name is encrypted.
+ */
+async function decryptJointDeposit(d) {
+  return { ...d, user_name: await dec(d.user_name) };
+}
+
+/**
+ * Decrypt an expected cost entry. category is encrypted.
+ */
+async function decryptJointExpectedCost(c) {
+  return { ...c, category: await dec(c.category) };
+}
+
+/**
+ * Decrypt a correction entry. note may be null or encrypted.
+ */
+async function decryptJointCorrection(corr) {
+  return { ...corr, note: corr.note ? await dec(corr.note) : null };
+}
+
+/**
+ * Decrypt a dashboard response: category fields in the categories array are encrypted.
+ */
+async function decryptJointDashboard(dash) {
+  if (!dash) return null;
+  const categories = await Promise.all(
+    dash.categories.map(async (row) => ({ ...row, category: await dec(row.category) }))
+  );
+  return { ...dash, categories };
+}
+
+export async function fetchJointAccount() {
+  const data = await request('/joint-account');
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function createJointAccount(payload) {
+  const body = { ...payload, name: await enc(payload.name) };
+  const data = await request('/joint-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function updateJointAccount(payload) {
+  const body = { ...payload };
+  if (payload.name) body.name = await enc(payload.name);
+  const data = await request('/joint-account', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function deleteJointAccount() {
+  const res = await fetch(`${BASE}/joint-account`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account → ${res.status}`);
+  jointAccount.set(null);
+  jointCategories.set([]);
+  jointDeposits.set([]);
+  jointExpectedCosts.set([]);
+  jointCorrections.set([]);
+  jointDashboard.set(null);
+}
+
+// ── Categories ──────────────────────────────────────────────────────────────────
+
+export async function fetchJointCategories() {
+  // Categories are stored as encrypted ciphertexts but compared as-is against splits.
+  // Decrypt only for display; the store keeps decrypted values alongside enc for form use.
+  const raw = await request('/joint-account/categories');
+  // Decrypt each category for display
+  const decrypted = await Promise.all(raw.map((c) => dec(c)));
+  // Store objects with both enc (for API calls) and plain (for display)
+  const pairs = raw.map((enc_cat, i) => ({ enc: enc_cat, plain: decrypted[i] }));
+  jointCategories.set(pairs);
+  return pairs;
+}
+
+export async function addJointCategory(encryptedCategory) {
+  // encryptedCategory is already encrypted (comes from splits store enc field or enc())
+  const data = await request('/joint-account/categories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: encryptedCategory }),
+  });
+  await fetchJointCategories();
+  return data;
+}
+
+export async function removeJointCategory(encryptedCategory) {
+  const res = await fetch(`${BASE}/joint-account/categories/${encodeURIComponent(encryptedCategory)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account/categories → ${res.status}`);
+  await fetchJointCategories();
+}
+
+// ── Deposits ─────────────────────────────────────────────────────────────────────
+
+export async function fetchJointDeposits() {
+  const raw = await request('/joint-account/deposits');
+  const decrypted = await Promise.all(raw.map(decryptJointDeposit));
+  jointDeposits.set(decrypted);
+  return decrypted;
+}
+
+export async function setJointDeposits(deposits) {
+  // deposits: [{ user_name (plain), amount_cents, day_of_month }]
+  const encrypted = await Promise.all(
+    deposits.map(async (d) => ({ ...d, user_name: await enc(d.user_name) }))
+  );
+  const raw = await request('/joint-account/deposits', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encrypted),
+  });
+  const decrypted = await Promise.all(raw.map(decryptJointDeposit));
+  jointDeposits.set(decrypted);
+  return decrypted;
+}
+
+// ── Expected Costs ─────────────────────────────────────────────────────────────
+
+export async function fetchJointExpectedCosts() {
+  const raw = await request('/joint-account/expected-costs');
+  const decrypted = await Promise.all(raw.map(decryptJointExpectedCost));
+  jointExpectedCosts.set(decrypted);
+  return decrypted;
+}
+
+export async function setJointExpectedCosts(costs) {
+  // costs: [{ category (plain), expected_cents }]
+  const encrypted = await Promise.all(
+    costs.map(async (c) => ({ ...c, category: await enc(c.category) }))
+  );
+  const raw = await request('/joint-account/expected-costs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encrypted),
+  });
+  const decrypted = await Promise.all(raw.map(decryptJointExpectedCost));
+  jointExpectedCosts.set(decrypted);
+  return decrypted;
+}
+
+// ── Corrections ──────────────────────────────────────────────────────────────────
+
+export async function fetchJointCorrections() {
+  const raw = await request('/joint-account/corrections');
+  const decrypted = await Promise.all(raw.map(decryptJointCorrection));
+  jointCorrections.set(decrypted);
+  return decrypted;
+}
+
+export async function createJointCorrection(payload) {
+  // payload: { amount_cents, correction_date, note? (plain) }
+  const body = {
+    amount_cents: payload.amount_cents,
+    correction_date: payload.correction_date,
+    note: payload.note ? await enc(payload.note) : null,
+  };
+  const raw = await request('/joint-account/corrections', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointCorrection(raw);
+  jointCorrections.update((prev) => [decrypted, ...prev]);
+  // Refresh joint account balance
+  await fetchJointAccount();
+  return decrypted;
+}
+
+export async function deleteJointCorrection(id) {
+  const res = await fetch(`${BASE}/joint-account/corrections/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account/corrections/${id} → ${res.status}`);
+  jointCorrections.update((prev) => prev.filter((c) => c.id !== id));
+  await fetchJointAccount();
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────────
+
+export async function fetchJointDashboard(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  try {
+    const raw = await request(`/joint-account/dashboard${qs}`);
+    const decrypted = await decryptJointDashboard(raw);
+    jointDashboard.set(decrypted);
+    return decrypted;
+  } catch {
+    // No joint account configured — silently set null
+    jointDashboard.set(null);
+    return null;
+  }
+}
+
+export async function settleJointAccount(payload) {
+  return request('/joint-account/settle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
 }

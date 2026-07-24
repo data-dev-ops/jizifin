@@ -473,3 +473,120 @@ class SettlementResponse(BaseModel):
     net_balance_transferred_cents: int
 
     model_config = {"from_attributes": True}
+
+
+# ---------------------------------------------------------------------------
+# Joint Account
+# ---------------------------------------------------------------------------
+
+class JointAccountCreate(BaseModel):
+    """Payload to create the singleton joint account config."""
+    name:                 Annotated[str, Field(min_length=1, max_length=256)]
+    balance_cents:        int = Field(default=0, description="Current balance in whole cents")
+    safety_margin_pct:    Annotated[int, Field(ge=0, le=100)] = 10
+    deposit_split_mode:   str = Field(default="even", description="salary | even | manual")
+    expected_total_cents: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("deposit_split_mode")
+    @classmethod
+    def validate_split_mode(cls, v: str) -> str:
+        if v not in ("salary", "even", "manual"):
+            raise ValueError("deposit_split_mode must be salary, even, or manual")
+        return v
+
+
+class JointAccountUpdate(BaseModel):
+    """Partial update for joint account config."""
+    name:                 Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    balance_cents:        Optional[int] = None
+    safety_margin_pct:    Optional[Annotated[int, Field(ge=0, le=100)]] = None
+    deposit_split_mode:   Optional[str] = None
+    expected_total_cents: Optional[int] = Field(default=None, ge=0)
+
+    @field_validator("deposit_split_mode")
+    @classmethod
+    def validate_split_mode(cls, v: str | None) -> str | None:
+        if v is not None and v not in ("salary", "even", "manual"):
+            raise ValueError("deposit_split_mode must be salary, even, or manual")
+        return v
+
+
+class JointAccountResponse(BaseModel):
+    """Full joint account config with computed fields."""
+    id:                   int
+    name:                 str
+    balance_cents:        int
+    safety_margin_pct:    int
+    deposit_split_mode:   str
+    expected_total_cents: Optional[int] = None
+
+    model_config = {"from_attributes": True}
+
+
+class JointAccountDepositCreate(BaseModel):
+    user_name:    Annotated[str, Field(min_length=1, max_length=256)]
+    amount_cents: Annotated[int, Field(ge=0)]
+    day_of_month: Annotated[int, Field(ge=1, le=31)]
+
+
+class JointAccountDepositResponse(BaseModel):
+    user_name:    str
+    amount_cents: int
+    day_of_month: int
+
+    model_config = {"from_attributes": True}
+
+
+class JointAccountExpectedCostCreate(BaseModel):
+    category:       Annotated[str, Field(min_length=1, max_length=256)]
+    expected_cents: Annotated[int, Field(ge=0)]
+
+
+class JointAccountExpectedCostResponse(BaseModel):
+    category:       str
+    expected_cents: int
+
+    model_config = {"from_attributes": True}
+
+
+class JointAccountCorrectionCreate(BaseModel):
+    amount_cents:    int = Field(..., description="Signed cents — positive = top-up, negative = withdrawal")
+    correction_date: str = Field(..., description="ISO date YYYY-MM-DD")
+    note:            Optional[Annotated[str, Field(max_length=512)]] = None
+
+    @field_validator("correction_date")
+    @classmethod
+    def validate_date(cls, v: str) -> str:
+        if not _DATE_RE.fullmatch(v):
+            raise ValueError("correction_date must be YYYY-MM-DD")
+        return v
+
+
+class JointAccountCorrectionResponse(BaseModel):
+    id:              int
+    amount_cents:    int
+    correction_date: str
+    note:            Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class JointAccountCategoryRow(BaseModel):
+    """One category's actual vs expected for a given month."""
+    category:       str
+    actual_cents:   int
+    expected_cents: int
+    pct_used:       float
+
+
+class JointAccountDashboardResponse(BaseModel):
+    """Dashboard data: actual vs expected for a month."""
+    month:                str
+    balance_cents:        int
+    expected_total_cents: int        # sum of per-cat expected or override
+    actual_total_cents:   int
+    total_deposits_cents: int
+    safety_margin_pct:    int
+    target_deposit_cents: int        # expected * (1 + margin%)
+    categories:           list[JointAccountCategoryRow]
+    has_joint_account:    bool = True

@@ -15,6 +15,12 @@
  * settlements       → array of SettlementResponse rows (locked months)
  * projects          → array of ProjectResponse objects
  * tags              → array of TagTotalRow objects (all-time aggregates per tag)
+ * jointAccount      → singleton JointAccountResponse | null
+ * jointCategories   → array of encrypted category strings assigned to the joint account
+ * jointDeposits     → array of JointAccountDepositResponse objects
+ * jointExpectedCosts→ array of JointAccountExpectedCostResponse objects
+ * jointCorrections  → array of JointAccountCorrectionResponse objects
+ * jointDashboard    → JointAccountDashboardResponse | null
  */
 
 import { writable } from 'svelte/store';
@@ -109,6 +115,39 @@ export const recurringExpenses = writable([]);
 export const settlements = writable([]);
 
 /**
+ * Joint account singleton config. Null when not configured.
+ * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents }
+ */
+export const jointAccount = writable(null);
+
+/**
+ * Encrypted category strings assigned to the joint account.
+ * Decrypted at UI layer for display.
+ */
+export const jointCategories = writable([]);
+
+/**
+ * Per-user deposit config. Each: { user_name (decrypted), amount_cents, day_of_month }
+ */
+export const jointDeposits = writable([]);
+
+/**
+ * Per-category expected monthly costs. Each: { category (decrypted), expected_cents }
+ */
+export const jointExpectedCosts = writable([]);
+
+/**
+ * Balance correction log. Each: { id, amount_cents, correction_date, note (decrypted) }
+ */
+export const jointCorrections = writable([]);
+
+/**
+ * Dashboard response for the selected month.
+ * Structure: JointAccountDashboardResponse
+ */
+export const jointDashboard = writable(null);
+
+/**
  * UI preference: allow editing split percentages on mobile.
  * Default false — mobile view is read-only until the user opts in via Settings.
  * Persisted to localStorage so the choice survives page reload.
@@ -146,6 +185,7 @@ export const mobileTabVisibility = persistedObject('mobileTabVisibility', {
   recurring: true,
   query: true,
   settings: true,
+  joint: true,
 });
 
 export const mobileAutoCloseMenu = persistedBoolean('mobileAutoCloseMenu', true);

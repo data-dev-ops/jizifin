@@ -235,6 +235,74 @@ async def init_db() -> None:
             """
         )
 
+        # ── joint_account ───────────────────────────────────────────────────
+        # Singleton config row (id always 1).  name is encrypted.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joint_account (
+                id                   INTEGER PRIMARY KEY CHECK(id = 1),
+                name                 TEXT    NOT NULL CHECK(length(name) <= 256),
+                balance_cents        INTEGER NOT NULL DEFAULT 0,
+                safety_margin_pct    INTEGER NOT NULL DEFAULT 10
+                                     CHECK(safety_margin_pct >= 0 AND safety_margin_pct <= 100),
+                deposit_split_mode   TEXT    NOT NULL DEFAULT 'even'
+                                     CHECK(deposit_split_mode IN ('salary', 'even', 'manual')),
+                expected_total_cents INTEGER
+            )
+            """
+        )
+
+        # ── joint_account_categories ────────────────────────────────────────
+        # Which expense categories are paid from the joint account.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joint_account_categories (
+                category TEXT PRIMARY KEY
+                         REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE
+            )
+            """
+        )
+
+        # ── joint_account_deposits ──────────────────────────────────────────
+        # Per-user monthly deposit configuration.  user_name is encrypted.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joint_account_deposits (
+                user_name    TEXT    PRIMARY KEY
+                             REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                amount_cents INTEGER NOT NULL DEFAULT 0 CHECK(amount_cents >= 0),
+                day_of_month INTEGER NOT NULL DEFAULT 1 CHECK(day_of_month >= 1 AND day_of_month <= 31)
+            )
+            """
+        )
+
+        # ── joint_account_expected_costs ────────────────────────────────────
+        # Per-category expected monthly costs for joint-account categories.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joint_account_expected_costs (
+                category       TEXT    PRIMARY KEY
+                               REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+                expected_cents INTEGER NOT NULL CHECK(expected_cents >= 0)
+            )
+            """
+        )
+
+        # ── joint_account_corrections ───────────────────────────────────────
+        # Manual balance corrections (deposits, withdrawals, corrections).
+        # note is encrypted.  amount_cents is signed.
+        await conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS joint_account_corrections (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                amount_cents    INTEGER NOT NULL,
+                correction_date TEXT    NOT NULL
+                                CHECK(correction_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                note            TEXT    CHECK(length(note) <= 512)
+            )
+            """
+        )
+
         # ── Seed default split categories ───────────────────────────────────
         # In encrypted mode, the backend cannot seed plaintext categories.
         # The user must add categories manually via the UI.
@@ -249,6 +317,7 @@ async def init_db() -> None:
             "view_expenses_by_month_category",
             "view_project_summary",
             "view_tag_totals",
+            "view_joint_account_monthly",
         ):
             await conn.execute(f"DROP VIEW IF EXISTS {view}")
 
@@ -335,6 +404,22 @@ async def init_db() -> None:
             FROM tags t
             LEFT JOIN expenses e ON e.tag_id = t.id
             GROUP BY t.id, t.name, t.color, t.description
+            """
+        )
+
+        # ── view_joint_account_monthly ───────────────────────────────────────
+        # Monthly spending per category for joint-account-assigned categories.
+        await conn.execute(
+            """
+            CREATE VIEW view_joint_account_monthly AS
+            SELECT
+                strftime('%Y-%m', e.expense_date)  AS month,
+                e.category,
+                ROUND(SUM(e.cost_cents) / 100.0, 2) AS total_amount,
+                COUNT(*)                             AS expense_count
+            FROM expenses e
+            INNER JOIN joint_account_categories jac ON jac.category = e.category
+            GROUP BY strftime('%Y-%m', e.expense_date), e.category
             """
         )
 
