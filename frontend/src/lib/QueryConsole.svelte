@@ -8,9 +8,7 @@
    */
 
 
-import { dec } from './api.js';
-
-  const BASE_URL = `/api`;
+import { dec, authFetch } from './api.js';
 
   let sql = '';
   let loading = false;
@@ -53,11 +51,12 @@ import { dec } from './api.js';
     result = null;
 
     try {
-      const res = await fetch(`${BASE_URL}/query`, {
+      const res = await authFetch('/query', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ sql: sql.trim() }),
       });
+
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({ detail: res.statusText }));

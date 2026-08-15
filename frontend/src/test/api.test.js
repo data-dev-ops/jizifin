@@ -188,5 +188,31 @@ describe('api.js — API Service Layer & Encryption Wrappers', () => {
       expect(created.notes).toBe("Lead role");
       expect(get(jobs)).toContainEqual(created);
     });
+
+    it("authFetch attaches Authorization Bearer header when sessionToken is set", async () => {
+      const { authFetch } = await import("../lib/api.js");
+      const { sessionToken } = await import("../lib/stores.js");
+
+      sessionToken.set("test-bearer-token-12345");
+
+      let capturedHeaders = null;
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(async (url, options) => {
+        capturedHeaders = options.headers;
+        return {
+          ok: true,
+          json: async () => ({ status: "ok" }),
+        };
+      }));
+
+      await authFetch("/users");
+      expect(capturedHeaders).toBeDefined();
+      expect(capturedHeaders.Authorization).toBe("Bearer test-bearer-token-12345");
+
+      // Reset session token
+      sessionToken.set("");
+      await authFetch("/users");
+      expect(capturedHeaders.Authorization).toBeUndefined();
+    });
   });
 });
+

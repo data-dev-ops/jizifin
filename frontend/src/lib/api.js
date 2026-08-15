@@ -6,12 +6,12 @@
 
 import { get } from 'svelte/store';
 import { encryptText, decryptText } from './crypto.js';
-import { cryptoKey, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
+import { cryptoKey, sessionToken, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
 
 const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
 
 // ---------------------------------------------------------------------------
-// Encryption / Decryption Helpers
+// Encryption / Decryption Helpers & Auth Fetch
 // ---------------------------------------------------------------------------
 
 export async function enc(txt) {
@@ -32,14 +32,25 @@ export async function dec(txt) {
   return decryptText(txt, key);
 }
 
+export async function authFetch(path, options = {}) {
+  const token = get(sessionToken);
+  const headers = {
+    ...(options.headers || {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {})
+  };
+  return fetch(`${BASE}${path}`, { ...options, headers });
+}
+
 async function request(path, options = {}) {
-  const res = await fetch(`${BASE}${path}`, options);
+  const res = await authFetch(path, options);
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API ${options.method ?? 'GET'} ${path} → ${res.status}: ${body}`);
   }
+  if (res.status === 204) return null;
   return res.json();
 }
+
 
 /**
  * Remaps the string keys of a plain-value dict through dec().
@@ -117,7 +128,7 @@ export async function updateUser(name, payload) {
 
 export async function deleteUser(name) {
   const encName = await enc(name);
-  const res = await fetch(`${BASE}/users/${encodeURIComponent(encName)}`, { method: 'DELETE' });
+  const res = await authFetch(`/users/${encodeURIComponent(encName)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /users/${name} → ${res.status}: ${body}`);
@@ -182,7 +193,7 @@ export async function createExpense(payload, month) {
 }
 
 export async function deleteExpense(id, month) {
-  const res = await fetch(`${BASE}/expenses/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/expenses/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /expenses/${id} → ${res.status}: ${body}`);
@@ -457,7 +468,7 @@ export async function fetchIncome(month) {
  * Delete a single income entry by id and remove it from the store.
  */
 export async function deleteIncome(id) {
-  const res = await fetch(`${BASE}/income/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/income/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /income/${id} → ${res.status}: ${body}`);
@@ -534,7 +545,7 @@ export async function updateJob(id, payload) {
 }
 
 export async function deleteJob(id) {
-  const res = await fetch(`${BASE}/jobs/${id}`, { method: "DELETE" });
+  const res = await authFetch(`/jobs/${id}`, { method: "DELETE" });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /jobs/${id} → ${res.status}: ${body}`);
@@ -600,7 +611,7 @@ export async function createIncomeCategory(name) {
  */
 export async function deleteIncomeCategory(name) {
   const encName = await enc(name);
-  const res = await fetch(`${BASE}/income-categories/${encodeURIComponent(encName)}`, { method: 'DELETE' });
+  const res = await authFetch(`/income-categories/${encodeURIComponent(encName)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /income-categories → ${res.status}: ${body}`);
@@ -669,7 +680,7 @@ export async function updateProject(id, payload) {
 }
 
 export async function deleteProject(id) {
-  const res = await fetch(`${BASE}/projects/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/projects/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /projects/${id} → ${res.status}: ${body}`);
@@ -736,7 +747,7 @@ export async function updateTag(id, payload) {
 }
 
 export async function deleteTag(id) {
-  const res = await fetch(`${BASE}/tags/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/tags/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /tags/${id} → ${res.status}: ${body}`);
@@ -790,7 +801,7 @@ export async function fetchAllData(month) {
 }
 
 export async function exportDatabase(saltText) {
-  const res = await fetch(`${BASE}/auth/export`, {
+  const res = await authFetch('/auth/export', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ value: saltText })
@@ -850,7 +861,7 @@ export async function createRecurring(payload) {
 }
 
 export async function deleteRecurring(id) {
-  const res = await fetch(`${BASE}/recurring/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/recurring/${id}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /recurring/${id} → ${res.status}: ${body}`);
@@ -898,7 +909,7 @@ export async function upsertBudget(payload) {
 
 export async function deleteBudget(category, month) {
   const encCategory = await enc(category);
-  const res = await fetch(`${BASE}/budgets/${encodeURIComponent(encCategory)}/${encodeURIComponent(month)}`, { method: 'DELETE' });
+  const res = await authFetch(`/budgets/${encodeURIComponent(encCategory)}/${encodeURIComponent(month)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
     throw new Error(`API DELETE /budgets → ${res.status}: ${body}`);
@@ -1024,7 +1035,7 @@ export async function updateJointAccount(payload) {
 }
 
 export async function deleteJointAccount() {
-  const res = await fetch(`${BASE}/joint-account`, { method: 'DELETE' });
+  const res = await authFetch('/joint-account', { method: 'DELETE' });
   if (!res.ok) throw new Error(`DELETE /joint-account → ${res.status}`);
   jointAccount.set(null);
   jointCategories.set([]);
@@ -1060,7 +1071,7 @@ export async function addJointCategory(encryptedCategory) {
 }
 
 export async function removeJointCategory(encryptedCategory) {
-  const res = await fetch(`${BASE}/joint-account/categories/${encodeURIComponent(encryptedCategory)}`, { method: 'DELETE' });
+  const res = await authFetch(`/joint-account/categories/${encodeURIComponent(encryptedCategory)}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`DELETE /joint-account/categories → ${res.status}`);
   await fetchJointCategories();
 }
@@ -1175,7 +1186,7 @@ export async function createJointCorrection(payload) {
 }
 
 export async function deleteJointCorrection(id) {
-  const res = await fetch(`${BASE}/joint-account/corrections/${id}`, { method: 'DELETE' });
+  const res = await authFetch(`/joint-account/corrections/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`DELETE /joint-account/corrections/${id} → ${res.status}`);
   jointCorrections.update((prev) => prev.filter((c) => c.id !== id));
   await fetchJointAccount();

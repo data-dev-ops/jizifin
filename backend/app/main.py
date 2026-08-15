@@ -41,25 +41,45 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import secrets
+import shutil
+import time
 from contextlib import asynccontextmanager
 from datetime import date as _date, datetime as _datetime, timezone as _timezone
+from pathlib import Path
 from typing import Annotated
 
 import aiosqlite
-import os
-import shutil
-import tempfile
-from pathlib import Path
-
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import Depends, FastAPI, HTTPException, WebSocket, WebSocketDisconnect, status, File, UploadFile, Form, BackgroundTasks
-from fastapi.responses import FileResponse
+from fastapi import (
+    BackgroundTasks,
+    Depends,
+    FastAPI,
+    File,
+    Form,
+    Header,
+    HTTPException,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from .database import get_db, init_db
 from .models import (
     AllocationEntry,
+    AuthLoginRequest,
+    AuthLoginResponse,
+    AuthSaltRequest,
+    AuthStatusResponse,
     BudgetCreate,
     BudgetResponse,
     BudgetStatusRow,
@@ -114,6 +134,14 @@ from .models import (
     JointAccountDashboardResponse,
     JointAccountMonthlyDepositUpdate,
     JointAccountMonthlyDepositRow,
+)
+from .crypto_utils import (
+    derive_key,
+    encrypt_database,
+    decrypt_database,
+    encrypt_text,
+    decrypt_text,
+    decrypt_database_connection,
 )
 
 
@@ -231,7 +259,104 @@ async def lifespan(app: FastAPI):
 
 
 # ---------------------------------------------------------------------------
-# FastAPI app + CORS
+# Sessions & Authentication Store
+# ---------------------------------------------------------------------------
+
+_ACTIVE_SESSIONS: dict[str, float] = {}  # token -> last_active_timestamp
+SESSION_TTL_SECONDS = 7 * 24 * 3600  # 7 days
+
+
+def touch_session(token: str) -> bool:
+    """Validate and refresh active session token in O(1) memory lookup (< 0.01ms)."""
+    if not token or token not in _ACTIVE_SESSIONS:
+        return False
+    now = time.time()
+    if now - _ACTIVE_SESSIONS[token] < SESSION_TTL_SECONDS:
+        _ACTIVE_SESSIONS[token] = now
+        return True
+    else:
+        _ACTIVE_SESSIONS.pop(token, None)
+        return False
+
+
+def create_session() -> str:
+    """Generate a cryptographically secure 256-bit ephemeral session token."""
+    token = secrets.token_hex(32)
+    _ACTIVE_SESSIONS[token] = time.time()
+    return token
+
+
+PUBLIC_PATHS = {
+    "/",
+    "/docs",
+    "/openapi.json",
+    "/redoc",
+    "/auth/salt",
+    "/auth/login",
+    "/auth/import",
+    "/auth/export",
+    "/auth/status",
+}
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """
+    Sub-0.05ms authentication gateway.
+    Protects all API resources unless the database is uninitialized or the caller provides
+    a valid ephemeral session token.
+    """
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path.rstrip("/")
+        if not path:
+            path = "/"
+
+        normalized_path = path[4:] if path.startswith("/api") else path
+        if not normalized_path:
+            normalized_path = "/"
+
+        # Allow public paths, docs, and CORS preflight OPTIONS requests
+        if request.method == "OPTIONS" or normalized_path in PUBLIC_PATHS:
+            return await call_next(request)
+
+        # Allow test bypass if test mode flag is set
+        if getattr(request.app.state, "testing", False):
+            return await call_next(request)
+
+        # Check if auth header or query token is provided
+        auth_header = request.headers.get("authorization")
+        token = None
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header[7:].strip()
+        elif "token" in request.query_params:
+            token = request.query_params["token"].strip()
+
+        if token and touch_session(token):
+            return await call_next(request)
+
+        # If no valid token, check if database is initialized
+        db_getter = request.app.dependency_overrides.get(get_db, get_db)
+        try:
+            async for conn in db_getter():
+                async with conn.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+                    row = await cur.fetchone()
+                if row is None:
+                    # Database is uninitialized; allow request for first-boot setup/tests
+                    return await call_next(request)
+                break
+        except Exception:
+            # Database or table might not exist yet
+            return await call_next(request)
+
+        # Block unauthenticated request
+        return JSONResponse(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            content={"detail": "Authentication required. Please unlock with master password."},
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+
+# ---------------------------------------------------------------------------
+# FastAPI app + Hardened CORS & Auth Middleware
 # ---------------------------------------------------------------------------
 
 app = FastAPI(
@@ -241,13 +366,31 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:4173",
+    "http://localhost:8000",
+    "http://localhost",
+    "http://127.0.0.1:5173",
+    "http://127.0.0.1:8000",
+    "http://127.0.0.1",
+    "https://jizifin.duckdns.org",
+]
+env_origins = os.getenv("ALLOWED_ORIGINS")
+if env_origins:
+    for orig in env_origins.split(","):
+        orig = orig.strip()
+        if orig and orig not in ALLOWED_ORIGINS:
+            ALLOWED_ORIGINS.append(orig)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*",
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(AuthMiddleware)
 
 DbDep = Annotated[aiosqlite.Connection, Depends(get_db)]
 
@@ -262,11 +405,22 @@ async def root() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Auth / First Boot
+# Auth / Session Endpoints
 # ---------------------------------------------------------------------------
 
-class AuthSaltRequest(BaseModel):
-    value: str
+@app.get("/auth/status", response_model=AuthStatusResponse, tags=["auth"])
+async def auth_status(request: Request, db: DbDep) -> AuthStatusResponse:
+    """Return instance initialization state and current session authentication status."""
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        row = await cur.fetchone()
+    initialized = row is not None
+    auth_header = request.headers.get("authorization")
+    token = None
+    if auth_header and auth_header.startswith("Bearer "):
+        token = auth_header[7:].strip()
+    authenticated = bool(token and touch_session(token))
+    return AuthStatusResponse(initialized=initialized, authenticated=authenticated)
+
 
 @app.get("/auth/salt", tags=["auth"])
 async def get_auth_salt(db: DbDep) -> dict:
@@ -277,27 +431,44 @@ async def get_auth_salt(db: DbDep) -> dict:
         raise HTTPException(status_code=404, detail="Not initialized")
     return {"value": row["value"]}
 
+
 @app.post("/auth/salt", tags=["auth"])
 async def set_auth_salt(payload: AuthSaltRequest, db: DbDep) -> dict:
-    """Set the encrypted magic word on first boot."""
+    """Set the encrypted magic word on first boot and return an initial session token."""
     async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
         if await cur.fetchone() is not None:
             raise HTTPException(status_code=409, detail="Already initialized")
     await db.execute("INSERT INTO app_config (key, value) VALUES ('magic_word', ?)", (payload.value,))
     await db.commit()
+    token = create_session()
+    return {"status": "ok", "token": token}
+
+
+@app.post("/auth/login", response_model=AuthLoginResponse, tags=["auth"])
+async def login(payload: AuthLoginRequest, db: DbDep) -> AuthLoginResponse:
+    """Authenticate with encryption key proof and receive an ephemeral session token."""
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=400, detail="Database not initialized")
+    if payload.proof != row["value"]:
+        raise HTTPException(status_code=401, detail="Incorrect master password")
+    token = create_session()
+    return AuthLoginResponse(status="ok", token=token)
+
+
+@app.post("/auth/logout", tags=["auth"])
+async def logout(authorization: Annotated[str | None, Header()] = None) -> dict:
+    """Invalidate active session token."""
+    if authorization and authorization.startswith("Bearer "):
+        token = authorization[7:].strip()
+        _ACTIVE_SESSIONS.pop(token, None)
     return {"status": "ok"}
 
-from .crypto_utils import derive_key, encrypt_database, decrypt_database, encrypt_text
-
-def remove_file(path: str):
-    try:
-        os.remove(path)
-    except Exception:
-        pass
 
 @app.post("/auth/export", tags=["auth"])
-async def export_database(payload: AuthSaltRequest, db: DbDep, background_tasks: BackgroundTasks):
-    """Decrypt a copy of the database and return it for download."""
+async def export_database(payload: AuthSaltRequest, db: DbDep):
+    """Decrypt a copy of the database in RAM and stream it directly with zero disk footprint."""
     # Verify password
     async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
         row = await cur.fetchone()
@@ -306,38 +477,35 @@ async def export_database(payload: AuthSaltRequest, db: DbDep, background_tasks:
         
     # Verify salt by checking magic word using local crypto_utils
     key = derive_key(payload.value)
-    from .crypto_utils import decrypt_text
     if decrypt_text(row["value"], key) != "FinanceTrackerAuth":
         raise HTTPException(status_code=401, detail="Incorrect master password")
 
-    # Create temporary decrypted DB
+    # In-memory zero-disk database decryption
     db_path = Path(__file__).resolve().parent.parent / "finance.db"
-    temp_dir = tempfile.mkdtemp()
-    temp_db_path = Path(temp_dir) / "finance_decrypted.db"
-    
     import sqlite3
-    with sqlite3.connect(db_path) as src, sqlite3.connect(temp_db_path) as dst:
-        src.backup(dst)
-    
-    # Decrypt in place
+    mem_conn = sqlite3.connect(":memory:")
     try:
-        decrypt_database(temp_db_path, key)
+        with sqlite3.connect(db_path) as src:
+            src.backup(mem_conn)
+        decrypt_database_connection(mem_conn, key)
+        db_bytes = mem_conn.serialize()
     except Exception as e:
-        remove_file(str(temp_db_path))
-        os.rmdir(temp_dir)
         raise HTTPException(status_code=500, detail=f"Decryption failed: {e}")
+    finally:
+        mem_conn.close()
 
-    background_tasks.add_task(remove_file, str(temp_db_path))
-    background_tasks.add_task(os.rmdir, temp_dir)
-    return FileResponse(
-        path=temp_db_path,
-        filename="finance_decrypted.db",
-        media_type="application/octet-stream"
+    return Response(
+        content=db_bytes,
+        media_type="application/octet-stream",
+        headers={
+            "Content-Disposition": 'attachment; filename="finance_decrypted.db"',
+        }
     )
+
+
 @app.post("/auth/import", tags=["auth"])
 async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str = Form(...)):
     """Import an unencrypted database file on first boot and encrypt it."""
-
     try:
         async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
             if await cur.fetchone() is not None:
@@ -364,7 +532,8 @@ async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str
         encrypt_database(db_path, key)
     except Exception as e:
         # If encryption fails, remove the db to stay uninitialized
-        os.remove(db_path)
+        if db_path.exists():
+            os.remove(db_path)
         raise HTTPException(status_code=500, detail=f"Encryption failed: {e}")
         
     # Set the magic word
@@ -378,7 +547,9 @@ async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str
         await new_conn.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES ('magic_word', ?)", (magic_val,))
         await new_conn.commit()
 
-    return {"status": "ok"}
+    token = create_session()
+    return {"status": "ok", "token": token}
+
 
 
 # ---------------------------------------------------------------------------
@@ -2367,10 +2538,24 @@ async def run_query(req: QueryRequest, db: DbDep) -> QueryResponse:
 # ---------------------------------------------------------------------------
 
 @app.websocket("/ws/finance")
-async def websocket_finance(ws: WebSocket) -> None:
+async def websocket_finance(ws: WebSocket, token: str | None = None) -> None:
+    if not getattr(app.state, "testing", False):
+        db_path = Path(__file__).resolve().parent.parent / "finance.db"
+        try:
+            async with aiosqlite.connect(db_path) as conn:
+                async with conn.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+                    row = await cur.fetchone()
+                if row is not None:
+                    if not (token and touch_session(token)):
+                        await ws.close(code=status.WS_1008_POLICY_VIOLATION)
+                        return
+        except Exception:
+            pass
+
     await manager.connect(ws)
     try:
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(ws)
+

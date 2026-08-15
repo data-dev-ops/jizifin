@@ -14,7 +14,7 @@
 
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import { expenses, selectedMonth, currencySymbol } from './stores.js';
+  import { expenses, selectedMonth, currencySymbol, sessionToken } from './stores.js';
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_URL = `${wsProtocol}//${window.location.host}/api/ws/finance`;
@@ -52,7 +52,8 @@
   // ── WebSocket connection with auto-reconnect ──────────────────────────────
   function connect() {
     wsStatus = 'connecting';
-    ws = new WebSocket(WS_URL);
+    const tokenParam = $sessionToken ? `?token=${encodeURIComponent($sessionToken)}` : '';
+    ws = new WebSocket(`${WS_URL}${tokenParam}`);
 
     ws.onopen = () => {
       wsStatus = 'open';

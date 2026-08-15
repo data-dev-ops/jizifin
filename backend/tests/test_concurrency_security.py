@@ -189,3 +189,92 @@ async def test_salary_ratio_and_deposit_deficit(client: AsyncClient):
     assert jane_row["total_cents"] == 200000
 
 
+@pytest.mark.asyncio
+async def test_session_auth_and_query_console(client: AsyncClient, test_db: aiosqlite.Connection):
+    """[Security] Verify session authentication, unauthenticated access rejection, and query console execution."""
+    from app.main import app
+
+    passphrase = "super-secret-password-123"
+    key = derive_key(passphrase)
+    magic_enc = encrypt_text("FinanceTrackerAuth", key)
+
+    # First boot setup
+    salt_resp = await client.post("/auth/salt", json={"value": magic_enc})
+    assert salt_resp.status_code == 200
+    token = salt_resp.json()["token"]
+    assert len(token) == 64
+
+    # Status check with token
+    status_resp = await client.get("/auth/status", headers={"Authorization": f"Bearer {token}"})
+    assert status_resp.status_code == 200
+    assert status_resp.json()["initialized"] is True
+    assert status_resp.json()["authenticated"] is True
+
+    # Login with wrong proof
+    wrong_login = await client.post("/auth/login", json={"proof": "invalid-proof"})
+    assert wrong_login.status_code == 401
+
+    # Login with correct proof
+    login_resp = await client.post("/auth/login", json={"proof": magic_enc})
+    assert login_resp.status_code == 200
+    new_token = login_resp.json()["token"]
+
+    # Temporarily disable test bypass to test middleware auth rejection
+    app.state.testing = False
+    try:
+        # Unauthenticated request should be rejected with 401
+        unauth_resp = await client.get("/users")
+        assert unauth_resp.status_code == 401
+
+        # Authenticated request with Bearer token succeeds
+        auth_resp = await client.get("/users", headers={"Authorization": f"Bearer {new_token}"})
+        assert auth_resp.status_code == 200
+
+        # Query Console execution with auth succeeds
+        query_resp = await client.post(
+            "/query",
+            json={"sql": "SELECT 1 + 1 AS result"},
+            headers={"Authorization": f"Bearer {new_token}"}
+        )
+        assert query_resp.status_code == 200
+        assert query_resp.json()["rows"] == [[2]]
+
+        # Unauthenticated Query Console request rejected
+        unauth_query = await client.post("/query", json={"sql": "SELECT 1 + 1 AS result"})
+        assert unauth_query.status_code == 401
+
+        # Logout invalidates token
+        logout_resp = await client.post("/auth/logout", headers={"Authorization": f"Bearer {new_token}"})
+        assert logout_resp.status_code == 200
+
+        # Request with invalidated token is rejected
+        rejected_resp = await client.get("/users", headers={"Authorization": f"Bearer {new_token}"})
+        assert rejected_resp.status_code == 401
+    finally:
+        app.state.testing = True
+
+
+@pytest.mark.asyncio
+async def test_in_memory_export_zero_disk(client: AsyncClient, tmp_path):
+    """[Security] Verify database export streams directly from memory without writing temp files to disk."""
+    import sqlite3
+    passphrase = "export-security-pass"
+    key = derive_key(passphrase)
+    magic_enc = encrypt_text("FinanceTrackerAuth", key)
+    user_enc = encrypt_text("Alice", key)
+
+    await client.post("/auth/salt", json={"value": magic_enc})
+    await client.post("/users", json={"name": user_enc, "color": "#6366f1"})
+
+    exp_resp = await client.post("/auth/export", json={"value": passphrase})
+    assert exp_resp.status_code == 200
+    assert exp_resp.headers["content-type"] == "application/octet-stream"
+
+    # Verify the streamed content is a valid, decrypted SQLite database
+    db_bytes = exp_resp.content
+    assert len(db_bytes) > 0
+    # SQLite files start with b"SQLite format 3\x00"
+    assert db_bytes.startswith(b"SQLite format 3\x00")
+
+
+

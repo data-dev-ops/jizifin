@@ -243,7 +243,9 @@ async def client(test_db: aiosqlite.Connection) -> AsyncGenerator[AsyncClient, N
         yield test_db
 
     app.dependency_overrides[get_db] = override_get_db
+    app.state.testing = True
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     app.dependency_overrides.clear()
+    app.state.testing = False

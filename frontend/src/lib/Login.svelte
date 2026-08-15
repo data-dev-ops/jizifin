@@ -1,5 +1,5 @@
 <script>
-  import { authSalt, cryptoKey } from './stores.js';
+  import { authSalt, cryptoKey, sessionToken } from './stores.js';
   import { deriveKey, encryptText, decryptText } from './crypto.js';
 
   let saltText = '';
@@ -42,6 +42,8 @@
             body: formData
           });
           if (!res.ok) throw new Error("Failed to import database: " + await res.text());
+          const importData = await res.json().catch(() => ({}));
+          if (importData.token) sessionToken.set(importData.token);
         } else {
           // Encrypt the magic word and store it
           const magicEncrypted = await encryptText("FinanceTrackerAuth", key);
@@ -51,17 +53,23 @@
             body: JSON.stringify({ value: magicEncrypted })
           });
           if (!res.ok) throw new Error("Failed to initialize master password: " + await res.text());
+          const saltData = await res.json().catch(() => ({}));
+          if (saltData.token) sessionToken.set(saltData.token);
 
           // Seed default categories using the key
           const defaultCategories = [
             "GROCERIES", "UTILITIES", "RENT", "OTHER", "FIXED COSTS",
             "DATING", "LEISURE", "GIFT", "PET", "PERSONAL COST"
           ];
+          const authHeaders = {
+            'Content-Type': 'application/json',
+            ...(saltData.token ? { Authorization: `Bearer ${saltData.token}` } : {})
+          };
           for (const cat of defaultCategories) {
             const encCat = await encryptText(cat, key);
             await fetch(`${baseUrl}/splits`, {
               method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
+              headers: authHeaders,
               body: JSON.stringify({ category: encCat, allocations: [] })
             });
           }
@@ -76,6 +84,20 @@
         if (magicDecrypted !== "FinanceTrackerAuth") {
           throw new Error("Incorrect master password");
         }
+
+        // Establish authenticated session with server
+        const loginRes = await fetch(`${baseUrl}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proof: data.value })
+        });
+        if (!loginRes.ok) {
+          throw new Error("Failed to authenticate session: " + await loginRes.text());
+        }
+        const loginData = await loginRes.json();
+        if (loginData.token) {
+          sessionToken.set(loginData.token);
+        }
       }
 
       // Password is correct or initialized
@@ -87,6 +109,7 @@
       loading = false;
     }
   }
+
 </script>
 
 <div class="min-h-screen flex items-center justify-center bg-slate-950 p-4">

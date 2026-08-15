@@ -245,4 +245,17 @@ export const chartStyle = persistedString('chartStyle', 'doughnut');
 export const authSalt = writable('');
 export const cryptoKey = writable(null);
 
+const storedSession = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('jizifin_session') : '';
+export const sessionToken = writable(storedSession || '');
+if (typeof sessionStorage !== 'undefined') {
+  sessionToken.subscribe((val) => {
+    if (val) {
+      sessionStorage.setItem('jizifin_session', val);
+    } else {
+      sessionStorage.removeItem('jizifin_session');
+    }
+  });
+}
+
+
 

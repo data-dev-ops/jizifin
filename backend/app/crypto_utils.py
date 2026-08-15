@@ -39,13 +39,12 @@ def decrypt_text(ciphertext: str, key: bytes) -> str:
     except Exception:
         return ciphertext
 
-def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
+def process_database_connection(conn: sqlite3.Connection, key: bytes, encrypt: bool) -> None:
     """
     Iterates over all tables and columns that contain sensitive data,
-    and encrypts or decrypts them in place using the provided key.
+    and encrypts or decrypts them in place using the provided key on an active connection.
     Temporarily disables foreign keys to allow mass updates.
     """
-    # Mapping of tables to their sensitive columns
     target_columns = {
         "users": ["name"],
         "splits": ["category"],
@@ -64,13 +63,11 @@ def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
         "joint_account_corrections": ["note"],
     }
     
-    conn = sqlite3.connect(str(db_path))
     conn.row_factory = sqlite3.Row
     
+    # Disable foreign keys during the mass update
+    conn.execute("PRAGMA foreign_keys=OFF;")
     try:
-        # Disable foreign keys during the mass update
-        conn.execute("PRAGMA foreign_keys=OFF;")
-        
         for table, columns in target_columns.items():
             # Check if table exists
             cur = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name=?", (table,))
@@ -98,6 +95,16 @@ def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
         conn.commit()
     finally:
         conn.execute("PRAGMA foreign_keys=ON;")
+
+def process_database(db_path: Path, key: bytes, encrypt: bool) -> None:
+    """
+    Iterates over all tables and columns that contain sensitive data,
+    and encrypts or decrypts them in place using the provided key.
+    """
+    conn = sqlite3.connect(str(db_path))
+    try:
+        process_database_connection(conn, key, encrypt)
+    finally:
         conn.close()
 
 def encrypt_database(db_path: Path, key: bytes) -> None:
@@ -105,3 +112,7 @@ def encrypt_database(db_path: Path, key: bytes) -> None:
 
 def decrypt_database(db_path: Path, key: bytes) -> None:
     process_database(db_path, key, encrypt=False)
+
+def decrypt_database_connection(conn: sqlite3.Connection, key: bytes) -> None:
+    process_database_connection(conn, key, encrypt=False)
+

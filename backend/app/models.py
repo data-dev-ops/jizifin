@@ -720,3 +720,26 @@ class JointAccountDashboardResponse(BaseModel):
 JobCreate.model_rebuild()
 JobUpdate.model_rebuild()
 JobResponse.model_rebuild()
+
+
+# ---------------------------------------------------------------------------
+# Auth Models
+# ---------------------------------------------------------------------------
+
+class AuthSaltRequest(BaseModel):
+    value: str
+
+
+class AuthLoginRequest(BaseModel):
+    proof: str
+
+
+class AuthLoginResponse(BaseModel):
+    status: str
+    token: str
+
+
+class AuthStatusResponse(BaseModel):
+    initialized: bool
+    authenticated: bool
+
