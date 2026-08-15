@@ -217,3 +217,33 @@ async def test_tag_deletion_cascade_nullification(client: AsyncClient):
     assert e_item["tag_id"] is None
     assert e_item["cost_cents"] == 4000
 
+
+@pytest.mark.asyncio
+async def test_tag_active_inactive_toggle(client: AsyncClient):
+    """Verify tag active state toggle and listing."""
+    key = derive_key()
+    tag_name = encrypt_text("ProjectX", key)
+
+    create_resp = await client.post("/tags", json={"name": tag_name, "color": "#f59e0b", "is_active": True})
+    assert create_resp.status_code == 201
+    tag_data = create_resp.json()
+    assert tag_data["is_active"] is True
+    tag_id = tag_data["id"]
+
+    # Toggle to inactive
+    update_resp = await client.put(f"/tags/{tag_id}", json={"is_active": False})
+    assert update_resp.status_code == 200
+    assert update_resp.json()["is_active"] is False
+
+    # List tags confirms is_active is False
+    list_resp = await client.get("/tags")
+    assert list_resp.status_code == 200
+    found = next(t for t in list_resp.json() if t["id"] == tag_id)
+    assert found["is_active"] is False
+
+    # Toggle back to active
+    reactivate_resp = await client.put(f"/tags/{tag_id}", json={"is_active": True})
+    assert reactivate_resp.status_code == 200
+    assert reactivate_resp.json()["is_active"] is True
+
+

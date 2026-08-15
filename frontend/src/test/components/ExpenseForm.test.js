@@ -128,4 +128,27 @@ describe('ExpenseForm.svelte — Expense Creation Form', () => {
       '2026-07'
     );
   });
+
+  it('hides tag dropdown when there are no active tags', async () => {
+    const { tags } = await import('../../lib/stores.js');
+    tags.set([
+      { id: 1, name: 'Closed Tag', color: '#f59e0b', is_active: false },
+    ]);
+
+    render(ExpenseForm);
+
+    expect(document.getElementById('expense-tag')).not.toBeInTheDocument();
+  });
+
+  it('shows tag dropdown when active tags exist', async () => {
+    const { tags } = await import('../../lib/stores.js');
+    tags.set([
+      { id: 1, name: 'Active Vacation', color: '#f59e0b', is_active: true },
+    ]);
+
+    render(ExpenseForm);
+
+    expect(document.getElementById('expense-tag')).toBeInTheDocument();
+    expect(screen.getByText(/Active Vacation/i)).toBeInTheDocument();
+  });
 });

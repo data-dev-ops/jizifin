@@ -1012,7 +1012,7 @@ async def delete_project(project_id: int, db: DbDep) -> None:
 async def list_tags(db: DbDep) -> list[TagTotalRow]:
     """Return all tags with all-time aggregated totals from view_tag_totals."""
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, total_amount, expense_count, first_date, last_date"
+        "SELECT id, name, color, description, is_joint, is_active, total_amount, expense_count, first_date, last_date"
         " FROM view_tag_totals ORDER BY name"
     ) as cur:
         rows = await cur.fetchall()
@@ -1027,6 +1027,7 @@ async def list_tags(db: DbDep) -> list[TagTotalRow]:
             first_date=r["first_date"],
             last_date=r["last_date"],
             is_joint=bool(r["is_joint"]) if "is_joint" in r.keys() else False,
+            is_active=bool(r["is_active"]) if "is_active" in r.keys() else True,
         )
         for r in rows
     ]
@@ -1037,8 +1038,8 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
     """Create a new expense tag."""
     try:
         async with db.execute(
-            "INSERT INTO tags (name, color, description, is_joint) VALUES (?, ?, ?, ?)",
-            (tag.name, tag.color, tag.description, 1 if tag.is_joint else 0),
+            "INSERT INTO tags (name, color, description, is_joint, is_active) VALUES (?, ?, ?, ?, ?)",
+            (tag.name, tag.color, tag.description, 1 if tag.is_joint else 0, 1 if tag.is_active else 0),
         ) as cur:
             new_id = cur.lastrowid
     except Exception as exc:
@@ -1048,7 +1049,7 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
         ) from exc
     await db.commit()
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, created_at FROM tags WHERE id = ?", (new_id,)
+        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (new_id,)
     ) as cur:
         row = await cur.fetchone()
     return TagResponse(
@@ -1058,14 +1059,15 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
         description=row["description"],
         created_at=row["created_at"],
         is_joint=bool(row["is_joint"]),
+        is_active=bool(row["is_active"]),
     )
 
 
 @app.put("/tags/{tag_id}", response_model=TagResponse, tags=["tags"])
 async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
-    """Rename, recolor, or update the description of a tag."""
+    """Rename, recolor, toggle active state, or update the description of a tag."""
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, created_at FROM tags WHERE id = ?", (tag_id,)
+        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
     ) as cur:
         existing = await cur.fetchone()
     if existing is None:
@@ -1074,15 +1076,16 @@ async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
     new_name        = update.name        if update.name        is not None else existing["name"]
     new_color       = update.color       if update.color       is not None else existing["color"]
     new_description = update.description if update.description is not None else existing["description"]
-    new_joint       = 1 if update.is_joint else (0 if update.is_joint is False else existing["is_joint"])
+    new_joint       = (1 if update.is_joint else 0) if update.is_joint is not None else (existing["is_joint"] if existing["is_joint"] is not None else 0)
+    new_active      = (1 if update.is_active else 0) if update.is_active is not None else (existing["is_active"] if existing["is_active"] is not None else 1)
 
     await db.execute(
-        "UPDATE tags SET name=?, color=?, description=?, is_joint=? WHERE id=?",
-        (new_name, new_color, new_description, new_joint, tag_id),
+        "UPDATE tags SET name=?, color=?, description=?, is_joint=?, is_active=? WHERE id=?",
+        (new_name, new_color, new_description, new_joint, new_active, tag_id),
     )
     await db.commit()
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, created_at FROM tags WHERE id = ?", (tag_id,)
+        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
     ) as cur:
         row = await cur.fetchone()
     return TagResponse(
@@ -1092,6 +1095,7 @@ async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
         description=row["description"],
         created_at=row["created_at"],
         is_joint=bool(row["is_joint"]),
+        is_active=bool(row["is_active"]),
     )
 
 
@@ -1114,7 +1118,7 @@ async def get_tag_detail(tag_id: int, db: DbDep) -> TagDetailResponse:
     This endpoint is unconstrained by the sidebar month-picker — it aggregates all time.
     """
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, total_amount, expense_count, first_date, last_date"
+        "SELECT id, name, color, description, is_joint, is_active, total_amount, expense_count, first_date, last_date"
         " FROM view_tag_totals WHERE id = ?",
         (tag_id,),
     ) as cur:
@@ -1132,6 +1136,7 @@ async def get_tag_detail(tag_id: int, db: DbDep) -> TagDetailResponse:
         first_date=tag_row["first_date"],
         last_date=tag_row["last_date"],
         is_joint=bool(tag_row["is_joint"]),
+        is_active=bool(tag_row["is_active"]) if "is_active" in tag_row.keys() else True,
     )
 
     # ── Spending by calendar month (chronological) ────────────────────────────────

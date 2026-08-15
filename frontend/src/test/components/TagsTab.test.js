@@ -67,6 +67,21 @@ describe('TagsTab.svelte — Open-Ended Event Label Tags', () => {
 
   it.each([
     { tagId: 1 },
+  ])('toggles tag active status ($tagId)', async ({ tagId }) => {
+    const updateSpy = vi.spyOn(api, 'updateTag').mockResolvedValue({});
+
+    render(TagsTab);
+
+    const toggleBtn = document.getElementById(`toggle-tag-active-${tagId}`);
+    expect(toggleBtn).toBeInTheDocument();
+    expect(toggleBtn).toHaveTextContent('Active');
+
+    await fireEvent.click(toggleBtn);
+    expect(updateSpy).toHaveBeenCalledWith(tagId, { is_active: false });
+  });
+
+  it.each([
+    { tagId: 1 },
   ])('deletes a tag with inline confirmation ($tagId)', async ({ tagId }) => {
     const delSpy = vi.spyOn(api, 'deleteTag').mockResolvedValue({});
 

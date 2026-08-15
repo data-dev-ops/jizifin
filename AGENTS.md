@@ -100,6 +100,8 @@ All database interactions are defined in `backend/app/database.py`. The tables a
    - `color` (TEXT NOT NULL DEFAULT '#f59e0b')
    - `description` (TEXT CHECK(length(description) <= 512)) — Encrypted.
    - `created_at` (TEXT NOT NULL DEFAULT (datetime('now')))
+   - `is_joint` (INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)))
+   - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
 
 7. **`expenses`** (Core expense ledger)
    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
@@ -265,13 +267,15 @@ Views are dropped and recreated on startup to reflect any schema modifications:
        t.name,
        t.color,
        t.description,
+       t.is_joint,
+       t.is_active,
        COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount,
        COUNT(e.id)                                          AS expense_count,
        MIN(e.expense_date)                                  AS first_date,
        MAX(e.expense_date)                                  AS last_date
    FROM tags t
    LEFT JOIN expenses e ON e.tag_id = t.id
-   GROUP BY t.id, t.name, t.color, t.description
+   GROUP BY t.id, t.name, t.color, t.description, t.is_joint, t.is_active
    ```
 
 7. **`view_joint_account_monthly`** (Joint-account category spending by month)
@@ -336,7 +340,7 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`backend/app/models.py`**: Pydantic v2 schemas representing input/output models for all endpoints.
 - **`backend/app/database.py`**: Database pool configuration, WAL mode, foreign keys, table and view initializations.
 - **`backend/app/crypto_utils.py`**: Server-side cryptography routines executing PBKDF2 key derivation and AES-GCM bulk encryption/decryption for database backups.
-- **`backend/tests/`**: Pytest test suite containing 306+ tests (`test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, etc.).
+- **`backend/tests/`**: Pytest test suite containing 309+ tests (`test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, etc.).
 
 #### Frontend Application (`frontend/`)
 - **`frontend/Dockerfile`**: Configures Node.js container and exposes Vite port 5173.

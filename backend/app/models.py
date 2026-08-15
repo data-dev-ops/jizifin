@@ -144,6 +144,7 @@ class TagCreate(BaseModel):
     color:       str = Field(default="#f59e0b", description="CSS hex colour for chart rendering")
     description: Optional[Annotated[str, Field(max_length=512)]] = None
     is_joint:    bool = False
+    is_active:   bool = True
 
 
 class TagUpdate(BaseModel):
@@ -152,6 +153,7 @@ class TagUpdate(BaseModel):
     color:       Optional[str]  = None
     description: Optional[Annotated[str, Field(max_length=512)]] = None
     is_joint:    Optional[bool] = None
+    is_active:   Optional[bool] = None
 
 
 class TagResponse(BaseModel):
@@ -161,6 +163,7 @@ class TagResponse(BaseModel):
     description: Optional[str] = None
     created_at:  str
     is_joint:    bool = False
+    is_active:   bool = True
 
     model_config = {"from_attributes": True}
 
@@ -176,6 +179,7 @@ class TagTotalRow(BaseModel):
     first_date:    Optional[str] = None
     last_date:     Optional[str] = None
     is_joint:      bool = False
+    is_active:     bool = True
 
 
 class TagMonthRow(BaseModel):

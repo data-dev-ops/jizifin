@@ -89,15 +89,17 @@
   let editName       = '';
   let editColor      = '';
   let editDesc       = '';
+  let editIsActive   = true;
   let editSubmitting = false;
   let editError      = null;
 
   function startEdit(t) {
-    editingId   = t.id;
-    editName    = t.name;
-    editColor   = t.color;
-    editDesc    = t.description ?? '';
-    editError   = null;
+    editingId    = t.id;
+    editName     = t.name;
+    editColor    = t.color;
+    editDesc     = t.description ?? '';
+    editIsActive = t.is_active !== false && t.is_active !== 0;
+    editError    = null;
   }
 
   function cancelEdit() { editingId = null; editError = null; }
@@ -112,6 +114,7 @@
         name:        editName.trim(),
         color:       editColor,
         description: editDesc.trim() || null,
+        is_active:   editIsActive,
       });
       if (selectedTagId === id) await loadTagDetail(id);
       editingId = null;
@@ -119,6 +122,21 @@
       editError = err.message ?? 'Failed to update tag.';
     } finally {
       editSubmitting = false;
+    }
+  }
+
+  // ── quick status toggle ────────────────────────────────────────────────────
+  let statusUpdatingId = null;
+  async function toggleTagActive(tag) {
+    statusUpdatingId = tag.id;
+    try {
+      const next = tag.is_active === false || tag.is_active === 0;
+      await updateTag(tag.id, { is_active: next });
+      if (selectedTagId === tag.id) await loadTagDetail(tag.id);
+    } catch (err) {
+      alert(err.message || 'Failed to toggle tag status.');
+    } finally {
+      statusUpdatingId = null;
     }
   }
 
@@ -365,11 +383,25 @@
         <p class="text-neutral-500 text-xs mt-1">Create a tag to start grouping expenses across months.</p>
       </div>
     {:else}
+      {@const activeCount = $tags.filter(t => t.is_active !== false && t.is_active !== 0).length}
+      {@const closedCount = $tags.length - activeCount}
+      <div class="flex items-center justify-between text-xs text-neutral-400 px-1 mb-1">
+        <span>Tags Overview</span>
+        <span class="text-[11px] text-neutral-500">
+          <strong class="text-emerald-400 font-semibold">{activeCount}</strong> active
+          {#if closedCount > 0}
+            · <strong class="text-neutral-400 font-semibold">{closedCount}</strong> closed
+          {/if}
+        </span>
+      </div>
+
       {#each $tags as tag (tag.id)}
+        {@const isActive = tag.is_active !== false && tag.is_active !== 0}
         <div
           id="tag-card-{tag.id}"
           class="bg-neutral-900 rounded-2xl border transition-all duration-150 p-4 cursor-pointer
-                 {selectedTagId === tag.id ? 'border-amber-500/60 shadow-sm shadow-amber-900/30' : 'border-neutral-800 hover:border-neutral-700'}"
+                 {selectedTagId === tag.id ? 'border-amber-500/60 shadow-sm shadow-amber-900/30' : 'border-neutral-800 hover:border-neutral-700'}
+                 {!isActive ? 'opacity-75 bg-neutral-950/80' : ''}"
           on:click={() => selectTag(tag.id)}
           on:keydown={(e) => e.key === 'Enter' && selectTag(tag.id)}
           role="button"
@@ -398,14 +430,25 @@
                   class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm
                          text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                 />
-                <div class="flex items-center gap-3">
-                  <label for="edit-tag-color-{tag.id}" class="text-xs text-neutral-500">Color</label>
-                  <input
-                    id="edit-tag-color-{tag.id}"
-                    type="color"
-                    bind:value={editColor}
-                    class="w-10 h-8 rounded cursor-pointer border border-neutral-700 bg-neutral-800 [color-scheme:dark] p-0.5"
-                  />
+                <div class="flex items-center justify-between gap-3 pt-1">
+                  <div class="flex items-center gap-2">
+                    <label for="edit-tag-color-{tag.id}" class="text-xs text-neutral-400">Color</label>
+                    <input
+                      id="edit-tag-color-{tag.id}"
+                      type="color"
+                      bind:value={editColor}
+                      class="w-8 h-7 rounded cursor-pointer border border-neutral-700 bg-neutral-800 [color-scheme:dark] p-0.5"
+                    />
+                  </div>
+                  <label class="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer select-none">
+                    <input
+                      id="edit-tag-active-{tag.id}"
+                      type="checkbox"
+                      bind:checked={editIsActive}
+                      class="w-4 h-4 rounded border-neutral-700 bg-neutral-800 text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                    />
+                    <span>Active Tag</span>
+                  </label>
                 </div>
                 {#if editError}
                   <p class="text-red-400 text-xs">{editError}</p>
@@ -435,12 +478,32 @@
                 <span class="w-3 h-3 rounded-full flex-none mt-0.5" style="background-color: {tag.color}"></span>
                 <div class="min-w-0">
                   <div class="flex items-center gap-2 flex-wrap">
-                    <h3 class="text-sm font-semibold text-neutral-100 truncate">{tag.name}</h3>
+                    <h3 class="text-sm font-semibold {isActive ? 'text-neutral-100' : 'text-neutral-400'} truncate">{tag.name}</h3>
                     {#if tag.is_joint}
                       <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
                         🏦 Joint Tag
                       </span>
                     {/if}
+
+                    <!-- Active/Closed Status Toggle Badge -->
+                    <!-- svelte-ignore a11y-click-events-have-key-events -->
+                    <!-- svelte-ignore a11y-no-static-element-interactions -->
+                    <div on:click|stopPropagation class="inline-flex">
+                      <button
+                        id="toggle-tag-active-{tag.id}"
+                        type="button"
+                        on:click={() => toggleTagActive(tag)}
+                        disabled={statusUpdatingId === tag.id}
+                        title={isActive ? 'Click to close off/archive this tag' : 'Click to reactivate this tag'}
+                        class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold transition-colors cursor-pointer
+                               {isActive
+                                 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/80'
+                                 : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700 hover:text-neutral-200'}"
+                      >
+                        <span class="w-1.5 h-1.5 rounded-full {isActive ? 'bg-emerald-400' : 'bg-neutral-500'}"></span>
+                        {isActive ? 'Active' : 'Closed'}
+                      </button>
+                    </div>
                   </div>
                   {#if tag.description}
                     <p class="text-[11px] text-neutral-500 truncate mt-0.5">{tag.description}</p>
@@ -538,15 +601,31 @@
     {:else if tagDetail}
       {@const t = tagDetail.tag}
       {@const avg = avgPerMonth(t)}
+      {@const detailActive = t.is_active !== false && t.is_active !== 0}
 
       <!-- Summary stat cards -->
       <div class="bg-neutral-900 rounded-2xl border border-neutral-800 p-4 sm:p-6">
-        <div class="flex items-center gap-2.5 mb-5">
-          <span class="w-3 h-3 rounded-full flex-none" style="background-color: {t.color}"></span>
-          <h2 class="text-sm font-semibold text-neutral-200">{t.name}</h2>
-          {#if t.description}
-            <span class="text-xs text-neutral-500 truncate">— {t.description}</span>
-          {/if}
+        <div class="flex items-center justify-between gap-2.5 mb-5 flex-wrap">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-3 h-3 rounded-full flex-none" style="background-color: {t.color}"></span>
+            <h2 class="text-sm font-semibold text-neutral-200">{t.name}</h2>
+            {#if t.description}
+              <span class="text-xs text-neutral-500 truncate">— {t.description}</span>
+            {/if}
+          </div>
+          <button
+            id="detail-toggle-tag-active"
+            type="button"
+            on:click={() => toggleTagActive(t)}
+            disabled={statusUpdatingId === t.id}
+            class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold transition-colors cursor-pointer
+                   {detailActive
+                     ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60 hover:bg-emerald-900/80'
+                     : 'bg-neutral-800 text-neutral-400 border border-neutral-700 hover:bg-neutral-700 hover:text-neutral-200'}"
+          >
+            <span class="w-1.5 h-1.5 rounded-full {detailActive ? 'bg-emerald-400' : 'bg-neutral-500'}"></span>
+            {detailActive ? 'Active Group' : 'Closed Group'}
+          </button>
         </div>
 
         <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">

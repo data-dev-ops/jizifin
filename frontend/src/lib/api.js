@@ -698,10 +698,12 @@ async function decryptTag(t) {
     expense_count: 0,
     first_date: null,
     last_date: null,
+    is_active: true,
     ...t,
     name: await dec(t.name),
     description: t.description ? await dec(t.description) : null,
     is_joint: Boolean(t.is_joint),
+    is_active: t.is_active !== undefined ? Boolean(t.is_active) : true,
   };
 }
 
@@ -718,6 +720,7 @@ export async function createTag(payload) {
     name: await enc(payload.name),
     description: payload.description ? await enc(payload.description) : null,
     is_joint: Boolean(payload.is_joint),
+    is_active: payload.is_active !== undefined ? Boolean(payload.is_active) : true,
   };
   const data = await request('/tags', {
     method: 'POST',
@@ -735,7 +738,8 @@ export async function updateTag(id, payload) {
   if (payload.description !== undefined) {
     encryptedPayload.description = payload.description ? await enc(payload.description) : null;
   }
-  if (payload.is_joint !== undefined) encryptedPayload.is_joint = Boolean(payload.is_joint);
+  if (payload.is_joint !== undefined)  encryptedPayload.is_joint = Boolean(payload.is_joint);
+  if (payload.is_active !== undefined) encryptedPayload.is_active = Boolean(payload.is_active);
   const data = await request(`/tags/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },

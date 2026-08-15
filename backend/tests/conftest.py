@@ -102,7 +102,8 @@ async def test_db(tmp_path: Path) -> AsyncGenerator[aiosqlite.Connection, None]:
                 color       TEXT    NOT NULL DEFAULT '#f59e0b',
                 description TEXT    CHECK(length(description) <= 512),
                 created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-                is_joint    INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))
+                is_joint    INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)),
+                is_active   INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))
             )
         """)
         await conn.execute("""
@@ -230,7 +231,7 @@ async def test_db(tmp_path: Path) -> AsyncGenerator[aiosqlite.Connection, None]:
         await conn.execute("CREATE VIEW IF NOT EXISTS view_expenses_by_month_category AS SELECT strftime('%Y-%m', expense_date) AS month, category, ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count FROM expenses GROUP BY strftime('%Y-%m', expense_date), category")
         await conn.execute("CREATE VIEW IF NOT EXISTS view_monthly_by_payer AS SELECT who_paid, ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now') GROUP BY who_paid")
         await conn.execute("CREATE VIEW IF NOT EXISTS view_project_summary AS SELECT p.id, p.name, p.target_cents, p.target_date, COALESCE(SUM(e.cost_cents), 0) AS total_spent_cents, COUNT(e.id) AS expense_count FROM projects p LEFT JOIN expenses e ON e.project_id = p.id GROUP BY p.id, p.name, p.target_cents, p.target_date")
-        await conn.execute("CREATE VIEW IF NOT EXISTS view_tag_totals AS SELECT t.id, t.name, t.color, t.description, t.is_joint, COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount, COUNT(e.id) AS expense_count, MIN(e.expense_date) AS first_date, MAX(e.expense_date) AS last_date FROM tags t LEFT JOIN expenses e ON e.tag_id = t.id GROUP BY t.id, t.name, t.color, t.description, t.is_joint")
+        await conn.execute("CREATE VIEW IF NOT EXISTS view_tag_totals AS SELECT t.id, t.name, t.color, t.description, t.is_joint, t.is_active, COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount, COUNT(e.id) AS expense_count, MIN(e.expense_date) AS first_date, MAX(e.expense_date) AS last_date FROM tags t LEFT JOIN expenses e ON e.tag_id = t.id GROUP BY t.id, t.name, t.color, t.description, t.is_joint, t.is_active")
         await conn.execute("CREATE VIEW IF NOT EXISTS view_joint_account_monthly AS SELECT strftime('%Y-%m', e.expense_date) AS month, e.category, ROUND(SUM(e.cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count FROM expenses e INNER JOIN joint_account_categories jac ON jac.category = e.category GROUP BY strftime('%Y-%m', e.expense_date), e.category")
 
         await conn.commit()

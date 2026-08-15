@@ -12,6 +12,7 @@
   import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, defaultProject, currencySymbol, jointAccountEnabled, jointAccount, jointCategories, showProjectsInExpense } from './stores.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
+  $: activeTags  = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
 
   // ── Lock check ────────────────────────────────────────────────────────────
   /** True if expenseDate falls in a locked month */
@@ -297,24 +298,26 @@
     </div>
   {/if}
 
-  <!-- 6. Tag (dropdown) -->
-  <div>
-    <label for="expense-tag" class="block text-xs font-medium text-neutral-400 mb-1.5">
-      Tag <span class="text-neutral-600">(optional)</span>
-    </label>
-    <select
-      id="expense-tag"
-      bind:value={tagId}
-      class="select-field"
-    >
-      <option value={null}>— No tag —</option>
-      {#each $tags as t}
-        <option value={t.id}>
-          {t.name}{t.total_amount > 0 ? ` (${t.total_amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total)` : ''}
-        </option>
-      {/each}
-    </select>
-  </div>
+  <!-- 6. Tag (dropdown) — only visible when active tags exist -->
+  {#if activeTags.length > 0}
+    <div>
+      <label for="expense-tag" class="block text-xs font-medium text-neutral-400 mb-1.5">
+        Tag <span class="text-neutral-600">(optional)</span>
+      </label>
+      <select
+        id="expense-tag"
+        bind:value={tagId}
+        class="select-field"
+      >
+        <option value={null}>— No tag —</option>
+        {#each activeTags as t}
+          <option value={t.id}>
+            {t.name}{t.total_amount > 0 ? ` (${t.total_amount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} total)` : ''}
+          </option>
+        {/each}
+      </select>
+    </div>
+  {/if}
 
   <!-- 7. Who paid (Final field) -->
   <div>

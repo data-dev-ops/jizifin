@@ -123,10 +123,12 @@ async def init_db() -> None:
                 color       TEXT    NOT NULL DEFAULT '#f59e0b',
                 description TEXT             CHECK(length(description) <= 512),
                 created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
-                is_joint    INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))
+                is_joint    INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)),
+                is_active   INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))
             )
             """  
         )
+        await ensure_column(conn, "tags", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))")
 
         # ── expenses ────────────────────────────────────────────────────────
         await conn.execute(
@@ -445,13 +447,14 @@ async def init_db() -> None:
                 t.color,
                 t.description,
                 t.is_joint,
+                t.is_active,
                 COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount,
                 COUNT(e.id)                                          AS expense_count,
                 MIN(e.expense_date)                                  AS first_date,
                 MAX(e.expense_date)                                  AS last_date
             FROM tags t
             LEFT JOIN expenses e ON e.tag_id = t.id
-            GROUP BY t.id, t.name, t.color, t.description, t.is_joint
+            GROUP BY t.id, t.name, t.color, t.description, t.is_joint, t.is_active
             """
         )
 

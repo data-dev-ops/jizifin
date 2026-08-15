@@ -36,6 +36,14 @@
   /** Build id→tag lookup map from tags store */
   $: tagMap = Object.fromEntries($tags.map((t) => [t.id, t]));
 
+  /** Helper to get active tags plus currently assigned tag for an expense */
+  function getSelectableTags(currentTagId) {
+    return $tags.filter((t) => (t.is_active !== false && t.is_active !== 0) || t.id === currentTagId);
+  }
+
+  /** Active tags for modal */
+  $: activeModalTags = $tags.filter((t) => (t.is_active !== false && t.is_active !== 0) || t.id === editTagId);
+
   /** YYYY-MM-DD → DD/MM/YYYY */
   function formatDate(iso) {
     if (!iso) return '—';
@@ -410,11 +418,11 @@
                     >
                       <p class="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider px-2 py-1">Assign Tag</p>
                       
-                      {#if $tags.length === 0}
-                        <p class="text-xs text-neutral-500 px-2 py-1.5">No tags configured yet.</p>
+                      {#if getSelectableTags(expense.tag_id).length === 0}
+                        <p class="text-xs text-neutral-500 px-2 py-1.5">No active tags available.</p>
                       {:else}
                         <div class="max-h-40 overflow-y-auto space-y-0.5">
-                          {#each $tags as t}
+                          {#each getSelectableTags(expense.tag_id) as t}
                             <button
                               type="button"
                               on:click={() => setExpenseTag(expense, t.id)}
@@ -422,7 +430,9 @@
                               class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-neutral-800 transition-colors text-left {expense.tag_id === t.id ? 'bg-neutral-800/80 font-semibold' : ''}"
                             >
                               <span class="w-2.5 h-2.5 rounded-full flex-none" style="background-color: {t.color}"></span>
-                              <span class="truncate flex-1 text-neutral-200">{t.name}</span>
+                              <span class="truncate flex-1 text-neutral-200">
+                                {t.name}{t.is_active === false || t.is_active === 0 ? ' (Closed)' : ''}
+                              </span>
                               {#if expense.tag_id === t.id}
                                 <span class="text-indigo-400 text-xs">✓</span>
                               {/if}
@@ -652,19 +662,23 @@
             </div>
           {/if}
 
-          <div>
-            <label for="edit-expense-tag" class="block text-xs font-medium text-neutral-400 mb-1">Tag</label>
-            <select
-              id="edit-expense-tag"
-              bind:value={editTagId}
-              class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
-            >
-              <option value={null}>— No Tag —</option>
-              {#each $tags as t}
-                <option value={t.id}>● {t.name}</option>
-              {/each}
-            </select>
-          </div>
+          {#if activeModalTags.length > 0}
+            <div>
+              <label for="edit-expense-tag" class="block text-xs font-medium text-neutral-400 mb-1">Tag</label>
+              <select
+                id="edit-expense-tag"
+                bind:value={editTagId}
+                class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+              >
+                <option value={null}>— No Tag —</option>
+                {#each activeModalTags as t}
+                  <option value={t.id}>
+                    ● {t.name}{t.is_active === false || t.is_active === 0 ? ' (Closed)' : ''}
+                  </option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         </div>
 
         <!-- 5. Who Paid -->

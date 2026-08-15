@@ -106,7 +106,7 @@ The application features full-stack automated test suites ensuring zero regressi
 ### 1. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
 - **Setup & Polyfills (`src/test/setup.js`)**: Polyfills Node `webcrypto` for browser AES-GCM 256-bit encryption, Canvas 2D context for Chart.js graphics, `ResizeObserver`, and establishes a global fetch router.
-- **Coverage:** 33 test suites with 268+ tests covering encryption/decryption, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
+- **Coverage:** 33 test suites with 272+ tests covering encryption/decryption, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:
@@ -118,7 +118,7 @@ npm --prefix frontend run test:coverage
 
 ### 2. Backend Test Suite (Pytest)
 - **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** 306+ tests covering jobs and salary timelines, joint account management, ledger transfers, currency precision, budgeting engine, locking reconciliation, and deterministic cryptography.
+- **Coverage:** 309+ tests covering jobs and salary timelines, joint account management, ledger transfers, currency precision, budgeting engine, locking reconciliation, and deterministic cryptography.
 
 ```bash
 # Run Pytest test suite:
