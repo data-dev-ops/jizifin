@@ -1,0 +1,1206 @@
+/**
+ * api.js — All HTTP interactions with the FastAPI backend.
+ * Functions update the shared Svelte stores after every successful fetch.
+ * Integrates client-side encryption/decryption transparently.
+ */
+
+import { get } from 'svelte/store';
+import { encryptText, decryptText } from './crypto.js';
+import { cryptoKey, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
+
+const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
+
+// ---------------------------------------------------------------------------
+// Encryption / Decryption Helpers
+// ---------------------------------------------------------------------------
+
+export async function enc(txt) {
+  const key = get(cryptoKey);
+  if (!key) return txt;
+  return encryptText(txt, key);
+}
+
+export async function dec(txt) {
+  if (!txt) return txt;
+  const key = get(cryptoKey);
+  if (!key) return txt;
+  if (typeof txt === 'string' && txt.includes(' ')) {
+    const parts = txt.split(' ');
+    const decrypted = await Promise.all(parts.map((p) => decryptText(p, key)));
+    return decrypted.join(' ');
+  }
+  return decryptText(txt, key);
+}
+
+async function request(path, options = {}) {
+  const res = await fetch(`${BASE}${path}`, options);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API ${options.method ?? 'GET'} ${path} → ${res.status}: ${body}`);
+  }
+  return res.json();
+}
+
+/**
+ * Remaps the string keys of a plain-value dict through dec().
+ * Used wherever an API response uses encrypted field values as dictionary keys
+ * (e.g. PaybackRow.per_user_paid, .per_user_share_pct, .net_per_user).
+ * Values are copied as-is; only the keys are decrypted.
+ *
+ * @param {Record<string, unknown>} dict  — object with encrypted string keys
+ * @returns {Promise<Record<string, unknown>>} — same values, decrypted keys
+ */
+async function decryptDictKeys(dict) {
+  const entries = await Promise.all(
+    Object.entries(dict).map(async ([encKey, value]) => [await dec(encKey), value])
+  );
+  return Object.fromEntries(entries);
+}
+
+// ---------------------------------------------------------------------------
+// Users
+// ---------------------------------------------------------------------------
+
+export async function fetchUsers(includeDeactivated = false) {
+  const qs = includeDeactivated ? '?include_deactivated=true' : '';
+  const data = await request(`/users${qs}`);
+  
+  // Decrypt users
+  const decrypted = await Promise.all(
+    data.map(async (u) => ({
+      ...u,
+      name: await dec(u.name)
+    }))
+  );
+  
+  users.set(decrypted);
+  return decrypted;
+}
+
+export async function createUser(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name)
+  };
+  
+  const data = await request('/users', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = {
+    ...data,
+    name: await dec(data.name)
+  };
+  
+  users.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function updateUser(name, payload) {
+  const encName = await enc(name);
+  const data = await request(`/users/${encodeURIComponent(encName)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload), // payload only color/is_active, no encryption needed
+  });
+  
+  const decrypted = {
+    ...data,
+    name: await dec(data.name)
+  };
+  
+  users.update((prev) => prev.map((u) => (u.name === name ? decrypted : u)));
+  return decrypted;
+}
+
+export async function deleteUser(name) {
+  const encName = await enc(name);
+  const res = await fetch(`${BASE}/users/${encodeURIComponent(encName)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /users/${name} → ${res.status}: ${body}`);
+  }
+  users.update((prev) => prev.filter((u) => u.name !== name));
+}
+
+// ---------------------------------------------------------------------------
+// Expenses
+// ---------------------------------------------------------------------------
+
+async function decryptExpense(e) {
+  return {
+    ...e,
+    name: await dec(e.name),
+    category: await dec(e.category),
+    who_paid: await dec(e.who_paid),
+    overrides: e.overrides
+      ? await Promise.all(
+          e.overrides.map(async (o) => ({
+            ...o,
+            user_name: await dec(o.user_name)
+          }))
+        )
+      : []
+  };
+}
+
+export async function fetchExpenses() {
+  const data = await request('/expenses');
+  const decrypted = await Promise.all(data.map(decryptExpense));
+  expenses.set(decrypted);
+  return decrypted;
+}
+
+export async function createExpense(payload, month) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    category: await enc(payload.category),
+    who_paid: await enc(payload.who_paid),
+    overrides: payload.overrides
+      ? await Promise.all(
+          payload.overrides.map(async (o) => ({
+            ...o,
+            user_name: await enc(o.user_name)
+          }))
+        )
+      : []
+  };
+
+  const data = await request('/expenses', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptExpense(data);
+  expenses.update((prev) => [decrypted, ...(Array.isArray(prev) ? prev : [])]);
+  if (month) await fetchAnalytics(month);
+  return decrypted;
+}
+
+export async function deleteExpense(id, month) {
+  const res = await fetch(`${BASE}/expenses/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /expenses/${id} → ${res.status}: ${body}`);
+  }
+  expenses.update((prev) => prev.filter((e) => e.id !== id));
+  if (month) await fetchAnalytics(month);
+}
+
+export async function updateExpense(id, payload, month) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+  if (payload.category !== undefined) encryptedPayload.category = await enc(payload.category);
+  if (payload.who_paid !== undefined) encryptedPayload.who_paid = await enc(payload.who_paid);
+  if (payload.overrides !== undefined) {
+    encryptedPayload.overrides = await Promise.all(
+      payload.overrides.map(async (o) => ({
+        ...o,
+        user_name: await enc(o.user_name)
+      }))
+    );
+  }
+
+  const data = await request(`/expenses/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptExpense(data);
+  expenses.update((prev) => prev.map((e) => (e.id === id ? decrypted : e)));
+  if (month) await fetchAnalytics(month);
+  return decrypted;
+}
+
+// ---------------------------------------------------------------------------
+// Splits
+// ---------------------------------------------------------------------------
+
+async function decryptSplit(s) {
+  return {
+    ...s,
+    category: await dec(s.category),
+    allocations: s.allocations
+      ? await Promise.all(
+          s.allocations.map(async (a) => ({
+            ...a,
+            user_name: await dec(a.user_name)
+          }))
+        )
+      : []
+  };
+}
+
+export async function fetchSplits() {
+  const data = await request('/splits');
+  const decrypted = await Promise.all(data.map(decryptSplit));
+  splits.set(decrypted);
+  return decrypted;
+}
+
+export async function createSplit(payload) {
+  const encryptedPayload = {
+    category: await enc(payload.category),
+    allocations: await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    )
+  };
+
+  const data = await request('/splits', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptSplit(data);
+  splits.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function updateSplit(category, payload) {
+  const encCategory = await enc(category);
+  const encryptedPayload = {
+    allocations: await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    )
+  };
+
+  const data = await request(`/splits/${encodeURIComponent(encCategory)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptSplit(data);
+  splits.update((prev) => prev.map((s) => (s.category === category ? decrypted : s)));
+  return decrypted;
+}
+
+// ---------------------------------------------------------------------------
+// Analytics
+// ---------------------------------------------------------------------------
+
+export async function fetchAnalytics(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const [monthly_total, by_category, by_payer] = await Promise.all([
+    request(`/analytics/monthly-total${qs}`),
+    request(`/analytics/by-category${qs}`),
+    request(`/analytics/by-payer${qs}`),
+  ]);
+
+  const decryptedByCategory = await Promise.all(
+    by_category.map(async (c) => ({
+      ...c,
+      category: await dec(c.category)
+    }))
+  );
+
+  const decryptedByPayer = await Promise.all(
+    by_payer.map(async (p) => ({
+      ...p,
+      who_paid: await dec(p.who_paid)
+    }))
+  );
+
+  const finalData = {
+    monthly_total,
+    by_category: decryptedByCategory,
+    by_payer: decryptedByPayer
+  };
+
+  analytics.set(finalData);
+  return finalData;
+}
+
+export async function fetchPaybacks(month) {
+  const encPersonal = [await enc('PERSONAL COST'), await enc('LEISURE'), await enc('GIFT')].join(',');
+  const encCombinedFixed = await enc('Combined Fixed');
+  const encApartment = await enc('Apartment');
+  const encJane = await enc('Jane');
+  const encJohn = await enc('John');
+
+  const params = new URLSearchParams({
+    personal_cats: encPersonal,
+    combined_fixed_cat: encCombinedFixed,
+    apartment_cat: encApartment,
+    jane_name: encJane,
+    john_name: encJohn
+  });
+  if (month) params.append('month', month);
+
+  const qs = `?${params.toString()}`;
+  const data = await request(`/analytics/paybacks${qs}`);
+  
+  const decrypted = {
+    ...data,
+    rows: data.rows
+      ? await Promise.all(
+          data.rows.map(async (r) => ({
+            ...r,
+            // Decrypt the plaintext category label
+            category: await dec(r.category),
+            // Decrypt the encrypted user-name keys in each per-user dict
+            per_user_paid:      await decryptDictKeys(r.per_user_paid      ?? {}),
+            per_user_share_pct: await decryptDictKeys(r.per_user_share_pct ?? {}),
+            net_per_user:       await decryptDictKeys(r.net_per_user        ?? {}),
+          }))
+        )
+      : [],
+    debts: data.debts
+      ? await Promise.all(
+          data.debts.map(async (d) => ({
+            ...d,
+            from_user: await dec(d.from_user),
+            to_user:   await dec(d.to_user)
+          }))
+        )
+      : []
+  };
+
+  paybacks.set(decrypted);
+  return decrypted;
+}
+
+// ---------------------------------------------------------------------------
+// Income
+// ---------------------------------------------------------------------------
+
+export async function fetchIncomeByPerson(month) {
+  const encSalary = await enc('SALARY');
+  const params = new URLSearchParams({ salary_cat: encSalary });
+  if (month) params.append('month', month);
+
+  const qs = `?${params.toString()}`;
+  const data = await request(`/analytics/income-by-person${qs}`);
+  
+  const decrypted = await Promise.all(
+    data.map(async (i) => ({
+      ...i,
+      who: await dec(i.who)
+    }))
+  );
+
+  incomeAnalytics.set(decrypted);
+  return decrypted;
+}
+
+export async function fetchLatestSalaries() {
+  const encSalary = await enc('SALARY');
+  const qs = `?salary_cat=${encodeURIComponent(encSalary)}`;
+  const data = await request(`/income/latest-salary${qs}`);
+  return Promise.all(
+    data.map(async (s) => ({
+      ...s,
+      who: await dec(s.who),
+      name: await dec(s.name)
+    }))
+  );
+}
+
+export async function createIncome(entries, month) {
+  const encryptedEntries = await Promise.all(
+    entries.map(async (e) => ({
+      ...e,
+      name: await enc(e.name),
+      who: await enc(e.who),
+      category: await enc(e.category)
+    }))
+  );
+
+  const data = await request('/income', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedEntries),
+  });
+  
+  if (month) await fetchIncomeByPerson(month);
+  return data;
+}
+
+/**
+ * Decrypts a single raw IncomeResponse row from the backend.
+ * Single responsibility: maps encrypted income fields to plaintext.
+ */
+async function decryptIncomeEntry(e) {
+  return {
+    ...e,
+    name:     await dec(e.name),
+    who:      await dec(e.who),
+    category: await dec(e.category),
+  };
+}
+
+/**
+ * Fetch income entries for the given month (or all if omitted),
+ * decrypt each entry, and update the incomeEntries store.
+ */
+export async function fetchIncome(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/income${qs}`);
+  const decrypted = await Promise.all(data.map(decryptIncomeEntry));
+  incomeEntries.set(decrypted);
+  return decrypted;
+}
+
+/**
+ * Delete a single income entry by id and remove it from the store.
+ */
+export async function deleteIncome(id) {
+  const res = await fetch(`${BASE}/income/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /income/${id} → ${res.status}: ${body}`);
+  }
+  incomeEntries.update((prev) => prev.filter((e) => e.id !== id));
+}
+
+
+// ---------------------------------------------------------------------------
+// Jobs & Salary Streams
+// ---------------------------------------------------------------------------
+
+async function decryptJob(j) {
+  return {
+    ...j,
+    name: await dec(j.name),
+    who: await dec(j.who),
+    notes: j.notes ? await dec(j.notes) : "",
+    is_active: Boolean(j.is_active),
+  };
+}
+
+export async function fetchJobs(params = {}) {
+  const query = new URLSearchParams();
+  if (params.who) query.set("who", await enc(params.who));
+  if (params.month) query.set("month", params.month);
+  if (params.is_active !== undefined) query.set("is_active", String(params.is_active));
+
+  const qs = query.toString() ? `?${query.toString()}` : "";
+  const data = await request(`/jobs${qs}`);
+  const decrypted = await Promise.all(data.map(decryptJob));
+  if (!params.who && !params.month) {
+    jobs.set(decrypted);
+  }
+  return decrypted;
+}
+
+export async function createJob(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    who: await enc(payload.who),
+    notes: payload.notes ? await enc(payload.notes) : null,
+    is_active: payload.is_active !== undefined ? Boolean(payload.is_active) : true,
+  };
+
+  const data = await request("/jobs", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(encryptedPayload),
+  });
+
+  const decrypted = await decryptJob(data);
+  jobs.update((prev) => [decrypted, ...prev.filter((j) => j.id !== decrypted.id)]);
+  return decrypted;
+}
+
+export async function updateJob(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+  if (payload.who !== undefined) encryptedPayload.who = await enc(payload.who);
+  if (payload.notes !== undefined) encryptedPayload.notes = payload.notes ? await enc(payload.notes) : null;
+  if (payload.is_active !== undefined) encryptedPayload.is_active = Boolean(payload.is_active);
+
+  const data = await request(`/jobs/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(encryptedPayload),
+  });
+
+  const decrypted = await decryptJob(data);
+  jobs.update((prev) => prev.map((j) => (j.id === id ? decrypted : j)));
+  return decrypted;
+}
+
+export async function deleteJob(id) {
+  const res = await fetch(`${BASE}/jobs/${id}`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /jobs/${id} → ${res.status}: ${body}`);
+  }
+  jobs.update((prev) => prev.filter((j) => j.id !== id));
+}
+
+// ---------------------------------------------------------------------------
+// Income Categories
+// ---------------------------------------------------------------------------
+
+/**
+ * Fetch all income categories from the registry, decrypt each, and update
+ * the incomeCategories store. Automatically seeds default categories ('SALARY', 'BONUS', 'GIFT')
+ * if they are missing from the registry.
+ */
+export async function fetchIncomeCategories() {
+  const data = await request('/income-categories');
+  let decrypted = await Promise.all(
+    data.map(async (c) => ({ ...c, category: await dec(c.category) }))
+  );
+
+  const existingCategories = new Set(decrypted.map((c) => c.category));
+  const missingDefaults = DEFAULT_INCOME_CATEGORIES.filter((cat) => !existingCategories.has(cat));
+
+  if (missingDefaults.length > 0) {
+    for (const cat of missingDefaults) {
+      try {
+        const created = await createIncomeCategory(cat);
+        if (!existingCategories.has(created.category)) {
+          existingCategories.add(created.category);
+          decrypted.push(created);
+        }
+      } catch (err) {
+        console.debug('Duplicate or creation conflict ignored:', err);
+      }
+    }
+  }
+
+  incomeCategories.set(decrypted);
+  return decrypted;
+}
+
+/**
+ * Create a new income category and push it to the store.
+ */
+export async function createIncomeCategory(name) {
+  const data = await request('/income-categories', {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ category: await enc(name) }),
+  });
+  const decrypted = { ...data, category: await dec(data.category) };
+  incomeCategories.update((prev) => {
+    if (prev.some((c) => c.category === decrypted.category)) return prev;
+    return [...prev, decrypted];
+  });
+  return decrypted;
+}
+
+/**
+ * Delete an income category from the registry and remove it from the store.
+ */
+export async function deleteIncomeCategory(name) {
+  const encName = await enc(name);
+  const res = await fetch(`${BASE}/income-categories/${encodeURIComponent(encName)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /income-categories → ${res.status}: ${body}`);
+  }
+  incomeCategories.update((prev) => prev.filter((c) => c.category !== name));
+}
+
+// ---------------------------------------------------------------------------
+// Projects
+// ---------------------------------------------------------------------------
+
+async function decryptProject(p) {
+  return {
+    ...p,
+    name: await dec(p.name),
+    is_joint: Boolean(p.is_joint),
+    last_payment: p.last_payment
+      ? {
+          ...p.last_payment,
+          who_paid: await dec(p.last_payment.who_paid),
+          name: await dec(p.last_payment.name)
+        }
+      : null
+  };
+}
+
+export async function fetchProjects() {
+  const data = await request('/projects');
+  const decrypted = await Promise.all(data.map(decryptProject));
+  projects.set(decrypted);
+  return decrypted;
+}
+
+export async function createProject(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    is_joint: Boolean(payload.is_joint),
+  };
+
+  const data = await request('/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptProject(data);
+  projects.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function updateProject(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+  if (payload.is_joint !== undefined) encryptedPayload.is_joint = Boolean(payload.is_joint);
+
+  const data = await request(`/projects/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptProject(data);
+  projects.update((prev) => prev.map((p) => (p.id === id ? decrypted : p)));
+  return decrypted;
+}
+
+export async function deleteProject(id) {
+  const res = await fetch(`${BASE}/projects/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /projects/${id} → ${res.status}: ${body}`);
+  }
+  projects.update((prev) => prev.filter((p) => p.id !== id));
+}
+
+// ---------------------------------------------------------------------------
+// Tags
+// ---------------------------------------------------------------------------
+
+async function decryptTag(t) {
+  return {
+    total_amount: 0,
+    expense_count: 0,
+    first_date: null,
+    last_date: null,
+    ...t,
+    name: await dec(t.name),
+    description: t.description ? await dec(t.description) : null,
+    is_joint: Boolean(t.is_joint),
+  };
+}
+
+export async function fetchTags() {
+  const data = await request('/tags');
+  const decrypted = await Promise.all(data.map(decryptTag));
+  tags.set(decrypted);
+  return decrypted;
+}
+
+export async function createTag(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    description: payload.description ? await enc(payload.description) : null,
+    is_joint: Boolean(payload.is_joint),
+  };
+  const data = await request('/tags', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  const decrypted = await decryptTag(data);
+  tags.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function updateTag(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined)        encryptedPayload.name = await enc(payload.name);
+  if (payload.description !== undefined) {
+    encryptedPayload.description = payload.description ? await enc(payload.description) : null;
+  }
+  if (payload.is_joint !== undefined) encryptedPayload.is_joint = Boolean(payload.is_joint);
+  const data = await request(`/tags/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  const decrypted = await decryptTag(data);
+  tags.update((prev) => prev.map((t) => (t.id === id ? { ...decrypted, total_amount: t.total_amount, expense_count: t.expense_count, first_date: t.first_date, last_date: t.last_date } : t)));
+  return decrypted;
+}
+
+export async function deleteTag(id) {
+  const res = await fetch(`${BASE}/tags/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /tags/${id} → ${res.status}: ${body}`);
+  }
+  tags.update((prev) => prev.filter((t) => t.id !== id));
+}
+
+export async function fetchTagAnalytics(tagId) {
+  const data = await request(`/analytics/tags/${tagId}`);
+  // Decrypt category names in by_category breakdown
+  const decryptedByCategory = await Promise.all(
+    (data.by_category ?? []).map(async (c) => ({
+      ...c,
+      category: await dec(c.category),
+    }))
+  );
+  return {
+    tag: await decryptTag(data.tag),
+    by_month: data.by_month ?? [],
+    by_category: decryptedByCategory,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Bootstrap / Import / Export
+// ---------------------------------------------------------------------------
+
+export async function fetchAllData(month) {
+  await Promise.all([
+    fetchUsers(true),
+    fetchExpenses(),
+    fetchSplits(),
+    fetchAnalytics(month),
+    fetchIncomeByPerson(month),
+    fetchPaybacks(month),
+    fetchProjects(),
+    fetchTags(),
+    fetchBudgets(),
+    fetchRecurring(),
+    fetchSettlements(),
+    fetchIncome(month),
+    fetchIncomeCategories(),
+    fetchJobs(),
+    fetchJointAccount(),
+    fetchJointCategories(),
+    fetchJointDeposits(),
+    fetchJointExpectedCosts(),
+    fetchJointCorrections(),
+    fetchJointDashboard(month),
+  ]);
+}
+
+export async function exportDatabase(saltText) {
+  const res = await fetch(`${BASE}/auth/export`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value: saltText })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Export failed: ${errText}`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'finance_decrypted.db';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+// ---------------------------------------------------------------------------
+// Recurring expenses
+// ---------------------------------------------------------------------------
+
+async function decryptRecurring(r) {
+  return {
+    ...r,
+    name: await dec(r.name),
+    who_paid: await dec(r.who_paid),
+    category: await dec(r.category)
+  };
+}
+
+export async function fetchRecurring() {
+  const data = await request('/recurring');
+  const decrypted = await Promise.all(data.map(decryptRecurring));
+  recurringExpenses.set(decrypted);
+  return decrypted;
+}
+
+export async function createRecurring(payload) {
+  const encryptedPayload = {
+    ...payload,
+    name: await enc(payload.name),
+    who_paid: await enc(payload.who_paid),
+    category: await enc(payload.category)
+  };
+
+  const data = await request('/recurring', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptRecurring(data);
+  recurringExpenses.update((prev) => [...prev, decrypted]);
+  return decrypted;
+}
+
+export async function deleteRecurring(id) {
+  const res = await fetch(`${BASE}/recurring/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /recurring/${id} → ${res.status}: ${body}`);
+  }
+  recurringExpenses.update((prev) => prev.filter((r) => r.id !== id));
+}
+
+// ---------------------------------------------------------------------------
+// Budgets
+// ---------------------------------------------------------------------------
+
+async function decryptBudget(b) {
+  return {
+    ...b,
+    category: await dec(b.category)
+  };
+}
+
+export async function fetchBudgets() {
+  const data = await request('/budgets');
+  const decrypted = await Promise.all(data.map(decryptBudget));
+  budgets.set(decrypted);
+  return decrypted;
+}
+
+export async function upsertBudget(payload) {
+  const encryptedPayload = {
+    ...payload,
+    category: await enc(payload.category)
+  };
+
+  const data = await request('/budgets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  
+  const decrypted = await decryptBudget(data);
+  budgets.update((prev) => {
+    const idx = prev.findIndex((b) => b.category === decrypted.category && b.month === decrypted.month);
+    return idx >= 0 ? prev.map((b, i) => (i === idx ? decrypted : b)) : [...prev, decrypted];
+  });
+  return decrypted;
+}
+
+export async function deleteBudget(category, month) {
+  const encCategory = await enc(category);
+  const res = await fetch(`${BASE}/budgets/${encodeURIComponent(encCategory)}/${encodeURIComponent(month)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /budgets → ${res.status}: ${body}`);
+  }
+  budgets.update((prev) => prev.filter((b) => !(b.category === category && b.month === month)));
+}
+
+export async function fetchBudgetAnalytics(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/analytics/budgets${qs}`);
+  return Promise.all(
+    data.map(async (r) => ({
+      ...r,
+      category: await dec(r.category)
+    }))
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Settlements
+// ---------------------------------------------------------------------------
+
+export async function fetchSettlements() {
+  const data = await request('/settlements');
+  settlements.set(data);
+  return data;
+}
+
+export async function createSettlement(payload) {
+  const data = await request('/settlements', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  settlements.update((prev) => [data, ...prev]);
+  return data;
+}
+
+// ---------------------------------------------------------------------------
+// Joint Account
+// ---------------------------------------------------------------------------
+
+/**
+ * Decrypt a joint account config object. Only `name` is encrypted.
+ */
+async function decryptJointAccount(ja) {
+  if (!ja) return null;
+  return { ...ja, name: await dec(ja.name) };
+}
+
+/**
+ * Decrypt a deposit entry. user_name is encrypted.
+ */
+async function decryptJointDeposit(d) {
+  return { ...d, user_name: await dec(d.user_name) };
+}
+
+/**
+ * Decrypt an expected cost entry. category is encrypted.
+ */
+async function decryptJointExpectedCost(c) {
+  return { ...c, category: await dec(c.category) };
+}
+
+/**
+ * Decrypt a correction entry. note may be null or encrypted.
+ */
+async function decryptJointCorrection(corr) {
+  return { ...corr, note: corr.note ? await dec(corr.note) : null };
+}
+
+async function decryptJointMonthlyDepositRow(row) {
+  return {
+    ...row,
+    user_name: await dec(row.user_name),
+  };
+}
+
+/**
+ * Decrypt a dashboard response: category fields in the categories array are encrypted.
+ */
+async function decryptJointDashboard(dash) {
+  if (!dash) return null;
+  const categories = await Promise.all(
+    dash.categories.map(async (row) => ({ ...row, category: await dec(row.category) }))
+  );
+  const user_deposits = await Promise.all(
+    (dash.user_deposits || []).map(decryptJointMonthlyDepositRow)
+  );
+  return { ...dash, categories, user_deposits };
+}
+
+export async function fetchJointAccount() {
+  const data = await request('/joint-account');
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function createJointAccount(payload) {
+  const body = { ...payload, name: await enc(payload.name) };
+  const data = await request('/joint-account', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function updateJointAccount(payload) {
+  const body = { ...payload };
+  if (payload.name) body.name = await enc(payload.name);
+  const data = await request('/joint-account', {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointAccount(data);
+  jointAccount.set(decrypted);
+  return decrypted;
+}
+
+export async function deleteJointAccount() {
+  const res = await fetch(`${BASE}/joint-account`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account → ${res.status}`);
+  jointAccount.set(null);
+  jointCategories.set([]);
+  jointDeposits.set([]);
+  jointExpectedCosts.set([]);
+  jointCorrections.set([]);
+  jointDashboard.set(null);
+}
+
+// ── Categories ──────────────────────────────────────────────────────────────────
+
+export async function fetchJointCategories() {
+  // Categories are stored as encrypted ciphertexts but compared as-is against splits.
+  // Decrypt only for display; the store keeps decrypted values alongside enc for form use.
+  const raw = await request('/joint-account/categories');
+  // Decrypt each category for display
+  const decrypted = await Promise.all(raw.map((c) => dec(c)));
+  // Store objects with both enc (for API calls) and plain (for display)
+  const pairs = raw.map((enc_cat, i) => ({ enc: enc_cat, plain: decrypted[i] }));
+  jointCategories.set(pairs);
+  return pairs;
+}
+
+export async function addJointCategory(encryptedCategory) {
+  // encryptedCategory is already encrypted (comes from splits store enc field or enc())
+  const data = await request('/joint-account/categories', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ category: encryptedCategory }),
+  });
+  await fetchJointCategories();
+  return data;
+}
+
+export async function removeJointCategory(encryptedCategory) {
+  const res = await fetch(`${BASE}/joint-account/categories/${encodeURIComponent(encryptedCategory)}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account/categories → ${res.status}`);
+  await fetchJointCategories();
+}
+
+// ── Deposits ─────────────────────────────────────────────────────────────────────
+
+export async function fetchJointDeposits() {
+  const raw = await request('/joint-account/deposits');
+  const decrypted = await Promise.all(raw.map(decryptJointDeposit));
+  jointDeposits.set(decrypted);
+  return decrypted;
+}
+
+export async function setJointDeposits(deposits) {
+  // deposits: [{ user_name (plain), amount_cents, day_of_month }]
+  const encrypted = await Promise.all(
+    deposits.map(async (d) => ({ ...d, user_name: await enc(d.user_name) }))
+  );
+  const raw = await request('/joint-account/deposits', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encrypted),
+  });
+  const decrypted = await Promise.all(raw.map(decryptJointDeposit));
+  jointDeposits.set(decrypted);
+  return decrypted;
+}
+
+export async function fetchJointMonthlyDeposits(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const raw = await request(`/joint-account/monthly-deposits${qs}`);
+  const decrypted = await Promise.all(raw.map(decryptJointMonthlyDepositRow));
+  jointMonthlyDeposits.set(decrypted);
+  return decrypted;
+}
+
+export async function updateJointMonthlyDeposit(payload) {
+  // payload: { month, user_name (plain), actual_cents, is_paid, paid_date? }
+  const encryptedPayload = {
+    ...payload,
+    user_name: await enc(payload.user_name),
+  };
+  const raw = await request('/joint-account/monthly-deposits', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+  const decrypted = await decryptJointMonthlyDepositRow(raw);
+  jointMonthlyDeposits.update((prev) => {
+    const idx = prev.findIndex((item) => item.user_name === decrypted.user_name);
+    if (idx >= 0) {
+      const next = [...prev];
+      next[idx] = decrypted;
+      return next;
+    }
+    return [...prev, decrypted];
+  });
+  await fetchJointAccount();
+  return decrypted;
+}
+
+// ── Expected Costs ─────────────────────────────────────────────────────────────
+
+export async function fetchJointExpectedCosts() {
+  const raw = await request('/joint-account/expected-costs');
+  const decrypted = await Promise.all(raw.map(decryptJointExpectedCost));
+  jointExpectedCosts.set(decrypted);
+  return decrypted;
+}
+
+export async function setJointExpectedCosts(costs) {
+  // costs: [{ category (plain), expected_cents }]
+  const encrypted = await Promise.all(
+    costs.map(async (c) => ({ ...c, category: await enc(c.category) }))
+  );
+  const raw = await request('/joint-account/expected-costs', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encrypted),
+  });
+  const decrypted = await Promise.all(raw.map(decryptJointExpectedCost));
+  jointExpectedCosts.set(decrypted);
+  return decrypted;
+}
+
+// ── Corrections ──────────────────────────────────────────────────────────────────
+
+export async function fetchJointCorrections() {
+  const raw = await request('/joint-account/corrections');
+  const decrypted = await Promise.all(raw.map(decryptJointCorrection));
+  jointCorrections.set(decrypted);
+  return decrypted;
+}
+
+export async function createJointCorrection(payload) {
+  // payload: { amount_cents, correction_date, note? (plain) }
+  const body = {
+    amount_cents: payload.amount_cents,
+    correction_date: payload.correction_date,
+    note: payload.note ? await enc(payload.note) : null,
+  };
+  const raw = await request('/joint-account/corrections', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const decrypted = await decryptJointCorrection(raw);
+  jointCorrections.update((prev) => [decrypted, ...(Array.isArray(prev) ? prev : [])]);
+  // Refresh joint account balance
+  await fetchJointAccount();
+  return decrypted;
+}
+
+export async function deleteJointCorrection(id) {
+  const res = await fetch(`${BASE}/joint-account/corrections/${id}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-account/corrections/${id} → ${res.status}`);
+  jointCorrections.update((prev) => prev.filter((c) => c.id !== id));
+  await fetchJointAccount();
+}
+
+// ── Dashboard ────────────────────────────────────────────────────────────────────
+
+export async function fetchJointDashboard(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  try {
+    const raw = await request(`/joint-account/dashboard${qs}`);
+    const decrypted = await decryptJointDashboard(raw);
+    jointDashboard.set(decrypted);
+    return decrypted;
+  } catch {
+    // No joint account configured — silently set null
+    jointDashboard.set(null);
+    return null;
+  }
+}
+
+export async function settleJointAccount(payload) {
+  return request('/joint-account/settle', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+}

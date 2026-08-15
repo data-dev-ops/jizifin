@@ -1,0 +1,248 @@
+/**
+ * stores.js — Svelte writable stores for cross-component reactive state.
+ *
+ * users             → array of UserResponse objects (includes inactive when fetched with flag)
+ * expenses          → array of ExpenseResponse objects (newest-first)
+ * splits            → array of SplitResponse objects (each has allocations: [{user_name, pct}])
+ * analytics         → { monthly_total, by_category, by_payer } from the three views
+ * selectedMonth     → currently selected YYYY-MM string used to filter Dashboard & Expenses
+ * incomeAnalytics   → array of IncomeByPersonRow for the selected month (with carry-forward)
+ * incomeEntries     → raw list of decrypted income entries for the selected month
+ * incomeCategories  → user-defined income category registry (decrypted)
+ * paybacks          → PaybackSummary: { rows, debts, month }
+ * budgets           → array of BudgetResponse rows (raw config)
+ * recurringExpenses → array of RecurringResponse objects
+ * settlements       → array of SettlementResponse rows (locked months)
+ * projects          → array of ProjectResponse objects
+ * tags              → array of TagTotalRow objects (all-time aggregates per tag)
+ * jointAccount      → singleton JointAccountResponse | null
+ * jointCategories   → array of encrypted category strings assigned to the joint account
+ * jointDeposits     → array of JointAccountDepositResponse objects
+ * jointExpectedCosts→ array of JointAccountExpectedCostResponse objects
+ * jointCorrections  → array of JointAccountCorrectionResponse objects
+ * jointDashboard    → JointAccountDashboardResponse | null
+ */
+
+import { writable } from 'svelte/store';
+
+/**
+ * Helper: writable store that reads/writes a boolean to localStorage.
+ * Falls back to `defaultValue` when no entry exists yet.
+ */
+function persistedBoolean(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  const initial = stored !== null ? stored === 'true' : defaultValue;
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, String(val)));
+  return store;
+}
+
+/**
+ * Household users. Each entry: { name, color, is_active, created_at }
+ * Populated by fetchUsers(). The store holds ALL users (active + inactive)
+ * so deactivated users remain visible in history. Filter by is_active at
+ * the UI layer where only active users should be selectable.
+ */
+export const users = writable([]);
+
+export const expenses = writable([]);
+
+export const splits = writable([]);
+
+export const analytics = writable({
+  monthly_total: { total_amount: 0.0, expense_count: 0, month: '' },
+  by_category: [],
+  by_payer: [],
+});
+
+/** Current month in YYYY-MM format, shared across Dashboard and Expenses tabs. */
+const now = new Date();
+export const selectedMonth = writable(
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
+);
+
+/**
+ * Income totals per person for the selected month.
+ * Each entry: { who: string, total_cents: number, is_carried: boolean }
+ */
+export const incomeAnalytics = writable([]);
+
+// Raw list of decrypted income entries for the selected month
+export const incomeEntries = writable([]);
+
+// User-defined income category registry (decrypted)
+export const DEFAULT_INCOME_CATEGORIES = ['SALARY', 'BONUS', 'GIFT'];
+export const incomeCategories = writable(DEFAULT_INCOME_CATEGORIES.map((category) => ({ category })));
+
+// Decrypted list of jobs / employment streams
+export const jobs = writable([]);
+
+/**
+ * Payback/settlement analytics summary.
+ * Structure: { rows: PaybackRow[], debts: DebtItem[], month: string }
+ * PaybackRow: { category, total_amount, per_user_paid, per_user_share_pct, net_per_user }
+ * DebtItem:   { from_user, to_user, amount }
+ */
+export const paybacks = writable({
+  rows: [],
+  debts: [],
+  month: '',
+});
+
+/**
+ * Projects list. Each entry: ProjectResponse from /projects.
+ * Fields: id, name, target_cents, target_date, total_spent_cents,
+ *         avg_monthly_payment_cents, last_payment, estimated_completion_date
+ */
+export const projects = writable([]);
+
+/**
+ * Tags (open-ended event labels). Each entry: TagTotalRow from /tags.
+ * Fields: id, name, color, description, total_amount, expense_count, first_date, last_date
+ */
+export const tags = writable([]);
+
+/**
+ * Budget raw config rows. Each entry: { category, month, limit_cents }
+ */
+export const budgets = writable([]);
+
+/**
+ * Recurring expense templates. Each entry:
+ * { id, name, cost_cents, who_paid, category, day_of_month }
+ */
+export const recurringExpenses = writable([]);
+
+/**
+ * Locked months. Each entry: { month, settled_at, net_balance_transferred_cents }
+ */
+export const settlements = writable([]);
+
+/**
+ * Joint account singleton config. Null when not configured.
+ * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents }
+ */
+export const jointAccount = writable(null);
+
+/**
+ * Encrypted category strings assigned to the joint account.
+ * Decrypted at UI layer for display.
+ */
+export const jointCategories = writable([]);
+
+/**
+ * Per-user deposit config. Each: { user_name (decrypted), amount_cents, day_of_month }
+ */
+export const jointDeposits = writable([]);
+export const jointMonthlyDeposits = writable([]);
+
+/**
+ * Per-category expected monthly costs. Each: { category (decrypted), expected_cents }
+ */
+export const jointExpectedCosts = writable([]);
+
+/**
+ * Balance correction log. Each: { id, amount_cents, correction_date, note (decrypted) }
+ */
+export const jointCorrections = writable([]);
+
+/**
+ * Dashboard response for the selected month.
+ * Structure: JointAccountDashboardResponse
+ */
+export const jointDashboard = writable(null);
+
+/**
+ * UI preference: Show project selector dropdown in ExpenseForm.
+ * Default true when projects exist; user can toggle off in Projects tab or Settings.
+ */
+export const showProjectsInExpense = persistedBoolean('showProjectsInExpense', true);
+
+/**
+ * UI preference: Joint account feature enabled.
+ * Default false — opt-in module for multi-member households.
+ */
+export const jointAccountEnabled = persistedBoolean('jointAccountEnabled', false);
+
+/**
+ * Helper: writable store that reads/writes a JSON object to localStorage.
+ */
+function persistedObject(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  let initial = defaultValue;
+  if (stored !== null) {
+    try {
+      initial = { ...defaultValue, ...JSON.parse(stored) };
+    } catch {}
+  }
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, JSON.stringify(val)));
+  return store;
+}
+
+/**
+ * Mobile preferences & tab visibility stores.
+ * Maps tab ID to boolean visibility on mobile devices.
+ * Settings and at least one other tab are always enforced active.
+ */
+export const mobileTabVisibility = persistedObject('mobileTabVisibility', {
+  dashboard: true,
+  expenses: true,
+  income: true,
+  splits: true,
+  projects: true,
+  tags: true,
+  recurring: true,
+  query: true,
+  settings: true,
+  joint: true,
+});
+
+export const mobileAutoCloseMenu = persistedBoolean('mobileAutoCloseMenu', true);
+export const mobileCompactView = persistedBoolean('mobileCompactView', false);
+export const mobileLargeTouchTargets = persistedBoolean('mobileLargeTouchTargets', false);
+
+
+/**
+ * Helper: writable store that reads/writes a string to localStorage.
+ */
+function persistedString(key, defaultValue) {
+  const stored = localStorage.getItem(key);
+  const initial = stored !== null ? stored : defaultValue;
+  const store = writable(initial);
+  store.subscribe((val) => localStorage.setItem(key, val));
+  return store;
+}
+
+export const defaultPayer = persistedString('defaultPayer', '');
+export const defaultCategory = persistedString('defaultCategory', '');
+export const defaultProject = persistedString('defaultProject', '');
+export const showQueryTab = persistedBoolean('showQueryTab', true);
+export const currencySymbol = persistedString('currencySymbol', '€');
+
+/**
+ * UI display mode: how split percentages are entered.
+ * 'inputs' — individual number fields per user (default, works for any user count).
+ * 'slider' — single linked range slider when exactly 2 active users; drag one side,
+ *            the other auto-complements to 100%. Falls back to inputs if >2 users.
+ */
+export const splitInputMode = persistedString('splitInputMode', 'inputs');
+
+/**
+ * UI display mode: how per-category payback breakdown is rendered.
+ * 'cards' — current grid of per-user cards showing paid/share/net (default).
+ * 'bar'   — horizontal stacked bars per category, segments proportional to amount paid.
+ */
+export const paybackDisplayMode = persistedString('paybackDisplayMode', 'cards');
+
+/**
+ * UI display mode: category spending chart type on the dashboard.
+ * 'doughnut' — current doughnut/donut chart (default).
+ * 'bar'      — horizontal bar chart with categories on the Y axis.
+ */
+export const chartStyle = persistedString('chartStyle', 'doughnut');
+
+export const authSalt = writable('');
+export const cryptoKey = writable(null);
+
+
