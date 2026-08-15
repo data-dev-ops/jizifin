@@ -151,7 +151,7 @@
 
   $: sumCategoryExpectedCents = editExpected.reduce((s, e) => s + (e.expected_cents || 0), 0);
 
-  function enterExpected() {
+  function initExpectedState() {
     editExpected = cats.map((c) => {
       const ex = expected.find((e) => e.category === c.plain);
       return {
@@ -162,6 +162,10 @@
     costEstimationMode = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined) ? 'gross' : 'categories';
     grossTotalEuros = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined) ? (ja.expected_total_cents / 100).toFixed(2) : '';
     editingExpected = false;
+  }
+
+  function enterExpected() {
+    initExpectedState();
     section = 'expected';
   }
 
@@ -207,6 +211,11 @@
       }
     }
     await fetchJointCategories();
+    await fetchJointExpectedCosts().catch(() => {});
+    initExpectedState();
+    if (ja && month) {
+      await fetchJointDashboard(month).catch(() => {});
+    }
   }
 
   async function handleDelete() {
@@ -244,7 +253,10 @@
         await addJointCategory(encCat);
       }
       await fetchJointExpectedCosts();
-      enterExpected();
+      initExpectedState();
+      if (ja && month) {
+        await fetchJointDashboard(month).catch(() => {});
+      }
     } catch (e) {
       errorMsg = e.message;
     }

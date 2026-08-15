@@ -197,6 +197,25 @@ describe('JointAccountTab.svelte — account exists', () => {
     expect(screen.getAllByText(/UTILITIES/).length).toBeGreaterThan(0);
   });
 
+  it('remains in Categories section when toggling joint account categories', async () => {
+    vi.spyOn(api, 'removeJointCategory').mockResolvedValue(undefined);
+    vi.spyOn(api, 'addJointCategory').mockResolvedValue({});
+    vi.spyOn(api, 'fetchJointExpectedCosts').mockResolvedValue([]);
+    vi.spyOn(api, 'fetchJointDashboard').mockResolvedValue(mockDash);
+
+    render(JointAccountTab);
+    await fireEvent.click(document.getElementById('ja-nav-categories'));
+    expect(screen.getByText(/Joint Account Categories/i)).toBeInTheDocument();
+
+    const checkbox = document.getElementById('ja-cat-GROCERIES');
+    expect(checkbox).toBeInTheDocument();
+    await fireEvent.click(checkbox);
+
+    // Verify it stays on Categories section, NOT switching to Expected Costs
+    expect(screen.getByText(/Joint Account Categories/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Expected Monthly Costs/i)).not.toBeInTheDocument();
+  });
+
   it.each([
     { tabId: 'ja-nav-corrections' },
   ])('navigates to Corrections section and shows log form ($tabId)', async ({ tabId }) => {
