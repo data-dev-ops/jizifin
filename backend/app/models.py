@@ -501,6 +501,7 @@ class PaybackSummary(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
 # Recurring Expenses
 # ---------------------------------------------------------------------------
 
@@ -509,20 +510,106 @@ class RecurringCreate(BaseModel):
     cost_cents:   Annotated[int, Field(gt=0, description="Whole cents")]
     who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
     category:     Annotated[str, Field(max_length=256)]
-    day_of_month: Annotated[int, Field(ge=1, le=31)]
+    frequency:    Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"] = "monthly"
+    day_of_month: Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    start_date:   Optional[str] = None
+    end_date:     Optional[str] = None
+    is_active:    bool = True
     is_joint:     bool = False
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: str | None) -> str | None:
+        if v is not None and not _DATE_RE.fullmatch(v):
+            raise ValueError("start_date must be in YYYY-MM-DD format")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, v: str | None) -> str | None:
+        if v is not None and not _DATE_RE.fullmatch(v):
+            raise ValueError("end_date must be in YYYY-MM-DD format")
+        return v
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "RecurringCreate":
+        from datetime import date as _dt_date
+        if not self.start_date:
+            self.start_date = _dt_date.today().isoformat()
+        if self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("end_date cannot be earlier than start_date")
+        if self.frequency == "monthly" and self.day_of_month is None:
+            try:
+                self.day_of_month = int(self.start_date.split("-")[2])
+            except Exception:
+                self.day_of_month = 1
+        return self
+
+
+class RecurringUpdate(BaseModel):
+    name:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    cost_cents:   Optional[Annotated[int, Field(gt=0)]] = None
+    who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    category:     Optional[Annotated[str, Field(max_length=256)]] = None
+    frequency:    Optional[Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"]] = None
+    day_of_month: Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    start_date:   Optional[str] = None
+    end_date:     Optional[str] = None
+    is_active:    Optional[bool] = None
+    is_joint:     Optional[bool] = None
+
+    @field_validator("start_date")
+    @classmethod
+    def validate_start_date(cls, v: str | None) -> str | None:
+        if v is not None and not _DATE_RE.fullmatch(v):
+            raise ValueError("start_date must be in YYYY-MM-DD format")
+        return v
+
+    @field_validator("end_date")
+    @classmethod
+    def validate_end_date(cls, v: str | None) -> str | None:
+        if v is not None and not _DATE_RE.fullmatch(v):
+            raise ValueError("end_date must be in YYYY-MM-DD format")
+        return v
 
 
 class RecurringResponse(BaseModel):
-    id:           int
-    name:         str
-    cost_cents:   int
-    who_paid:     str
-    category:     str
-    day_of_month: int
-    is_joint:     bool = False
+    id:                   int
+    name:                 str
+    cost_cents:           int
+    who_paid:             str
+    category:             str
+    frequency:            str = "monthly"
+    day_of_month:         Optional[int] = None
+    start_date:           str = "2026-01-01"
+    end_date:             Optional[str] = None
+    is_active:            bool = True
+    is_joint:             bool = False
+    occurrences_in_month: Optional[int] = None
+    monthly_cost_cents:   Optional[int] = None
+    dates_in_month:       Optional[list[str]] = None
 
     model_config = {"from_attributes": True}
+
+
+class RecurringCategoryBreakdown(BaseModel):
+    category:    str
+    total_cents: int
+    count:       int
+
+
+class RecurringPayerBreakdown(BaseModel):
+    who_paid:    str
+    total_cents: int
+    count:       int
+
+
+class RecurringAnalyticsSummary(BaseModel):
+    month:        str
+    total_cents:  int
+    active_count: int
+    by_category:  list[RecurringCategoryBreakdown]
+    by_payer:     list[RecurringPayerBreakdown]
 
 
 # ---------------------------------------------------------------------------

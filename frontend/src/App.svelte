@@ -17,7 +17,7 @@
   import Login from './lib/Login.svelte';
   import JointAccountTab from './lib/JointAccountTab.svelte';
   import SettingsTab from './lib/SettingsTab.svelte';
-  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories } from './lib/api.js';
+  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories, fetchRecurring } from './lib/api.js';
   import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled } from './lib/stores.js';
 
   let showJointPromptModal = false;
@@ -122,6 +122,7 @@
         fetchIncomeByPerson(month),
         fetchPaybacks(month),
         fetchIncome(month),
+        fetchRecurring(month),
         fetchBudgetAnalytics(month).then((rows) => { budgetStatus = rows; }),
       ]);
     });

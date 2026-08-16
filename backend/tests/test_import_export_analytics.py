@@ -539,3 +539,93 @@ async def test_shared_vs_personal_project(client: AsyncClient):
     assert p_personal.json()["is_joint"] == 0
     assert p_shared.json()["is_joint"] == 1
 
+
+@pytest.mark.asyncio
+async def test_import_legacy_database_backfills_defaults_and_resolves_all_endpoints(tmp_path):
+    """Verify that importing an unencrypted legacy SQLite database missing columns/tables migrates cleanly and all endpoints function without 500 errors."""
+    import sqlite3
+    import io
+    from unittest.mock import patch
+    from httpx import AsyncClient, ASGITransport
+    from app.main import app
+    from app import database
+
+    passphrase = "test-passphrase-legacy"
+    key = derive_key(passphrase)
+
+    # Build an unencrypted legacy SQLite database in memory
+    legacy_bytes_io = io.BytesIO()
+    legacy_file = tmp_path / "legacy_raw.db"
+    conn = sqlite3.connect(str(legacy_file))
+    conn.execute("CREATE TABLE users (name TEXT PRIMARY KEY)")
+    conn.execute("INSERT INTO users (name) VALUES ('John')")
+    conn.execute("CREATE TABLE splits (category TEXT PRIMARY KEY)")
+    conn.execute("INSERT INTO splits (category) VALUES ('RENT')")
+    conn.execute("CREATE TABLE split_allocations (category TEXT, user_name TEXT, pct REAL, PRIMARY KEY (category, user_name))")
+    conn.execute("INSERT INTO split_allocations (category, user_name, pct) VALUES ('RENT', 'John', 100.0)")
+    # Legacy recurring_expenses table missing frequency, start_date, end_date, is_active
+    conn.execute("""
+        CREATE TABLE recurring_expenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            cost_cents INTEGER NOT NULL,
+            who_paid TEXT NOT NULL,
+            category TEXT NOT NULL,
+            day_of_month INTEGER NOT NULL,
+            is_joint INTEGER NOT NULL DEFAULT 0
+        )
+    """)
+    conn.execute("""
+        INSERT INTO recurring_expenses (name, cost_cents, who_paid, category, day_of_month, is_joint)
+        VALUES ('Apartment Rent', 90000, 'John', 'RENT', 31, 0)
+    """)
+    conn.commit()
+    conn.close()
+
+    with open(legacy_file, "rb") as f:
+        file_content = f.read()
+
+    active_db = tmp_path / "active_finance.db"
+    with patch("app.database.DB_PATH", active_db), patch("app.main.DB_PATH", active_db):
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as test_client:
+            # Import the legacy file
+            resp = await test_client.post(
+                "/auth/import",
+                data={"saltText": passphrase},
+                files={"file": ("legacy.db", io.BytesIO(file_content), "application/octet-stream")}
+            )
+            assert resp.status_code == 200
+            token = resp.json()["token"]
+
+            # Query /recurring - should succeed without 'no such column: frequency' error!
+            auth_headers = {"Authorization": f"Bearer {token}"}
+            rec_resp = await test_client.get("/recurring", headers=auth_headers)
+            assert rec_resp.status_code == 200
+            recurring_list = rec_resp.json()
+            assert len(recurring_list) == 1
+            rec_item = recurring_list[0]
+            assert rec_item["frequency"] == "monthly"
+            assert rec_item["start_date"] == "2026-01-01"
+            assert rec_item["is_active"] == 1
+
+            # Query /users - should have default color and active status
+            users_resp = await test_client.get("/users", headers=auth_headers)
+            assert users_resp.status_code == 200
+            users = users_resp.json()
+            assert len(users) == 1
+            assert users[0]["color"] == "#6366f1"
+            assert users[0]["is_active"] == 1
+
+            # Query other tables and views that were newly created during migration
+            assert (await test_client.get("/projects", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/jobs", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/tags", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/budgets", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/settlements", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/expenses", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/income", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/joint-account", headers=auth_headers)).status_code == 200
+            assert (await test_client.get("/analytics/by-category?month=2026-08", headers=auth_headers)).status_code == 200
+
+

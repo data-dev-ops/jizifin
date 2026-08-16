@@ -834,12 +834,19 @@ async function decryptRecurring(r) {
     ...r,
     name: await dec(r.name),
     who_paid: await dec(r.who_paid),
-    category: await dec(r.category)
+    category: await dec(r.category),
+    frequency: r.frequency || 'monthly',
+    start_date: r.start_date || '2026-01-01',
+    end_date: r.end_date || null,
+    is_active: r.is_active !== undefined ? Boolean(r.is_active) : true,
+    is_joint: Boolean(r.is_joint),
+    day_of_month: r.day_of_month ?? null,
   };
 }
 
-export async function fetchRecurring() {
-  const data = await request('/recurring');
+export async function fetchRecurring(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/recurring${qs}`);
   const decrypted = await Promise.all(data.map(decryptRecurring));
   recurringExpenses.set(decrypted);
   return decrypted;
@@ -850,7 +857,9 @@ export async function createRecurring(payload) {
     ...payload,
     name: await enc(payload.name),
     who_paid: await enc(payload.who_paid),
-    category: await enc(payload.category)
+    category: await enc(payload.category),
+    is_active: payload.is_active !== undefined ? Boolean(payload.is_active) : true,
+    is_joint: Boolean(payload.is_joint),
   };
 
   const data = await request('/recurring', {
@@ -862,6 +871,47 @@ export async function createRecurring(payload) {
   const decrypted = await decryptRecurring(data);
   recurringExpenses.update((prev) => [...prev, decrypted]);
   return decrypted;
+}
+
+export async function updateRecurring(id, payload) {
+  const encryptedPayload = { ...payload };
+  if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
+  if (payload.who_paid !== undefined) encryptedPayload.who_paid = await enc(payload.who_paid);
+  if (payload.category !== undefined) encryptedPayload.category = await enc(payload.category);
+  if (payload.is_active !== undefined) encryptedPayload.is_active = Boolean(payload.is_active);
+  if (payload.is_joint !== undefined) encryptedPayload.is_joint = Boolean(payload.is_joint);
+
+  const data = await request(`/recurring/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+
+  const decrypted = await decryptRecurring(data);
+  recurringExpenses.update((prev) => prev.map((r) => (r.id === id ? decrypted : r)));
+  return decrypted;
+}
+
+export async function fetchRecurringAnalytics(month) {
+  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/analytics/recurring${qs}`);
+  const by_category = await Promise.all(
+    (data.by_category || []).map(async (c) => ({
+      ...c,
+      category: await dec(c.category),
+    }))
+  );
+  const by_payer = await Promise.all(
+    (data.by_payer || []).map(async (p) => ({
+      ...p,
+      who_paid: await dec(p.who_paid),
+    }))
+  );
+  return {
+    ...data,
+    by_category,
+    by_payer,
+  };
 }
 
 export async function deleteRecurring(id) {

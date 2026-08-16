@@ -74,13 +74,19 @@ def process_database_connection(conn: sqlite3.Connection, key: bytes, encrypt: b
             if not cur.fetchone():
                 continue
             
+            # Filter to only columns that actually exist in this table
+            table_cols = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+            valid_columns = [col for col in columns if col in table_cols]
+            if not valid_columns:
+                continue
+
             # Fetch all rows
             rows = conn.execute(f"SELECT rowid as _rowid, * FROM {table}").fetchall()
             
             for row in rows:
                 updates = []
                 params = []
-                for col in columns:
+                for col in valid_columns:
                     val = row[col]
                     if val is not None:
                         new_val = encrypt_text(val, key) if encrypt else decrypt_text(val, key)

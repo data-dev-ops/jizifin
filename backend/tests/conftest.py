@@ -159,7 +159,11 @@ async def test_db(tmp_path: Path) -> AsyncGenerator[aiosqlite.Connection, None]:
                 cost_cents   INTEGER NOT NULL CHECK(cost_cents > 0),
                 who_paid     TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE,
                 category     TEXT    NOT NULL REFERENCES splits(category) ON UPDATE CASCADE,
-                day_of_month INTEGER NOT NULL CHECK(day_of_month >= 1 AND day_of_month <= 31),
+                frequency    TEXT    NOT NULL DEFAULT 'monthly' CHECK(frequency IN ('monthly', 'weekly', 'biweekly', '4-weekly', 'quarterly', 'annual')),
+                day_of_month INTEGER CHECK(day_of_month IS NULL OR (day_of_month >= 1 AND day_of_month <= 31)),
+                start_date   TEXT    NOT NULL DEFAULT '2026-01-01' CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                end_date     TEXT    CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                is_active    INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
                 is_joint     INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))
             )
         """)

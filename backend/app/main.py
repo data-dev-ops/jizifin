@@ -73,7 +73,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from .database import get_db, init_db
+from .database import DB_PATH, get_db, init_db
 from .models import (
     AllocationEntry,
     AuthLoginRequest,
@@ -106,6 +106,10 @@ from .models import (
     ProjectUpdate,
     RecurringCreate,
     RecurringResponse,
+    RecurringUpdate,
+    RecurringAnalyticsSummary,
+    RecurringCategoryBreakdown,
+    RecurringPayerBreakdown,
     SettlementCreate,
     SettlementResponse,
     SplitCreate,
@@ -178,28 +182,134 @@ logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
-# Recurring expense scheduler
+# Recurring expense helper & scheduler
 # ---------------------------------------------------------------------------
+
+def calculate_recurring_occurrences(
+    frequency: str,
+    start_date_str: str,
+    end_date_str: str | None,
+    day_of_month: int | None,
+    target_month: str,  # YYYY-MM
+) -> list[str]:
+    """
+    Computes all ISO date strings (YYYY-MM-DD) on which a recurring expense
+    occurs within the specified target_month ('YYYY-MM').
+    Handles weekly, biweekly, 4-weekly, monthly (with short-month clamps),
+    quarterly, and annual intervals bounded by start_date and optional end_date.
+    """
+    import calendar
+    from datetime import date as _dt, timedelta as _td
+
+    try:
+        y, m = map(int, target_month.split("-"))
+    except Exception:
+        return []
+
+    days_in_month = calendar.monthrange(y, m)[1]
+    m_start = _dt(y, m, 1)
+    m_end = _dt(y, m, days_in_month)
+
+    try:
+        start_d = _dt.fromisoformat(start_date_str)
+    except Exception:
+        return []
+
+    end_d = None
+    if end_date_str:
+        try:
+            end_d = _dt.fromisoformat(end_date_str)
+        except Exception:
+            end_d = None
+
+    if start_d > m_end:
+        return []
+    if end_d and end_d < m_start:
+        return []
+
+    dates: list[str] = []
+
+    if frequency in ("weekly", "biweekly", "4-weekly"):
+        interval_days = 7 if frequency == "weekly" else (14 if frequency == "biweekly" else 28)
+        if start_d >= m_start:
+            curr = start_d
+        else:
+            diff_days = (m_start - start_d).days
+            steps = (diff_days + interval_days - 1) // interval_days
+            curr = start_d + _td(days=steps * interval_days)
+
+        while curr <= m_end:
+            if end_d and curr > end_d:
+                break
+            if curr >= start_d:
+                dates.append(curr.isoformat())
+            curr += _td(days=interval_days)
+
+    elif frequency == "monthly":
+        dom = day_of_month if (day_of_month is not None and 1 <= day_of_month <= 31) else start_d.day
+        exec_day = min(dom, days_in_month)
+        dt = _dt(y, m, exec_day)
+        if dt >= start_d and (end_d is None or dt <= end_d):
+            dates.append(dt.isoformat())
+
+    elif frequency == "quarterly":
+        # Every 3 months from start_date
+        start_month_idx = start_d.year * 12 + start_d.month
+        target_month_idx = y * 12 + m
+        diff = target_month_idx - start_month_idx
+        if diff >= 0 and diff % 3 == 0:
+            dom = day_of_month if (day_of_month is not None and 1 <= day_of_month <= 31) else start_d.day
+            exec_day = min(dom, days_in_month)
+            dt = _dt(y, m, exec_day)
+            if dt >= start_d and (end_d is None or dt <= end_d):
+                dates.append(dt.isoformat())
+
+    elif frequency == "annual":
+        # Yearly on the anniversary month & day
+        if m == start_d.month and y >= start_d.year:
+            dom = day_of_month if (day_of_month is not None and 1 <= day_of_month <= 31) else start_d.day
+            exec_day = min(dom, days_in_month)
+            dt = _dt(y, m, exec_day)
+            if dt >= start_d and (end_d is None or dt <= end_d):
+                dates.append(dt.isoformat())
+
+    return sorted(dates)
+
 
 async def process_recurring_expenses() -> None:
     """
     Daily cron: insert expense rows for every recurring_expenses whose
-    day_of_month matches today.  Broadcasts a WS tick for each insertion.
+    schedule matches today. Broadcasts a WS tick for each insertion.
     """
     today = _date.today()
     today_str = today.isoformat()
-    day = today.day
+    target_month = today_str[:7]
 
-    async with aiosqlite.connect(__import__("pathlib").Path(__file__).resolve().parent.parent / "finance.db") as conn:
+    async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("PRAGMA journal_mode=WAL;")
         await conn.execute("PRAGMA foreign_keys=ON;")
         conn.row_factory = aiosqlite.Row
 
         async with conn.execute(
-            "SELECT id, name, cost_cents, who_paid, category FROM recurring_expenses WHERE day_of_month = ?",
-            (day,),
+            """
+            SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+            FROM recurring_expenses
+            WHERE is_active = 1
+            """
         ) as cur:
-            due = await cur.fetchall()
+            templates = await cur.fetchall()
+
+        due = []
+        for rec in templates:
+            dates = calculate_recurring_occurrences(
+                frequency=rec["frequency"] or "monthly",
+                start_date_str=rec["start_date"] or "2026-01-01",
+                end_date_str=rec["end_date"],
+                day_of_month=rec["day_of_month"],
+                target_month=target_month,
+            )
+            if today_str in dates:
+                due.append(rec)
 
         for rec in due:
             async with conn.execute(
@@ -214,10 +324,13 @@ async def process_recurring_expenses() -> None:
             if exists:
                 continue
 
+            is_joint_val = 1 if rec["is_joint"] else 0
             await conn.execute(
-                "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category) VALUES (?, ?, ?, ?, ?)",
-                (rec["name"], rec["cost_cents"], today_str, rec["who_paid"], rec["category"]),
+                "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, is_joint) VALUES (?, ?, ?, ?, ?, ?)",
+                (rec["name"], rec["cost_cents"], today_str, rec["who_paid"], rec["category"], is_joint_val),
             )
+            if rec["is_joint"]:
+                await conn.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (rec["cost_cents"],))
 
         await conn.commit()
 
@@ -230,6 +343,7 @@ async def process_recurring_expenses() -> None:
                     "expense_date": today_str,
                     "who_paid":     rec["who_paid"],
                     "category":     rec["category"],
+                    "is_joint":     bool(rec["is_joint"]),
                     "source":       "recurring",
                 },
             })
@@ -481,7 +595,7 @@ async def export_database(payload: AuthSaltRequest, db: DbDep):
         raise HTTPException(status_code=401, detail="Incorrect master password")
 
     # In-memory zero-disk database decryption
-    db_path = Path(__file__).resolve().parent.parent / "finance.db"
+    db_path = DB_PATH
     import sqlite3
     mem_conn = sqlite3.connect(":memory:")
     try:
@@ -504,17 +618,20 @@ async def export_database(payload: AuthSaltRequest, db: DbDep):
 
 
 @app.post("/auth/import", tags=["auth"])
-async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str = Form(...)):
+async def import_database(file: UploadFile = File(...), saltText: str = Form(...)):
     """Import an unencrypted database file on first boot and encrypt it."""
-    try:
-        async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
-            if await cur.fetchone() is not None:
-                raise HTTPException(status_code=409, detail="Database already initialized")
-    except Exception:
-        pass # Table doesn't exist, which means it's uninitialized. Proceed.
+    db_path = DB_PATH
+    if db_path.exists():
+        try:
+            async with aiosqlite.connect(db_path) as chk_conn:
+                async with chk_conn.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+                    if await cur.fetchone() is not None:
+                        raise HTTPException(status_code=409, detail="Database already initialized")
+        except HTTPException:
+            raise
+        except Exception:
+            pass # Table doesn't exist, which means it's uninitialized. Proceed.
             
-    db_path = Path(__file__).resolve().parent.parent / "finance.db"
-    
     # Clear any old WAL/SHM files to prevent corruption with the new database
     wal_path = db_path.with_name(db_path.name + "-wal")
     shm_path = db_path.with_name(db_path.name + "-shm")
@@ -524,9 +641,12 @@ async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str
     # Save the uploaded file over the current DB
     with open(db_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
-        
+
+    # Ensure schema, columns, defaults, indexes, and views exist before encrypting
+    await init_db(db_path=db_path)
+
     key = derive_key(saltText)
-    
+
     # Encrypt the data
     try:
         encrypt_database(db_path, key)
@@ -535,10 +655,10 @@ async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str
         if db_path.exists():
             os.remove(db_path)
         raise HTTPException(status_code=500, detail=f"Encryption failed: {e}")
-        
+
     # Set the magic word
     magic_val = encrypt_text("FinanceTrackerAuth", key)
-    
+
     # Needs a new connection since we replaced the file under the hood
     async with aiosqlite.connect(db_path) as new_conn:
         await new_conn.execute("PRAGMA journal_mode=WAL;")
@@ -546,6 +666,9 @@ async def import_database(db: DbDep, file: UploadFile = File(...), saltText: str
         await new_conn.execute("CREATE TABLE IF NOT EXISTS app_config (key TEXT PRIMARY KEY, value TEXT NOT NULL)")
         await new_conn.execute("INSERT OR REPLACE INTO app_config (key, value) VALUES ('magic_word', ?)", (magic_val,))
         await new_conn.commit()
+
+    # Re-verify schema and views on the encrypted database
+    await init_db(db_path=db_path)
 
     token = create_session()
     return {"status": "ok", "token": token}
@@ -1923,24 +2046,228 @@ async def delete_budget(category: str, month: str, db: DbDep) -> None:
 # ---------------------------------------------------------------------------
 
 @app.get("/recurring", response_model=list[RecurringResponse], tags=["recurring"])
-async def list_recurring(db: DbDep) -> list[RecurringResponse]:
-    async with db.execute("SELECT id, name, cost_cents, who_paid, category, day_of_month, is_joint FROM recurring_expenses ORDER BY id") as cur:
+async def list_recurring(db: DbDep, month: str | None = None) -> list[RecurringResponse]:
+    async with db.execute(
+        """
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        FROM recurring_expenses ORDER BY id
+        """
+    ) as cur:
         rows = await cur.fetchall()
-    return [RecurringResponse(**dict(r)) for r in rows]
+
+    results = []
+    for r in rows:
+        d = dict(r)
+        d["frequency"] = d.get("frequency") or "monthly"
+        d["start_date"] = d.get("start_date") or "2026-01-01"
+        d["is_active"] = bool(d.get("is_active", 1))
+        d["is_joint"] = bool(d.get("is_joint", 0))
+
+        if month:
+            dates = calculate_recurring_occurrences(
+                frequency=d["frequency"],
+                start_date_str=d["start_date"],
+                end_date_str=d.get("end_date"),
+                day_of_month=d.get("day_of_month"),
+                target_month=month,
+            ) if d["is_active"] else []
+            d["occurrences_in_month"] = len(dates)
+            d["monthly_cost_cents"] = len(dates) * d["cost_cents"]
+            d["dates_in_month"] = dates
+
+        results.append(RecurringResponse(**d))
+    return results
 
 
 @app.post("/recurring", response_model=RecurringResponse, status_code=status.HTTP_201_CREATED, tags=["recurring"])
 async def create_recurring(rec: RecurringCreate, db: DbDep) -> RecurringResponse:
     await _assert_active_user(db, rec.who_paid)
+
+    async with db.execute("SELECT category FROM splits WHERE category = ?", (rec.category,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Category '{rec.category}' does not exist in splits table.",
+            )
+
+    start_date = rec.start_date or _date.today().isoformat()
+    day_of_month = rec.day_of_month
+    if rec.frequency == "monthly" and day_of_month is None:
+        try:
+            day_of_month = int(start_date.split("-")[2])
+        except Exception:
+            day_of_month = 1
+
     async with db.execute(
-        "INSERT INTO recurring_expenses (name, cost_cents, who_paid, category, day_of_month, is_joint) VALUES (?, ?, ?, ?, ?, ?)",
-        (rec.name, rec.cost_cents, rec.who_paid, rec.category, rec.day_of_month, 1 if rec.is_joint else 0),
+        """
+        INSERT INTO recurring_expenses (name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            rec.name,
+            rec.cost_cents,
+            rec.who_paid,
+            rec.category,
+            rec.frequency,
+            day_of_month,
+            start_date,
+            rec.end_date,
+            1 if rec.is_active else 0,
+            1 if rec.is_joint else 0,
+        ),
     ) as cur:
         new_id = cur.lastrowid
     await db.commit()
-    async with db.execute("SELECT id, name, cost_cents, who_paid, category, day_of_month, is_joint FROM recurring_expenses WHERE id=?", (new_id,)) as cur:
+
+    async with db.execute(
+        """
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        FROM recurring_expenses WHERE id = ?
+        """,
+        (new_id,),
+    ) as cur:
         row = await cur.fetchone()
-    return RecurringResponse(**dict(row))
+    d = dict(row)
+    d["is_active"] = bool(d["is_active"])
+    d["is_joint"] = bool(d["is_joint"])
+    return RecurringResponse(**d)
+
+
+@app.put("/recurring/{rec_id}", response_model=RecurringResponse, tags=["recurring"])
+async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> RecurringResponse:
+    async with db.execute(
+        """
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        FROM recurring_expenses WHERE id = ?
+        """,
+        (rec_id,),
+    ) as cur:
+        existing = await cur.fetchone()
+    if existing is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recurring expense {rec_id} not found.")
+
+    if update.who_paid is not None:
+        await _assert_user_exists(db, update.who_paid)
+    if update.category is not None:
+        async with db.execute("SELECT category FROM splits WHERE category = ?", (update.category,)) as cur:
+            if await cur.fetchone() is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Category '{update.category}' does not exist in splits table.",
+                )
+
+    new_name         = update.name         if update.name         is not None else existing["name"]
+    new_cost_cents   = update.cost_cents   if update.cost_cents   is not None else existing["cost_cents"]
+    new_who_paid     = update.who_paid     if update.who_paid     is not None else existing["who_paid"]
+    new_category     = update.category     if update.category     is not None else existing["category"]
+    new_frequency    = update.frequency    if update.frequency    is not None else (existing["frequency"] or "monthly")
+    new_day_of_month = update.day_of_month if update.day_of_month is not None else existing["day_of_month"]
+    new_start_date   = update.start_date   if update.start_date   is not None else (existing["start_date"] or "2026-01-01")
+    new_end_date     = update.end_date     if update.end_date     is not None else existing["end_date"]
+    new_is_active    = update.is_active    if update.is_active    is not None else bool(existing["is_active"])
+    new_is_joint     = update.is_joint     if update.is_joint     is not None else bool(existing["is_joint"])
+
+    if new_end_date is not None and new_end_date < new_start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="end_date cannot be earlier than start_date")
+
+    await db.execute(
+        """
+        UPDATE recurring_expenses
+        SET name=?, cost_cents=?, who_paid=?, category=?, frequency=?, day_of_month=?, start_date=?, end_date=?, is_active=?, is_joint=?
+        WHERE id=?
+        """,
+        (
+            new_name,
+            new_cost_cents,
+            new_who_paid,
+            new_category,
+            new_frequency,
+            new_day_of_month,
+            new_start_date,
+            new_end_date,
+            1 if new_is_active else 0,
+            1 if new_is_joint else 0,
+            rec_id,
+        ),
+    )
+    await db.commit()
+
+    async with db.execute(
+        """
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        FROM recurring_expenses WHERE id = ?
+        """,
+        (rec_id,),
+    ) as cur:
+        row = await cur.fetchone()
+    d = dict(row)
+    d["is_active"] = bool(d["is_active"])
+    d["is_joint"] = bool(d["is_joint"])
+    return RecurringResponse(**d)
+
+
+@app.get("/analytics/recurring", response_model=RecurringAnalyticsSummary, tags=["recurring", "analytics"])
+async def get_recurring_analytics(db: DbDep, month: str | None = None) -> RecurringAnalyticsSummary:
+    target_month = month or _date.today().strftime("%Y-%m")
+
+    async with db.execute(
+        """
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        FROM recurring_expenses
+        WHERE is_active = 1
+        """
+    ) as cur:
+        rows = await cur.fetchall()
+
+    total_cents = 0
+    cat_map: dict[str, dict[str, int]] = {}
+    payer_map: dict[str, dict[str, int]] = {}
+
+    for r in rows:
+        freq = r["frequency"] or "monthly"
+        s_date = r["start_date"] or "2026-01-01"
+        dates = calculate_recurring_occurrences(
+            frequency=freq,
+            start_date_str=s_date,
+            end_date_str=r["end_date"],
+            day_of_month=r["day_of_month"],
+            target_month=target_month,
+        )
+        count = len(dates)
+        if count == 0:
+            continue
+
+        item_total = count * r["cost_cents"]
+        total_cents += item_total
+
+        cat = r["category"]
+        if cat not in cat_map:
+            cat_map[cat] = {"total_cents": 0, "count": 0}
+        cat_map[cat]["total_cents"] += item_total
+        cat_map[cat]["count"] += count
+
+        who = r["who_paid"]
+        if who not in payer_map:
+            payer_map[who] = {"total_cents": 0, "count": 0}
+        payer_map[who]["total_cents"] += item_total
+        payer_map[who]["count"] += count
+
+    by_category = [
+        RecurringCategoryBreakdown(category=k, total_cents=v["total_cents"], count=v["count"])
+        for k, v in sorted(cat_map.items(), key=lambda item: item[1]["total_cents"], reverse=True)
+    ]
+    by_payer = [
+        RecurringPayerBreakdown(who_paid=k, total_cents=v["total_cents"], count=v["count"])
+        for k, v in sorted(payer_map.items(), key=lambda item: item[1]["total_cents"], reverse=True)
+    ]
+
+    return RecurringAnalyticsSummary(
+        month=target_month,
+        total_cents=total_cents,
+        active_count=len(rows),
+        by_category=by_category,
+        by_payer=by_payer,
+    )
 
 
 @app.delete("/recurring/{rec_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["recurring"])
@@ -1949,6 +2276,7 @@ async def delete_recurring(rec_id: int, db: DbDep) -> None:
         if await cur.fetchone() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Recurring expense {rec_id} not found.")
     await db.execute("DELETE FROM recurring_expenses WHERE id=?", (rec_id,))
+    await db.commit()
     await db.commit()
 
 
@@ -2545,7 +2873,7 @@ async def run_query(req: QueryRequest, db: DbDep) -> QueryResponse:
 @app.websocket("/ws/finance")
 async def websocket_finance(ws: WebSocket, token: str | None = None) -> None:
     if not getattr(app.state, "testing", False):
-        db_path = Path(__file__).resolve().parent.parent / "finance.db"
+        db_path = DB_PATH
         try:
             async with aiosqlite.connect(db_path) as conn:
                 async with conn.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
