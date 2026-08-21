@@ -144,9 +144,10 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
                                  CHECK(expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
             who_paid     TEXT    NOT NULL REFERENCES users(name)           ON UPDATE CASCADE,
             category     TEXT    NOT NULL REFERENCES splits(category)      ON UPDATE CASCADE,
-            project_id   INTEGER          REFERENCES projects(id)          ON DELETE SET NULL,
-            tag_id       INTEGER          REFERENCES tags(id)              ON DELETE SET NULL,
-            is_joint     INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))
+            project_id       INTEGER          REFERENCES projects(id)          ON DELETE SET NULL,
+            tag_id           INTEGER          REFERENCES tags(id)              ON DELETE SET NULL,
+            is_joint         INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)),
+            joint_account_id INTEGER          REFERENCES joint_accounts(id)    ON DELETE SET NULL
         )
         """
     )
@@ -204,19 +205,20 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS recurring_expenses (
-            id           INTEGER PRIMARY KEY AUTOINCREMENT,
-            name         TEXT    NOT NULL CHECK(length(name) <= 256),
-            cost_cents   INTEGER NOT NULL CHECK(cost_cents > 0),
-            who_paid     TEXT    NOT NULL REFERENCES users(name)      ON UPDATE CASCADE,
-            category     TEXT    NOT NULL REFERENCES splits(category) ON UPDATE CASCADE,
-            frequency    TEXT    NOT NULL DEFAULT 'monthly'
-                                 CHECK(frequency IN ('monthly', 'weekly', 'biweekly', '4-weekly', 'quarterly', 'annual')),
-            day_of_month INTEGER CHECK(day_of_month IS NULL OR (day_of_month >= 1 AND day_of_month <= 31)),
-            start_date   TEXT    NOT NULL DEFAULT '2026-01-01'
-                                 CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-            end_date     TEXT    CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-            is_active    INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
-            is_joint     INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            name             TEXT    NOT NULL CHECK(length(name) <= 256),
+            cost_cents       INTEGER NOT NULL CHECK(cost_cents > 0),
+            who_paid         TEXT    NOT NULL REFERENCES users(name)      ON UPDATE CASCADE,
+            category         TEXT    NOT NULL REFERENCES splits(category) ON UPDATE CASCADE,
+            frequency        TEXT    NOT NULL DEFAULT 'monthly'
+                                     CHECK(frequency IN ('monthly', 'weekly', 'biweekly', '4-weekly', 'quarterly', 'annual')),
+            day_of_month     INTEGER CHECK(day_of_month IS NULL OR (day_of_month >= 1 AND day_of_month <= 31)),
+            start_date       TEXT    NOT NULL DEFAULT '2026-01-01'
+                                     CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            end_date         TEXT    CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            is_active        INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            is_joint         INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)),
+            joint_account_id INTEGER          REFERENCES joint_accounts(id)    ON DELETE SET NULL
         )
         """
     )
@@ -261,8 +263,50 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         """
     )
 
-    # ── joint_account ───────────────────────────────────────────────────
-    # Singleton config row (id always 1). name is encrypted.
+    # ── project_users ───────────────────────────────────────────────────
+    # Which users are assigned/linked to a project.
+    # user_name is encrypted.
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS project_users (
+            project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            user_name  TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+            PRIMARY KEY (project_id, user_name)
+        )
+        """
+    )
+
+    # ── joint_accounts ──────────────────────────────────────────────────
+    # Multi-joint accounts support. name is encrypted.
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS joint_accounts (
+            id                   INTEGER PRIMARY KEY AUTOINCREMENT,
+            name                 TEXT    NOT NULL CHECK(length(name) <= 256),
+            balance_cents        INTEGER NOT NULL DEFAULT 0,
+            safety_margin_pct    INTEGER NOT NULL DEFAULT 10
+                                 CHECK(safety_margin_pct >= 0 AND safety_margin_pct <= 100),
+            deposit_split_mode   TEXT    NOT NULL DEFAULT 'even'
+                                 CHECK(deposit_split_mode IN ('salary', 'even', 'manual')),
+            expected_total_cents INTEGER
+        )
+        """
+    )
+
+    # ── joint_account_members ───────────────────────────────────────────
+    # Members of a specific joint account. user_name is encrypted.
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS joint_account_members (
+            account_id INTEGER NOT NULL REFERENCES joint_accounts(id) ON DELETE CASCADE,
+            user_name  TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+            PRIMARY KEY (account_id, user_name)
+        )
+        """
+    )
+
+    # ── joint_account (singleton backwards compatibility table) ─────────
+    # Retained for existing installations; data migrated to joint_accounts.
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS joint_account (
@@ -283,8 +327,11 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS joint_account_categories (
-            category TEXT PRIMARY KEY
-                     REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE
+            category   TEXT NOT NULL
+                       REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+            account_id INTEGER NOT NULL DEFAULT 1
+                       REFERENCES joint_accounts(id) ON DELETE CASCADE,
+            PRIMARY KEY (category, account_id)
         )
         """
     )
@@ -294,10 +341,13 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS joint_account_deposits (
-            user_name    TEXT    PRIMARY KEY
+            user_name    TEXT NOT NULL
                          REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
             amount_cents INTEGER NOT NULL DEFAULT 0 CHECK(amount_cents >= 0),
-            day_of_month INTEGER NOT NULL DEFAULT 1 CHECK(day_of_month >= 1 AND day_of_month <= 31)
+            day_of_month INTEGER NOT NULL DEFAULT 1 CHECK(day_of_month >= 1 AND day_of_month <= 31),
+            account_id   INTEGER NOT NULL DEFAULT 1
+                         REFERENCES joint_accounts(id) ON DELETE CASCADE,
+            PRIMARY KEY (user_name, account_id)
         )
         """
     )
@@ -313,7 +363,9 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
             actual_cents    INTEGER NOT NULL DEFAULT 0 CHECK(actual_cents >= 0),
             is_paid         INTEGER NOT NULL DEFAULT 0 CHECK(is_paid IN (0, 1)),
             paid_date       TEXT,
-            PRIMARY KEY (month, user_name)
+            account_id      INTEGER NOT NULL DEFAULT 1
+                            REFERENCES joint_accounts(id) ON DELETE CASCADE,
+            PRIMARY KEY (month, user_name, account_id)
         )
         """
     )
@@ -323,9 +375,12 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS joint_account_expected_costs (
-            category       TEXT    PRIMARY KEY
+            category       TEXT NOT NULL
                            REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
-            expected_cents INTEGER NOT NULL CHECK(expected_cents >= 0)
+            expected_cents INTEGER NOT NULL CHECK(expected_cents >= 0),
+            account_id     INTEGER NOT NULL DEFAULT 1
+                           REFERENCES joint_accounts(id) ON DELETE CASCADE,
+            PRIMARY KEY (category, account_id)
         )
         """
     )
@@ -340,13 +395,227 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
             amount_cents    INTEGER NOT NULL,
             correction_date TEXT    NOT NULL
                             CHECK(correction_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
-            note            TEXT    CHECK(length(note) <= 512)
+            note            TEXT    CHECK(length(note) <= 512),
+            account_id      INTEGER NOT NULL DEFAULT 1
+                            REFERENCES joint_accounts(id) ON DELETE CASCADE
         )
         """
     )
 
     # ── Migrate existing tables: add columns if missing and backfill defaults ───
     is_joint_def = "INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))"
+
+    # Migrate legacy singleton joint_account into joint_accounts if needed
+    try:
+        async with conn.execute("SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_account WHERE id = 1") as cur:
+            legacy_ja = await cur.fetchone()
+        if legacy_ja:
+            async with conn.execute("SELECT id FROM joint_accounts WHERE id = 1") as cur:
+                existing_ja1 = await cur.fetchone()
+            if not existing_ja1:
+                await conn.execute(
+                    """
+                    INSERT INTO joint_accounts (id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents)
+                    VALUES (1, ?, ?, ?, ?, ?)
+                    """,
+                    (legacy_ja["name"], legacy_ja["balance_cents"], legacy_ja["safety_margin_pct"], legacy_ja["deposit_split_mode"], legacy_ja["expected_total_cents"]),
+                )
+    except Exception:
+        pass
+
+    # Ensure joint_account_members has entries for active users if account 1 exists
+    try:
+        async with conn.execute("SELECT id FROM joint_accounts WHERE id = 1") as cur:
+            has_ja1 = await cur.fetchone()
+        if has_ja1:
+            async with conn.execute("SELECT COUNT(*) AS c FROM joint_account_members WHERE account_id = 1") as cur:
+                mc = await cur.fetchone()
+            if mc and mc["c"] == 0:
+                await conn.execute(
+                    "INSERT OR IGNORE INTO joint_account_members (account_id, user_name) SELECT 1, name FROM users WHERE is_active = 1"
+                )
+    except Exception:
+        pass
+
+    # Ensure account_id on joint_account sub-tables
+    await ensure_column(conn, "joint_account_categories", "account_id", "INTEGER NOT NULL DEFAULT 1", "1")
+    await ensure_column(conn, "joint_account_deposits", "account_id", "INTEGER NOT NULL DEFAULT 1", "1")
+    await ensure_column(conn, "joint_account_monthly_deposits", "account_id", "INTEGER NOT NULL DEFAULT 1", "1")
+    await ensure_column(conn, "joint_account_expected_costs", "account_id", "INTEGER NOT NULL DEFAULT 1", "1")
+    await ensure_column(conn, "joint_account_corrections", "account_id", "INTEGER NOT NULL DEFAULT 1", "1")
+
+    # Migrate joint_account_categories to compound PK if needed
+    try:
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_categories'") as cur:
+            has_table = await cur.fetchone()
+        if not has_table:
+            async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_categories_new'") as cur:
+                has_new = await cur.fetchone()
+            if has_new:
+                await conn.execute("ALTER TABLE joint_account_categories_new RENAME TO joint_account_categories")
+            else:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS joint_account_categories (
+                        category   TEXT NOT NULL
+                                   REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+                        account_id INTEGER NOT NULL DEFAULT 1
+                                   REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (category, account_id)
+                    )
+                    """
+                )
+        else:
+            async with conn.execute("PRAGMA table_info(joint_account_categories)") as cur:
+                cols = await cur.fetchall()
+                pk_cols = [c["name"] for c in cols if c["pk"] > 0]
+                if len(pk_cols) == 1 and pk_cols[0] == "category":
+                    await conn.execute("DROP TABLE IF EXISTS joint_account_categories_new")
+                    await conn.execute("CREATE TABLE joint_account_categories_new (category TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE, account_id INTEGER NOT NULL DEFAULT 1 REFERENCES joint_accounts(id) ON DELETE CASCADE, PRIMARY KEY (category, account_id))")
+                    await conn.execute("INSERT OR IGNORE INTO joint_account_categories_new (category, account_id) SELECT category, COALESCE(account_id, 1) FROM joint_account_categories")
+                    await conn.execute("DROP TABLE joint_account_categories")
+                    await conn.execute("ALTER TABLE joint_account_categories_new RENAME TO joint_account_categories")
+    except Exception:
+        pass
+
+    # Migrate joint_account_expected_costs to compound PK if needed
+    try:
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_expected_costs'") as cur:
+            has_table = await cur.fetchone()
+        if not has_table:
+            async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_expected_costs_new'") as cur:
+                has_new = await cur.fetchone()
+            if has_new:
+                await conn.execute("ALTER TABLE joint_account_expected_costs_new RENAME TO joint_account_expected_costs")
+            else:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS joint_account_expected_costs (
+                        category       TEXT NOT NULL
+                                       REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+                        expected_cents INTEGER NOT NULL CHECK(expected_cents >= 0),
+                        account_id     INTEGER NOT NULL DEFAULT 1
+                                       REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (category, account_id)
+                    )
+                    """
+                )
+        else:
+            async with conn.execute("PRAGMA table_info(joint_account_expected_costs)") as cur:
+                cols = await cur.fetchall()
+                pk_cols = [c["name"] for c in cols if c["pk"] > 0]
+                if len(pk_cols) == 1 and pk_cols[0] == "category":
+                    await conn.execute("DROP TABLE IF EXISTS joint_account_expected_costs_new")
+                    await conn.execute("CREATE TABLE joint_account_expected_costs_new (category TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE, expected_cents INTEGER NOT NULL CHECK(expected_cents >= 0), account_id INTEGER NOT NULL DEFAULT 1 REFERENCES joint_accounts(id) ON DELETE CASCADE, PRIMARY KEY (category, account_id))")
+                    await conn.execute("INSERT OR IGNORE INTO joint_account_expected_costs_new (category, expected_cents, account_id) SELECT category, expected_cents, COALESCE(account_id, 1) FROM joint_account_expected_costs")
+                    await conn.execute("DROP TABLE joint_account_expected_costs")
+                    await conn.execute("ALTER TABLE joint_account_expected_costs_new RENAME TO joint_account_expected_costs")
+    except Exception:
+        pass
+
+    # Migrate joint_account_deposits to compound PK (user_name, account_id) if needed
+    try:
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_deposits'") as cur:
+            has_table = await cur.fetchone()
+        if not has_table:
+            async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_deposits_new'") as cur:
+                has_new = await cur.fetchone()
+            if has_new:
+                await conn.execute("ALTER TABLE joint_account_deposits_new RENAME TO joint_account_deposits")
+            else:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS joint_account_deposits (
+                        user_name    TEXT NOT NULL
+                                     REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                        amount_cents INTEGER NOT NULL DEFAULT 0 CHECK(amount_cents >= 0),
+                        day_of_month INTEGER NOT NULL DEFAULT 1 CHECK(day_of_month >= 1 AND day_of_month <= 31),
+                        account_id   INTEGER NOT NULL DEFAULT 1
+                                     REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (user_name, account_id)
+                    )
+                    """
+                )
+        else:
+            async with conn.execute("PRAGMA table_info(joint_account_deposits)") as cur:
+                cols = await cur.fetchall()
+                pk_cols = [c["name"] for c in cols if c["pk"] > 0]
+                if len(pk_cols) == 1 and pk_cols[0] == "user_name":
+                    await conn.execute("DROP TABLE IF EXISTS joint_account_deposits_new")
+                    await conn.execute(
+                        """
+                        CREATE TABLE joint_account_deposits_new (
+                            user_name    TEXT NOT NULL
+                                         REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                            amount_cents INTEGER NOT NULL DEFAULT 0 CHECK(amount_cents >= 0),
+                            day_of_month INTEGER NOT NULL DEFAULT 1 CHECK(day_of_month >= 1 AND day_of_month <= 31),
+                            account_id   INTEGER NOT NULL DEFAULT 1
+                                         REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                            PRIMARY KEY (user_name, account_id)
+                        )
+                        """
+                    )
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO joint_account_deposits_new (user_name, amount_cents, day_of_month, account_id) SELECT user_name, amount_cents, day_of_month, COALESCE(account_id, 1) FROM joint_account_deposits"
+                    )
+                    await conn.execute("DROP TABLE joint_account_deposits")
+                    await conn.execute("ALTER TABLE joint_account_deposits_new RENAME TO joint_account_deposits")
+    except Exception:
+        pass
+
+    # Migrate joint_account_monthly_deposits to compound PK (month, user_name, account_id) if needed
+    try:
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_monthly_deposits'") as cur:
+            has_table = await cur.fetchone()
+        if not has_table:
+            async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='joint_account_monthly_deposits_new'") as cur:
+                has_new = await cur.fetchone()
+            if has_new:
+                await conn.execute("ALTER TABLE joint_account_monthly_deposits_new RENAME TO joint_account_monthly_deposits")
+            else:
+                await conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS joint_account_monthly_deposits (
+                        month           TEXT    NOT NULL CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+                        user_name       TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                        scheduled_cents INTEGER NOT NULL DEFAULT 0 CHECK(scheduled_cents >= 0),
+                        actual_cents    INTEGER NOT NULL DEFAULT 0 CHECK(actual_cents >= 0),
+                        is_paid         INTEGER NOT NULL DEFAULT 0 CHECK(is_paid IN (0, 1)),
+                        paid_date       TEXT,
+                        account_id      INTEGER NOT NULL DEFAULT 1
+                                        REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                        PRIMARY KEY (month, user_name, account_id)
+                    )
+                    """
+                )
+        else:
+            async with conn.execute("PRAGMA table_info(joint_account_monthly_deposits)") as cur:
+                cols = await cur.fetchall()
+                pk_cols = [c["name"] for c in cols if c["pk"] > 0]
+                if len(pk_cols) < 3 or "account_id" not in pk_cols:
+                    await conn.execute("DROP TABLE IF EXISTS joint_account_monthly_deposits_new")
+                    await conn.execute(
+                        """
+                        CREATE TABLE joint_account_monthly_deposits_new (
+                            month           TEXT    NOT NULL CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+                            user_name       TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                            scheduled_cents INTEGER NOT NULL DEFAULT 0 CHECK(scheduled_cents >= 0),
+                            actual_cents    INTEGER NOT NULL DEFAULT 0 CHECK(actual_cents >= 0),
+                            is_paid         INTEGER NOT NULL DEFAULT 0 CHECK(is_paid IN (0, 1)),
+                            paid_date       TEXT,
+                            account_id      INTEGER NOT NULL DEFAULT 1
+                                            REFERENCES joint_accounts(id) ON DELETE CASCADE,
+                            PRIMARY KEY (month, user_name, account_id)
+                        )
+                        """
+                    )
+                    await conn.execute(
+                        "INSERT OR IGNORE INTO joint_account_monthly_deposits_new (month, user_name, scheduled_cents, actual_cents, is_paid, paid_date, account_id) SELECT month, user_name, scheduled_cents, actual_cents, is_paid, paid_date, COALESCE(account_id, 1) FROM joint_account_monthly_deposits"
+                    )
+                    await conn.execute("DROP TABLE joint_account_monthly_deposits")
+                    await conn.execute("ALTER TABLE joint_account_monthly_deposits_new RENAME TO joint_account_monthly_deposits")
+    except Exception:
+        pass
 
     # users
     await ensure_column(conn, "users", "color", "TEXT NOT NULL DEFAULT '#6366f1'", "'#6366f1'")
@@ -368,6 +637,7 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await ensure_column(conn, "expenses", "project_id", "INTEGER REFERENCES projects(id) ON DELETE SET NULL")
     await ensure_column(conn, "expenses", "tag_id", "INTEGER REFERENCES tags(id) ON DELETE SET NULL")
     await ensure_column(conn, "expenses", "is_joint", is_joint_def, "0")
+    await ensure_column(conn, "expenses", "joint_account_id", "INTEGER REFERENCES joint_accounts(id) ON DELETE SET NULL")
 
     # income
     await ensure_column(conn, "income", "is_joint", is_joint_def, "0")
@@ -386,6 +656,7 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await ensure_column(conn, "recurring_expenses", "end_date", "TEXT")
     await ensure_column(conn, "recurring_expenses", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))", "1")
     await ensure_column(conn, "recurring_expenses", "is_joint", is_joint_def, "0")
+    await ensure_column(conn, "recurring_expenses", "joint_account_id", "INTEGER REFERENCES joint_accounts(id) ON DELETE SET NULL")
 
     # joint_account
     await ensure_column(conn, "joint_account", "balance_cents", "INTEGER NOT NULL DEFAULT 0", "0")
@@ -526,11 +797,12 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         SELECT
             strftime('%Y-%m', e.expense_date)  AS month,
             e.category,
+            jac.account_id,
             ROUND(SUM(e.cost_cents) / 100.0, 2) AS total_amount,
             COUNT(*)                             AS expense_count
         FROM expenses e
         INNER JOIN joint_account_categories jac ON jac.category = e.category
-        GROUP BY strftime('%Y-%m', e.expense_date), e.category
+        GROUP BY strftime('%Y-%m', e.expense_date), e.category, jac.account_id
         """
     )
 

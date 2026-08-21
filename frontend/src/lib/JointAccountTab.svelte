@@ -3,6 +3,8 @@
   import { get } from 'svelte/store';
   import {
     jointAccount,
+    jointAccounts,
+    activeJointAccountId,
     jointCategories,
     jointDeposits,
     jointExpectedCosts,
@@ -18,6 +20,7 @@
     createJointAccount,
     updateJointAccount,
     deleteJointAccount,
+    fetchJointAccounts,
     fetchJointAccount,
     addJointCategory,
     removeJointCategory,
@@ -39,27 +42,60 @@
   } from './api.js';
 
   // ── reactive ──────────────────────────────────────────────────────────────
-  $: ja          = $jointAccount;
+  $: ja          = ($jointAccounts || []).find((a) => a.id === $activeJointAccountId) || $jointAccount || ($jointAccounts || [])[0];
+  $: allAccounts = $jointAccounts || [];
   $: cats        = $jointCategories;    // [{enc, plain}]
   $: deposits    = $jointDeposits;      // [{user_name, amount_cents, day_of_month}]
   $: expected    = $jointExpectedCosts; // [{category, expected_cents}]
   $: corrections = $jointCorrections;  // [{id, amount_cents, correction_date, note}]
   $: dash        = $jointDashboard;
   $: activeUsers = $users.filter((u) => u.is_active);
+  $: accountMembers = (ja?.member_names && ja.member_names.length > 0)
+    ? activeUsers.filter((u) => ja.member_names.includes(u.name))
+    : activeUsers;
   $: allSplits   = $splits;             // [{category, allocations}]
   $: sym         = $currencySymbol;
   $: month       = $selectedMonth;
+
+  function userColor(name) {
+    return $users.find((u) => u.name === name)?.color ?? '#6366f1';
+  }
 
   // ── local state ───────────────────────────────────────────────────────────
   let section = 'overview';  // overview | categories | deposits | expected | corrections | settle
   let errorMsg = '';
   let successMsg = '';
+  let showCreateModal = false;
 
-  // Setup form
-  let setupName = '';
-  let setupBalance = '0';
-  let setupMargin = '10';
-  let setupMode = 'even';
+  // Create form state
+  let createName = '';
+  let createBalance = '0';
+  let createMargin = '10';
+  let createMode = 'even';
+  let createMembers = [];
+
+  // Edit settings form state
+  let editName = '';
+  let editBalance = '0';
+  let editMargin = '10';
+  let editMode = 'even';
+  let editMembers = [];
+
+  function toggleCreateMember(uName) {
+    if (createMembers.includes(uName)) {
+      createMembers = createMembers.filter((u) => u !== uName);
+    } else {
+      createMembers = [...createMembers, uName];
+    }
+  }
+
+  function toggleEditMember(uName) {
+    if (editMembers.includes(uName)) {
+      editMembers = editMembers.filter((u) => u !== uName);
+    } else {
+      editMembers = [...editMembers, uName];
+    }
+  }
 
   // Correction form
   let corrAmount = '';
@@ -85,15 +121,28 @@
   // ── lifecycle ─────────────────────────────────────────────────────────────
   onMount(async () => {
     corrDate = new Date().toISOString().slice(0, 10);
+    await fetchJointAccounts();
     if ($jointAccount) {
-      await fetchJointDashboard(month);
-      await fetchJointMonthlyDeposits(month);
+      await switchAccount($jointAccount.id);
     }
   });
 
+  async function switchAccount(accId) {
+    activeJointAccountId.set(accId);
+    await fetchJointAccount(accId);
+    await fetchJointCategories(accId);
+    await fetchJointDeposits(accId);
+    await fetchJointExpectedCosts(accId);
+    await fetchJointCorrections(accId);
+    await fetchJointDashboard(month, accId);
+    await fetchJointMonthlyDeposits(month, accId);
+    if (section === 'deposits') enterDeposits();
+    if (section === 'expected') enterExpected();
+  }
+
   $: if ($jointAccount && month) {
-    fetchJointDashboard(month);
-    fetchJointMonthlyDeposits(month);
+    fetchJointDashboard(month, $jointAccount.id);
+    fetchJointMonthlyDeposits(month, $jointAccount.id);
   }
 
   let editingPaidUser = null;
@@ -102,6 +151,7 @@
   async function handleToggleDepositPaid(uName, isPaid, customCents = null) {
     errorMsg = '';
     try {
+      const aid = ja?.id || $activeJointAccountId;
       const existingLog = ($jointMonthlyDeposits || []).find((d) => d.user_name === uName);
       const sched = deposits.find((d) => d.user_name === uName);
       const scheduledCents = sched ? sched.amount_cents : 0;
@@ -115,12 +165,13 @@
         actual_cents: isPaid ? actualCents : 0,
         is_paid: isPaid,
         paid_date: new Date().toISOString().slice(0, 10),
+        account_id: aid,
       });
 
       editingPaidUser = null;
       customPaidAmount = '';
-      await fetchJointDashboard($selectedMonth);
-      await fetchJointMonthlyDeposits($selectedMonth);
+      await fetchJointDashboard($selectedMonth, aid);
+      await fetchJointMonthlyDeposits($selectedMonth, aid);
       flash(true, isPaid ? `Deposit marked paid for ${uName}.` : `Deposit unmarked for ${uName}.`);
     } catch (e) {
       errorMsg = e.message;
@@ -129,12 +180,14 @@
 
   // Refresh dashboard when month changes
   $: if (ja && month) {
-    fetchJointDashboard(month).catch(() => {});
+    fetchJointDashboard(month, ja.id).catch(() => {});
   }
 
   // Seed editDeposits when entering section
   function enterDeposits() {
-    editDeposits = activeUsers.map((u) => {
+    const targetUsers = accountMembers;
+
+    editDeposits = targetUsers.map((u) => {
       const existing = deposits.find((d) => d.user_name === u.name);
       return {
         user_name: u.name,
@@ -186,42 +239,58 @@
   async function handleSetup() {
     errorMsg = '';
     try {
-      await createJointAccount({
-        name: setupName.trim(),
-        balance_cents: Math.round(parseFloat(setupBalance) * 100) || 0,
-        safety_margin_pct: parseInt(setupMargin) || 10,
-        deposit_split_mode: setupMode,
+      const created = await createJointAccount({
+        name: createName.trim(),
+        balance_cents: Math.round(parseFloat(createBalance) * 100) || 0,
+        safety_margin_pct: parseInt(createMargin) || 10,
+        deposit_split_mode: createMode,
+        member_names: createMembers,
       });
+      showCreateModal = false;
+      createName = '';
+      createBalance = '0';
+      createMargin = '10';
+      createMode = 'even';
+      createMembers = [];
+      await switchAccount(created.id);
       // Enable default non-personal categories
-      await enableDefaultCategories();
-      await fetchJointDashboard(month);
+      await enableDefaultCategories(created.id);
       flash(true, 'Joint account created with default categories enabled.');
     } catch (e) {
       errorMsg = e.message;
     }
   }
 
-  async function enableDefaultCategories() {
+  async function enableDefaultCategories(accountId) {
+    const aid = (typeof accountId === 'number' || (typeof accountId === 'string' && accountId.trim() !== '' && !isNaN(Number(accountId))))
+      ? Number(accountId)
+      : (ja?.id ?? $activeJointAccountId ?? 1);
     for (const s of allSplits) {
       const isPersonal = PERSONAL_CATEGORIES.has(s.category.toUpperCase());
       const isAssigned = cats.some((c) => c.plain === s.category);
       if (!isPersonal && !isAssigned) {
         const encCat = await enc(s.category);
-        await addJointCategory(encCat).catch(() => {});
+        await addJointCategory(encCat, aid).catch(() => {});
       }
     }
-    await fetchJointCategories();
-    await fetchJointExpectedCosts().catch(() => {});
+    await fetchJointCategories(aid);
+    await fetchJointExpectedCosts(aid).catch(() => {});
     initExpectedState();
-    if (ja && month) {
-      await fetchJointDashboard(month).catch(() => {});
+    if (month) {
+      await fetchJointDashboard(month, aid).catch(() => {});
     }
   }
 
   async function handleDelete() {
     if (!confirm('Delete joint account and all its config?')) return;
     try {
-      await deleteJointAccount();
+      const aid = ja?.id ?? $activeJointAccountId;
+      await deleteJointAccount(aid);
+      await fetchJointAccounts();
+      const remaining = get(jointAccounts);
+      if (remaining && remaining.length > 0) {
+        await switchAccount(remaining[0].id);
+      }
       flash(true, 'Joint account removed.');
     } catch (e) {
       errorMsg = e.message;
@@ -231,12 +300,15 @@
   async function handleUpdateSettings() {
     errorMsg = '';
     try {
+      const aid = ja?.id ?? $activeJointAccountId;
       await updateJointAccount({
-        name: setupName.trim() || undefined,
-        balance_cents: setupBalance !== '' ? Math.round(parseFloat(setupBalance) * 100) : undefined,
-        safety_margin_pct: setupMargin !== '' ? parseInt(setupMargin) : undefined,
-        deposit_split_mode: setupMode || undefined,
-      });
+        name: editName.trim() || undefined,
+        balance_cents: editBalance !== '' ? Math.round(parseFloat(editBalance) * 100) : undefined,
+        safety_margin_pct: editMargin !== '' ? parseInt(editMargin) : undefined,
+        deposit_split_mode: editMode || undefined,
+        member_names: editMembers,
+      }, aid);
+      await switchAccount(aid);
       flash(true, 'Settings saved.');
     } catch (e) {
       errorMsg = e.message;
@@ -244,18 +316,19 @@
   }
 
   async function handleToggleCategory(splitRow) {
+    const aid = ja?.id ?? $activeJointAccountId;
     const existing = cats.find((c) => c.plain === splitRow.category);
     try {
       if (existing) {
-        await removeJointCategory(existing.enc);
+        await removeJointCategory(existing.enc, aid);
       } else {
         const encCat = await enc(splitRow.category);
-        await addJointCategory(encCat);
+        await addJointCategory(encCat, aid);
       }
-      await fetchJointExpectedCosts();
+      await fetchJointExpectedCosts(aid);
       initExpectedState();
-      if (ja && month) {
-        await fetchJointDashboard(month).catch(() => {});
+      if (month) {
+        await fetchJointDashboard(month, aid).catch(() => {});
       }
     } catch (e) {
       errorMsg = e.message;
@@ -265,6 +338,7 @@
   async function handleProposeDeposits() {
     errorMsg = '';
     try {
+      const aid = ja?.id ?? $activeJointAccountId;
       const totalExpected = expected.reduce((sum, e) => sum + (e.expected_cents || 0), 0);
       const targetCents = dash?.target_deposit_cents || (totalExpected > 0
         ? Math.round(totalExpected * (1 + (ja?.safety_margin_pct || 10) / 100))
@@ -289,16 +363,18 @@
         if (uName) salariesDict[uName] = val;
       }
 
-      const totalHouseholdSalary = activeUsers.reduce((s, u) => s + (salariesDict[u.name] || 0), 0);
+      const targetUsers = accountMembers;
 
-      editDeposits = activeUsers.map((u) => {
+      const totalTargetSalary = targetUsers.reduce((s, u) => s + (salariesDict[u.name] || 0), 0);
+
+      editDeposits = targetUsers.map((u) => {
         const existing = deposits.find((d) => d.user_name === u.name);
         const userSalary = salariesDict[u.name] || 0;
         let proposedCents = 0;
-        if (totalHouseholdSalary > 0) {
-          proposedCents = Math.round(targetCents * (userSalary / totalHouseholdSalary));
+        if (totalTargetSalary > 0) {
+          proposedCents = Math.round(targetCents * (userSalary / totalTargetSalary));
         } else {
-          proposedCents = Math.round(targetCents / activeUsers.length);
+          proposedCents = Math.round(targetCents / targetUsers.length);
         }
         return {
           user_name: u.name,
@@ -332,7 +408,8 @@
   async function handleSaveDeposits() {
     errorMsg = '';
     try {
-      await setJointDeposits(editDeposits);
+      const aid = ja?.id ?? $activeJointAccountId ?? 1;
+      await setJointDeposits(editDeposits, aid);
       editingDeposits = false;
       flash(true, 'Deposits saved.');
     } catch (e) {
@@ -343,16 +420,17 @@
   async function handleSaveExpected() {
     errorMsg = '';
     try {
+      const aid = ja?.id ?? $activeJointAccountId ?? 1;
       if (costEstimationMode === 'gross') {
         const grossCents = Math.round(parseFloat(grossTotalEuros) * 100) || 0;
-        await updateJointAccount({ expected_total_cents: grossCents });
+        await updateJointAccount({ expected_total_cents: grossCents }, aid);
       } else {
-        await setJointExpectedCosts(editExpected.filter((e) => e.expected_cents > 0));
-        await updateJointAccount({ expected_total_cents: null });
+        await setJointExpectedCosts(editExpected.filter((e) => e.expected_cents > 0), aid);
+        await updateJointAccount({ expected_total_cents: null }, aid);
       }
       editingExpected = false;
       flash(true, 'Expected costs saved.');
-      await fetchJointDashboard(month);
+      await fetchJointDashboard(month, aid);
     } catch (e) {
       errorMsg = e.message;
     }
@@ -362,12 +440,13 @@
     errorMsg = '';
     if (!corrAmount || !corrDate) { errorMsg = 'Amount and date required.'; return; }
     try {
+      const aid = ja?.id ?? $activeJointAccountId;
       const cents = Math.round(parseFloat(corrAmount) * 100) * (corrIsNeg ? -1 : 1);
-      await createJointCorrection({ amount_cents: cents, correction_date: corrDate, note: corrNote.trim() || null });
+      await createJointCorrection({ amount_cents: cents, correction_date: corrDate, note: corrNote.trim() || null, account_id: aid });
       corrAmount = '';
       corrNote = '';
       flash(true, 'Correction logged.');
-      await fetchJointDashboard(month);
+      await fetchJointDashboard(month, aid);
     } catch (e) {
       errorMsg = e.message;
     }
@@ -376,8 +455,9 @@
   async function handleDeleteCorrection(id) {
     if (!confirm('Delete this correction?')) return;
     try {
+      const aid = ja?.id ?? $activeJointAccountId;
       await deleteJointCorrection(id);
-      await fetchJointDashboard(month);
+      await fetchJointDashboard(month, aid);
       flash(true, 'Correction deleted.');
     } catch (e) {
       errorMsg = e.message;
@@ -389,9 +469,10 @@
     errorMsg = '';
     settleResult = null;
     try {
+      const aid = ja?.id ?? $activeJointAccountId;
       settleResult = await settleJointAccount({ mode: settleMode, month });
       if (settleMode === 'adjust_deposits') {
-        await fetchJointDeposits();
+        await fetchJointDeposits(aid);
       }
       flash(true, 'Settled.');
     } catch (e) {
@@ -402,22 +483,34 @@
   }
 
   $: if (ja) {
-    setupName    = ja.name;
-    setupBalance = (ja.balance_cents / 100).toFixed(2);
-    setupMargin  = String(ja.safety_margin_pct);
-    setupMode    = ja.deposit_split_mode;
+    editName    = ja.name;
+    editBalance = (ja.balance_cents / 100).toFixed(2);
+    editMargin  = String(ja.safety_margin_pct);
+    editMode    = ja.deposit_split_mode;
+    editMembers = ja.member_names ? [...ja.member_names] : [];
   }
 </script>
 
 <div class="space-y-6">
   <!-- Header -->
-  <div class="flex items-center justify-between">
+  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
       <h1 class="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
-        <span>🏦</span> Joint Account
+        <span>🏦</span> Joint Accounts
       </h1>
       <p class="text-neutral-400 text-sm mt-1">Shared household funds, monthly deposit schedules, and settlements</p>
     </div>
+
+    {#if ja}
+      <button
+        type="button"
+        on:click={() => { showCreateModal = true; createName = ''; createBalance = '0'; createMargin = '10'; createMode = 'even'; createMembers = []; }}
+        class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 self-start sm:self-auto flex-none"
+      >
+        <span>+</span>
+        <span>New Joint Account</span>
+      </button>
+    {/if}
   </div>
 
   {#if errorMsg}
@@ -433,16 +526,48 @@
     </div>
   {/if}
 
-  <!-- ── No account setup card ───────────────────────────────────────────── -->
-  {#if !ja}
-    <div class="card p-6 sm:p-8 text-center max-w-xl mx-auto space-y-5">
-      <div class="w-14 h-14 rounded-2xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-2xl mx-auto">
-        🏦
+  <!-- Multi-Account Account Switcher Pills -->
+  {#if allAccounts.length > 0}
+    <div class="card p-3 border-neutral-800 bg-neutral-900/90 flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wider pl-1">Accounts:</span>
+      {#each allAccounts as acc}
+        <button
+          type="button"
+          on:click={() => switchAccount(acc.id)}
+          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer {acc.id === ja?.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'}"
+        >
+          <span>🏦</span>
+          <span>{acc.name}</span>
+          {#if acc.member_names && acc.member_names.length > 0}
+            <span class="text-[10px] opacity-75">({acc.member_names.join(' & ')})</span>
+          {/if}
+        </button>
+      {/each}
+    </div>
+  {/if}
+
+  <!-- ── Create / Setup Modal or Fallback Form ────────────────────────────── -->
+  {#if !ja || showCreateModal}
+    <div class="card p-6 sm:p-8 text-center max-w-xl mx-auto space-y-5 border-indigo-500/30">
+      <div class="flex items-center justify-between">
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl">
+          🏦
+        </div>
+        {#if showCreateModal && ja}
+          <button
+            type="button"
+            on:click={() => (showCreateModal = false)}
+            class="text-neutral-400 hover:text-neutral-200 text-sm font-bold px-2 py-1"
+          >
+            Cancel
+          </button>
+        {/if}
       </div>
-      <div>
-        <h3 class="text-lg font-bold text-white">Set Up Household Joint Account</h3>
-        <p class="text-xs text-neutral-400 mt-1 max-w-md mx-auto">
-          A joint account lets you track shared expenses outside of personal paybacks. Default non-personal categories will be linked automatically.
+
+      <div class="text-left">
+        <h3 class="text-lg font-bold text-white">{showCreateModal && ja ? 'Create Joint Account' : 'Set Up Household Joint Account'}</h3>
+        <p class="text-xs text-neutral-400 mt-1">
+          A joint account lets a couple or group track shared expenses outside of individual paybacks. Default non-personal categories will be linked automatically.
         </p>
       </div>
 
@@ -452,8 +577,8 @@
           <input
             id="ja-setup-name"
             type="text"
-            bind:value={setupName}
-            placeholder="e.g. Household Fund"
+            bind:value={createName}
+            placeholder="e.g. Alice & Bob Joint"
             class="input-field"
           />
         </div>
@@ -463,7 +588,7 @@
             id="ja-setup-balance"
             type="number"
             step="0.01"
-            bind:value={setupBalance}
+            bind:value={createBalance}
             class="input-field"
           />
         </div>
@@ -474,7 +599,7 @@
             type="number"
             min="0"
             max="100"
-            bind:value={setupMargin}
+            bind:value={createMargin}
             class="input-field"
           />
         </div>
@@ -482,7 +607,7 @@
           <label for="ja-setup-mode" class="block text-xs font-medium text-neutral-400 mb-1">Deposit Split Mode</label>
           <select
             id="ja-setup-mode"
-            bind:value={setupMode}
+            bind:value={createMode}
             class="select-field"
           >
             <option value="even">Even split</option>
@@ -490,12 +615,34 @@
             <option value="manual">Manual</option>
           </select>
         </div>
+
+        <!-- Member assignment -->
+        <div class="sm:col-span-2">
+          <label class="block text-xs font-medium text-neutral-400 mb-1.5">Account Members</label>
+          <div class="flex flex-wrap gap-2">
+            {#each activeUsers as u}
+              {@const isChecked = createMembers.includes(u.name)}
+              <button
+                type="button"
+                on:click={() => toggleCreateMember(u.name)}
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+              >
+                <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
+                <span>{u.name}</span>
+                {#if isChecked}
+                  <span class="text-[10px] text-indigo-400">✓</span>
+                {/if}
+              </button>
+            {/each}
+          </div>
+          <p class="text-[10px] text-neutral-500 mt-1">Select members who contribute to and share this joint account (optional, all if empty).</p>
+        </div>
       </div>
 
       <button
         id="ja-create-btn"
         on:click={handleSetup}
-        disabled={!setupName.trim()}
+        disabled={!createName.trim()}
         class="btn-primary w-full py-2.5"
       >
         Create Joint Account
@@ -601,23 +748,44 @@
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
               <label for="ja-edit-name" class="block text-xs font-medium text-neutral-400 mb-1">Account Name</label>
-              <input id="ja-edit-name" type="text" bind:value={setupName} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <input id="ja-edit-name" type="text" bind:value={editName} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
             </div>
             <div>
               <label for="ja-edit-balance" class="block text-xs font-medium text-neutral-400 mb-1">Current Balance (€)</label>
-              <input id="ja-edit-balance" type="number" step="0.01" bind:value={setupBalance} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <input id="ja-edit-balance" type="number" step="0.01" bind:value={editBalance} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
             </div>
             <div>
               <label for="ja-edit-margin" class="block text-xs font-medium text-neutral-400 mb-1">Safety Margin %</label>
-              <input id="ja-edit-margin" type="number" min="0" max="100" bind:value={setupMargin} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <input id="ja-edit-margin" type="number" min="0" max="100" bind:value={editMargin} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
             </div>
             <div>
               <label for="ja-edit-mode" class="block text-xs font-medium text-neutral-400 mb-1">Deposit Split Mode</label>
-              <select id="ja-edit-mode" bind:value={setupMode} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100">
+              <select id="ja-edit-mode" bind:value={editMode} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100">
                 <option value="even">Even split</option>
                 <option value="salary">Proportional to salary</option>
                 <option value="manual">Manual</option>
               </select>
+            </div>
+
+            <!-- Edit Account Members -->
+            <div class="sm:col-span-2 md:col-span-4">
+              <label class="block text-xs font-medium text-neutral-400 mb-1.5">Account Members</label>
+              <div class="flex flex-wrap gap-2">
+                {#each activeUsers as u}
+                  {@const isChecked = editMembers.includes(u.name)}
+                  <button
+                    type="button"
+                    on:click={() => toggleEditMember(u.name)}
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                  >
+                    <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
+                    <span>{u.name}</span>
+                    {#if isChecked}
+                      <span class="text-[10px] text-indigo-400">✓</span>
+                    {/if}
+                  </button>
+                {/each}
+              </div>
             </div>
           </div>
           <div class="flex gap-3 pt-2">
@@ -643,7 +811,7 @@
             </p>
           </div>
           <button
-            on:click={enableDefaultCategories}
+            on:click={() => enableDefaultCategories()}
             class="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs rounded-xl border border-neutral-700 transition-colors flex-none"
           >
             ✓ Enable Non-Personal Defaults
@@ -778,7 +946,7 @@
           </div>
 
           <div class="grid grid-cols-1 gap-3 max-w-xl">
-            {#each activeUsers as u}
+            {#each accountMembers as u}
               {@const log = ($jointMonthlyDeposits || []).find((d) => d.user_name === u.name)}
               {@const sched = deposits.find((d) => d.user_name === u.name)}
               {@const schedCents = sched ? sched.amount_cents : 0}

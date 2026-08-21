@@ -9,7 +9,7 @@
 
   import { fly } from 'svelte/transition';
   import { createExpense } from './api.js';
-  import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, defaultProject, currencySymbol, jointAccountEnabled, jointAccount, jointCategories, showProjectsInExpense } from './stores.js';
+  import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, defaultProject, currencySymbol, jointAccountEnabled, jointAccount, jointAccounts, activeJointAccountId, jointCategories, showProjectsInExpense } from './stores.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
   $: activeTags  = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
@@ -70,20 +70,25 @@
   $: overrideOk  = overrideSum === 100;
 
   // ── Form state ──────────────────────────────────────────────────────────────────
-  let name         = '';
-  let costEuros    = '';       // user-facing input, e.g. "12.50"
-  let expenseDate  = today();
-  let paidByJoint  = $defaultPayer === 'Joint Account';
-  let whoPaid      = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
-  let category     = $defaultCategory;
-  let projectId    = $defaultProject ? Number($defaultProject) : null;
-  let tagId        = null;     // optional: link expense to a tag
+  let name           = '';
+  let costEuros      = '';       // user-facing input, e.g. "12.50"
+  let expenseDate    = today();
+  let paidByJoint    = $defaultPayer === 'Joint Account';
+  let jointAccountId = null;
+  let whoPaid        = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
+  let category       = $defaultCategory;
+  let projectId      = $defaultProject ? Number($defaultProject) : null;
+  let tagId          = null;     // optional: link expense to a tag
 
-  let submitting   = false;
-  let submitSuccess = false; // brief checkmark state on the button
-  let errorMsg     = null;
-  let successName  = null;
-  let successTimer = null;
+  let submitting     = false;
+  let submitSuccess  = false; // brief checkmark state on the button
+  let errorMsg       = null;
+  let successName    = null;
+  let successTimer   = null;
+
+  $: if (paidByJoint && !jointAccountId) {
+    jointAccountId = $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
+  }
 
   // Reactive project derived values
   $: selectedProject = $projects.find((p) => p.id === Number(projectId)) || null;
@@ -99,19 +104,20 @@
   $: isUncoupledJointCategory = paidByJoint && category && !jointCategorySet.has(category);
 
   function reset() {
-    name        = '';
-    costEuros   = '';
-    expenseDate = today();
-    paidByJoint = $defaultPayer === 'Joint Account';
-    whoPaid     = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
-    category    = $defaultCategory;
-    projectId   = $defaultProject ? Number($defaultProject) : null;
-    tagId       = null;
-    errorMsg    = null;
-    customSplit = false;
-    overridePcts = {};
-    useSlider   = true;
-    sliderVal   = 50;
+    name           = '';
+    costEuros      = '';
+    expenseDate    = today();
+    paidByJoint    = $defaultPayer === 'Joint Account';
+    jointAccountId = $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
+    whoPaid        = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
+    category       = $defaultCategory;
+    projectId      = $defaultProject ? Number($defaultProject) : null;
+    tagId          = null;
+    errorMsg       = null;
+    customSplit    = false;
+    overridePcts   = {};
+    useSlider      = true;
+    sliderVal      = 50;
   }
 
   function dismissSuccess() {
@@ -179,14 +185,15 @@
     submitting = true;
     try {
       const payload = {
-        name:         name.trim(),
-        cost_cents:   costCents,
-        expense_date: expenseDate,
-        who_paid:     paidByJoint ? (activeUsers[0]?.name ?? 'John') : whoPaid,
-        category:     finalCategory,
-        project_id:   projectId ? Number(projectId) : null,
-        tag_id:       tagId ? Number(tagId) : null,
-        is_joint:     paidByJoint,
+        name:             name.trim(),
+        cost_cents:       costCents,
+        expense_date:     expenseDate,
+        who_paid:         paidByJoint ? (activeUsers[0]?.name ?? 'John') : whoPaid,
+        category:         finalCategory,
+        project_id:       projectId ? Number(projectId) : null,
+        tag_id:           tagId ? Number(tagId) : null,
+        is_joint:         paidByJoint,
+        joint_account_id: paidByJoint ? (jointAccountId || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
       };
       if (!paidByJoint && customSplit && overrideOk) {
         payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
@@ -383,6 +390,26 @@
         </label>
       {/if}
     </div>
+
+    <!-- Joint Account Selector (if multiple exist) -->
+    {#if paidByJoint && ($jointAccounts || []).length > 1}
+      <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1.5 animate-fadeIn">
+        <label for="expense-joint-account" class="block text-xs font-semibold text-indigo-300">
+          Select Joint Account
+        </label>
+        <select
+          id="expense-joint-account"
+          bind:value={jointAccountId}
+          class="select-field text-xs py-1.5"
+        >
+          {#each $jointAccounts as acc}
+            <option value={acc.id}>
+              🏦 {acc.name} {acc.member_names?.length ? `(${acc.member_names.join(' & ')})` : ''}
+            </option>
+          {/each}
+        </select>
+      </div>
+    {/if}
   </div>
 
   <!-- Warning for uncoupled joint category -->

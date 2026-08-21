@@ -30,10 +30,43 @@ import { writable } from 'svelte/store';
  * Falls back to `defaultValue` when no entry exists yet.
  */
 function persistedBoolean(key, defaultValue) {
-  const stored = localStorage.getItem(key);
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
   const initial = stored !== null ? stored === 'true' : defaultValue;
   const store = writable(initial);
-  store.subscribe((val) => localStorage.setItem(key, String(val)));
+  if (typeof localStorage !== 'undefined') {
+    store.subscribe((val) => localStorage.setItem(key, String(val)));
+  }
+  return store;
+}
+
+/**
+ * Helper: writable store that reads/writes a JSON object to localStorage.
+ */
+function persistedObject(key, defaultValue) {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  let initial = defaultValue;
+  if (stored !== null) {
+    try {
+      initial = { ...defaultValue, ...JSON.parse(stored) };
+    } catch {}
+  }
+  const store = writable(initial);
+  if (typeof localStorage !== 'undefined') {
+    store.subscribe((val) => localStorage.setItem(key, JSON.stringify(val)));
+  }
+  return store;
+}
+
+/**
+ * Helper: writable store that reads/writes a string to localStorage.
+ */
+function persistedString(key, defaultValue) {
+  const stored = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
+  const initial = stored !== null ? stored : defaultValue;
+  const store = writable(initial);
+  if (typeof localStorage !== 'undefined') {
+    store.subscribe((val) => localStorage.setItem(key, val));
+  }
   return store;
 }
 
@@ -119,8 +152,20 @@ export const recurringExpenses = writable([]);
 export const settlements = writable([]);
 
 /**
- * Joint account singleton config. Null when not configured.
- * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents }
+ * Joint accounts list & active account ID for multi-joint account household setups.
+ */
+export const jointAccounts = writable([]);
+export const activeJointAccountId = writable(1);
+
+/**
+ * Top-of-Dashboard scope filter.
+ * Values: 'ALL' (whole household), 'USER:<name>' (single user), 'JOINT:<id>' (joint account members)
+ */
+export const dashboardScope = persistedString('dashboardScope', 'ALL');
+
+/**
+ * Joint account singleton / active config. Null when not configured.
+ * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents, member_names }
  */
 export const jointAccount = writable(null);
 
@@ -165,22 +210,6 @@ export const showProjectsInExpense = persistedBoolean('showProjectsInExpense', t
 export const jointAccountEnabled = persistedBoolean('jointAccountEnabled', false);
 
 /**
- * Helper: writable store that reads/writes a JSON object to localStorage.
- */
-function persistedObject(key, defaultValue) {
-  const stored = localStorage.getItem(key);
-  let initial = defaultValue;
-  if (stored !== null) {
-    try {
-      initial = { ...defaultValue, ...JSON.parse(stored) };
-    } catch {}
-  }
-  const store = writable(initial);
-  store.subscribe((val) => localStorage.setItem(key, JSON.stringify(val)));
-  return store;
-}
-
-/**
  * Mobile preferences & tab visibility stores.
  * Maps tab ID to boolean visibility on mobile devices.
  * Settings and at least one other tab are always enforced active.
@@ -201,18 +230,6 @@ export const mobileTabVisibility = persistedObject('mobileTabVisibility', {
 export const mobileAutoCloseMenu = persistedBoolean('mobileAutoCloseMenu', true);
 export const mobileCompactView = persistedBoolean('mobileCompactView', false);
 export const mobileLargeTouchTargets = persistedBoolean('mobileLargeTouchTargets', false);
-
-
-/**
- * Helper: writable store that reads/writes a string to localStorage.
- */
-function persistedString(key, defaultValue) {
-  const stored = localStorage.getItem(key);
-  const initial = stored !== null ? stored : defaultValue;
-  const store = writable(initial);
-  store.subscribe((val) => localStorage.setItem(key, val));
-  return store;
-}
 
 export const defaultPayer = persistedString('defaultPayer', '');
 export const defaultCategory = persistedString('defaultCategory', '');

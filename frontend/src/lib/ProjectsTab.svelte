@@ -9,7 +9,7 @@
    *  - Delete with confirmation (expenses retain history)
    */
 
-  import { projects, currencySymbol, showProjectsInExpense } from './stores.js';
+  import { projects, users, currencySymbol, showProjectsInExpense } from './stores.js';
   import { createProject, updateProject, deleteProject } from './api.js';
 
   // ── helpers ────────────────────────────────────────────────────────────────
@@ -32,6 +32,13 @@
     return Math.min(100, Math.round((spent / target) * 100));
   }
 
+  /** Look up user color */
+  function userColor(name) {
+    return $users.find((u) => u.name === name)?.color ?? '#6366f1';
+  }
+
+  $: activeUsers = $users.filter((u) => u.is_active !== false);
+
   /** Human-readable remaining months estimate from est completion date string */
   function estLabel(estStr) {
     if (!estStr || estStr === 'Indefinite') return 'No payments yet';
@@ -51,9 +58,18 @@
   let newTargetDate         = '';
   let newIsJoint            = false;
   let newAllowSubcategories = true;
+  let newMembers            = [];
   let addSubmitting         = false;
   let addError              = null;
   let addSuccess            = false;
+
+  function toggleNewMember(userName) {
+    if (newMembers.includes(userName)) {
+      newMembers = newMembers.filter((u) => u !== userName);
+    } else {
+      newMembers = [...newMembers, userName];
+    }
+  }
 
   async function handleAdd(e) {
     e.preventDefault();
@@ -72,15 +88,19 @@
 
     addSubmitting = true;
     try {
-      await createProject({
+      const payload = {
         name: newName.trim(),
         target_cents: targetCents,
         target_date: newTargetDate,
         is_joint: newIsJoint,
         allow_subcategories: newAllowSubcategories,
-      });
+      };
+      if (newMembers.length > 0) {
+        payload.user_names = newMembers;
+      }
+      await createProject(payload);
       addSuccess = true;
-      newName = ''; newTargetEur = ''; newTargetDate = ''; newIsJoint = false; newAllowSubcategories = true;
+      newName = ''; newTargetEur = ''; newTargetDate = ''; newIsJoint = false; newAllowSubcategories = true; newMembers = [];
     } catch (err) {
       addError = err.message ?? 'Failed to create project.';
     } finally {
@@ -96,6 +116,7 @@
   let editTargetDate         = '';
   let editIsJoint            = false;
   let editAllowSubcategories = true;
+  let editMembers            = [];
   let editSubmitting         = false;
   let editError              = null;
 
@@ -106,7 +127,16 @@
     editTargetDate         = p.target_date;
     editIsJoint            = Boolean(p.is_joint);
     editAllowSubcategories = p.allow_subcategories !== false;
+    editMembers            = p.user_names ? [...p.user_names] : [];
     editError              = null;
+  }
+
+  function toggleEditMember(userName) {
+    if (editMembers.includes(userName)) {
+      editMembers = editMembers.filter((u) => u !== userName);
+    } else {
+      editMembers = [...editMembers, userName];
+    }
   }
 
   function cancelEdit() {
@@ -128,13 +158,17 @@
 
     editSubmitting = true;
     try {
-      await updateProject(id, {
+      const payload = {
         name: editName.trim(),
         target_cents: targetCents,
         target_date: editTargetDate,
         is_joint: editIsJoint,
         allow_subcategories: editAllowSubcategories,
-      });
+      };
+      if (editMembers.length > 0) {
+        payload.user_names = editMembers;
+      }
+      await updateProject(id, payload);
       editingId = null;
     } catch (err) {
       editError = err.message ?? 'Failed to update project.';
@@ -213,6 +247,28 @@
           bind:value={newTargetDate}
           class="input-field"
         />
+      </div>
+
+      <!-- Member Assignment -->
+      <div>
+        <label class="block text-xs font-medium text-neutral-400 mb-1.5">Assigned Members</label>
+        <div class="flex flex-wrap gap-2">
+          {#each activeUsers as u}
+            {@const isChecked = newMembers.includes(u.name)}
+            <button
+              type="button"
+              on:click={() => toggleNewMember(u.name)}
+              class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+            >
+              <span class="w-2 h-2 rounded-full flex-none" style="background-color: {u.color}"></span>
+              <span>{u.name}</span>
+              {#if isChecked}
+                <span class="text-[10px] text-indigo-400">✓</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
+        <p class="text-[10px] text-neutral-500 mt-1">Select household members participating in this goal (optional, all if empty).</p>
       </div>
 
       <div class="space-y-2 pt-1">
@@ -334,6 +390,27 @@
                 />
               </div>
 
+              <!-- Edit Member Assignment -->
+              <div>
+                <label class="block text-xs font-medium text-neutral-400 mb-1.5">Assigned Members</label>
+                <div class="flex flex-wrap gap-2">
+                  {#each activeUsers as u}
+                    {@const isChecked = editMembers.includes(u.name)}
+                    <button
+                      type="button"
+                      on:click={() => toggleEditMember(u.name)}
+                      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                    >
+                      <span class="w-2 h-2 rounded-full flex-none" style="background-color: {u.color}"></span>
+                      <span>{u.name}</span>
+                      {#if isChecked}
+                        <span class="text-[10px] text-indigo-400">✓</span>
+                      {/if}
+                    </button>
+                  {/each}
+                </div>
+              </div>
+
               <div class="space-y-2 pt-1">
                 <div class="flex items-center gap-2">
                   <input
@@ -390,6 +467,16 @@
                     <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
                       🏦 Joint Project
                     </span>
+                  {/if}
+                  {#if project.user_names && project.user_names.length > 0}
+                    <div class="flex items-center gap-1">
+                      {#each project.user_names as uName}
+                        <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-neutral-800 border border-neutral-700 text-neutral-300">
+                          <span class="w-1.5 h-1.5 rounded-full" style="background-color: {userColor(uName)}"></span>
+                          <span>{uName}</span>
+                        </span>
+                      {/each}
+                    </div>
                   {/if}
                   {#if project.allow_subcategories === false}
                     <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-neutral-800 text-neutral-400 border border-neutral-700">

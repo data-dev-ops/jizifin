@@ -15,9 +15,10 @@
 
   import { createEventDispatcher, onMount } from 'svelte';
   import * as api from './api.js';
-  import { splits, selectedMonth, users, currencySymbol, splitInputMode, jointCategories } from './stores.js';
+  import { splits, selectedMonth, users, currencySymbol, splitInputMode, jointCategories, jointAccounts } from './stores.js';
 
   const dispatch = createEventDispatcher();
+  let isMobile = false;
 
   /** Set of plain category names assigned to joint account */
   $: jointCategorySet = new Set(($jointCategories || []).map((c) => (typeof c === 'string' ? c : c.plain)));
@@ -290,6 +291,45 @@
     editValues = { ...editValues };
   }
 
+  /** Split equally among all active members */
+  function applyEvenSplit(cat) {
+    if (!editValues[cat]) return;
+    const n = activeUsers.length;
+    if (n === 0) return;
+    const exact = 100 / n;
+    const floor = Math.floor(exact);
+    const extra = 100 - (floor * n);
+    const fresh = {};
+    activeUsers.forEach((u, idx) => {
+      fresh[u.name] = String(floor + (idx < extra ? 1 : 0));
+    });
+    editValues[cat] = fresh;
+    editValues = { ...editValues };
+  }
+
+  /** Split 50/50 (or equal) between specific members (e.g. couple), with 0% for others */
+  function applyCoupleSplit(cat, memberNames) {
+    if (!editValues[cat]) return;
+    const set = new Set(memberNames);
+    const matched = activeUsers.filter((u) => set.has(u.name));
+    if (matched.length === 0) return;
+    const n = matched.length;
+    const exact = 100 / n;
+    const floor = Math.floor(exact);
+    const extra = 100 - (floor * n);
+    const fresh = {};
+    activeUsers.forEach((u) => {
+      if (set.has(u.name)) {
+        const idx = matched.findIndex((m) => m.name === u.name);
+        fresh[u.name] = String(floor + (idx < extra ? 1 : 0));
+      } else {
+        fresh[u.name] = '0';
+      }
+    });
+    editValues[cat] = fresh;
+    editValues = { ...editValues };
+  }
+
   async function save(category) {
     rowError[category]   = null;
     rowSuccess[category] = false;
@@ -422,9 +462,16 @@
 
   <!-- ── Subsection 1: Expense Categories & Splits ────────────────────────────── -->
   <div class="pt-2">
-    <h3 class="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-4 flex items-center gap-2">
+    <h3 class="text-xs font-bold text-neutral-400 uppercase tracking-wider mb-3 flex items-center gap-2">
       <span>💸</span> Expense Categories & Household Split Allocations
     </h3>
+
+    {#if $splitInputMode === 'slider' && activeUsers.length !== 2}
+      <div class="mb-3 px-3.5 py-2.5 rounded-xl bg-amber-950/40 border border-amber-800/50 text-amber-300 text-xs flex items-center gap-2">
+        <span class="text-amber-400 font-bold">ℹ️</span>
+        <span>Slider mode requires exactly 2 active users. Percentage inputs are shown below for {activeUsers.length} active household members.</span>
+      </div>
+    {/if}
 
   <!-- ── Splits table ───────────────────────────────────────────────────────── -->
   <div class="space-y-1">
@@ -520,20 +567,46 @@
               </div>
             {:else}
               <!-- ── Editable row (inputs mode, or >2 users fallback) ── -->
-              {#if $splitInputMode === 'slider' && activeUsers.length !== 2}
-                <p class="text-[10px] text-amber-500/70 mb-1">Slider mode requires exactly 2 active users — using inputs</p>
-              {/if}
               <div class="grid gap-3 items-center" style="grid-template-columns: minmax(80px,1fr) {activeUsers.map(() => 'minmax(70px,1fr)').join(' ')} auto">
 
-              <!-- Category badge -->
-              <div class="flex items-center gap-1 flex-wrap">
-                <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium truncate max-w-full">
-                  {split.category}
-                </span>
-                {#if isJointCategory}
-                  <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold" title="Category is managed by the Joint Account">
-                    🏦 Joint Account (Locked)
+              <!-- Category badge & presets -->
+              <div class="flex flex-col gap-1">
+                <div class="flex items-center gap-1 flex-wrap">
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-lg bg-neutral-800 border border-neutral-700 text-xs text-neutral-300 font-medium truncate max-w-full">
+                    {split.category}
                   </span>
+                  {#if isJointCategory}
+                    <span class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold" title="Category is managed by the Joint Account">
+                      🏦 Joint Account (Locked)
+                    </span>
+                  {/if}
+                </div>
+
+                <!-- Presets for multi-member households -->
+                {#if activeUsers.length > 2 && !isJointCategory}
+                  <div class="flex items-center gap-1 text-[10px] flex-wrap mt-0.5">
+                    <span class="text-neutral-500 text-[9px] uppercase font-semibold">Presets:</span>
+                    <button
+                      type="button"
+                      on:click={() => applyEvenSplit(split.category)}
+                      class="px-1.5 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-[10px] font-medium transition-colors"
+                      title="Split equally ({Math.floor(100 / activeUsers.length)}% each)"
+                    >
+                      Even ({Math.floor(100 / activeUsers.length)}%)
+                    </button>
+                    {#each $jointAccounts as acc}
+                      {#if acc.member_names && acc.member_names.length > 0 && acc.member_names.length < activeUsers.length}
+                        <button
+                          type="button"
+                          on:click={() => applyCoupleSplit(split.category, acc.member_names)}
+                          class="px-1.5 py-0.5 rounded bg-indigo-950/70 hover:bg-indigo-900/80 text-indigo-300 border border-indigo-800/50 text-[10px] font-medium transition-colors"
+                          title="Split among {acc.name} members ({acc.member_names.join(' & ')})"
+                        >
+                          🏦 {acc.name} ({acc.member_names.join('+')})
+                        </button>
+                      {/if}
+                    {/each}
+                  </div>
                 {/if}
               </div>
 

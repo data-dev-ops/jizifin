@@ -6,7 +6,7 @@
 
 import { get } from 'svelte/store';
 import { encryptText, decryptText } from './crypto.js';
-import { cryptoKey, sessionToken, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
+import { cryptoKey, sessionToken, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointAccounts, activeJointAccountId, dashboardScope, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
 
 const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
 
@@ -302,8 +302,17 @@ export async function updateSplit(category, payload) {
 // Analytics
 // ---------------------------------------------------------------------------
 
-export async function fetchAnalytics(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+export async function fetchAnalytics(month, users) {
+  const params = new URLSearchParams();
+  if (month) params.append('month', month);
+  if (users) {
+    const userList = Array.isArray(users) ? users : users.split(',').map((u) => u.trim()).filter(Boolean);
+    if (userList.length > 0) {
+      const encUserList = await Promise.all(userList.map((u) => enc(u)));
+      params.append('users', encUserList.join(','));
+    }
+  }
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const [monthly_total, by_category, by_payer] = await Promise.all([
     request(`/analytics/monthly-total${qs}`),
     request(`/analytics/by-category${qs}`),
@@ -334,7 +343,7 @@ export async function fetchAnalytics(month) {
   return finalData;
 }
 
-export async function fetchPaybacks(month) {
+export async function fetchPaybacks(month, users) {
   const encPersonal = [await enc('PERSONAL COST'), await enc('LEISURE'), await enc('GIFT')].join(',');
   const encCombinedFixed = await enc('Combined Fixed');
   const encApartment = await enc('Apartment');
@@ -349,6 +358,13 @@ export async function fetchPaybacks(month) {
     john_name: encJohn
   });
   if (month) params.append('month', month);
+  if (users) {
+    const userList = Array.isArray(users) ? users : users.split(',').map((u) => u.trim()).filter(Boolean);
+    if (userList.length > 0) {
+      const encUserList = await Promise.all(userList.map((u) => enc(u)));
+      params.append('users', encUserList.join(','));
+    }
+  }
 
   const qs = `?${params.toString()}`;
   const data = await request(`/analytics/paybacks${qs}`);
@@ -387,10 +403,17 @@ export async function fetchPaybacks(month) {
 // Income
 // ---------------------------------------------------------------------------
 
-export async function fetchIncomeByPerson(month) {
+export async function fetchIncomeByPerson(month, users) {
   const encSalary = await enc('SALARY');
   const params = new URLSearchParams({ salary_cat: encSalary });
   if (month) params.append('month', month);
+  if (users) {
+    const userList = Array.isArray(users) ? users : users.split(',').map((u) => u.trim()).filter(Boolean);
+    if (userList.length > 0) {
+      const encUserList = await Promise.all(userList.map((u) => enc(u)));
+      params.append('users', encUserList.join(','));
+    }
+  }
 
   const qs = `?${params.toString()}`;
   const data = await request(`/analytics/income-by-person${qs}`);
@@ -628,6 +651,7 @@ async function decryptProject(p) {
     ...p,
     name: await dec(p.name),
     is_joint: Boolean(p.is_joint),
+    user_names: p.user_names ? await Promise.all(p.user_names.map((u) => dec(u))) : [],
     last_payment: p.last_payment
       ? {
           ...p.last_payment,
@@ -650,6 +674,7 @@ export async function createProject(payload) {
     ...payload,
     name: await enc(payload.name),
     is_joint: Boolean(payload.is_joint),
+    user_names: payload.user_names ? await Promise.all(payload.user_names.map((u) => enc(u))) : [],
   };
 
   const data = await request('/projects', {
@@ -667,6 +692,9 @@ export async function updateProject(id, payload) {
   const encryptedPayload = { ...payload };
   if (payload.name !== undefined) encryptedPayload.name = await enc(payload.name);
   if (payload.is_joint !== undefined) encryptedPayload.is_joint = Boolean(payload.is_joint);
+  if (payload.user_names !== undefined) {
+    encryptedPayload.user_names = await Promise.all(payload.user_names.map((u) => enc(u)));
+  }
 
   const data = await request(`/projects/${id}`, {
     method: 'PUT',
@@ -795,6 +823,7 @@ export async function fetchAllData(month) {
     fetchIncome(month),
     fetchIncomeCategories(),
     fetchJobs(),
+    fetchJointAccounts(),
     fetchJointAccount(),
     fetchJointCategories(),
     fetchJointDeposits(),
@@ -1003,15 +1032,18 @@ export async function createSettlement(payload) {
 }
 
 // ---------------------------------------------------------------------------
-// Joint Account
+// Joint Account (Multi-account support)
 // ---------------------------------------------------------------------------
 
 /**
- * Decrypt a joint account config object. Only `name` is encrypted.
+ * Decrypt a joint account config object. `name` and `member_names` are encrypted.
  */
 async function decryptJointAccount(ja) {
   if (!ja) return null;
-  return { ...ja, name: await dec(ja.name) };
+  const member_names = ja.member_names
+    ? await Promise.all(ja.member_names.map((u) => dec(u)))
+    : [];
+  return { ...ja, name: await dec(ja.name), member_names };
 }
 
 /**
@@ -1056,95 +1088,153 @@ async function decryptJointDashboard(dash) {
   return { ...dash, categories, user_deposits };
 }
 
-export async function fetchJointAccount() {
-  const data = await request('/joint-account');
+export async function fetchJointAccounts() {
+  try {
+    const data = await request('/joint-accounts');
+    const decrypted = await Promise.all(data.map(decryptJointAccount));
+    jointAccounts.set(decrypted);
+    
+    // Set active joint account
+    const currentActiveId = get(activeJointAccountId);
+    let active = decrypted.find((a) => a.id === currentActiveId);
+    if (!active && decrypted.length > 0) {
+      active = decrypted[0];
+      activeJointAccountId.set(active.id);
+    }
+    jointAccount.set(active || null);
+    return decrypted;
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchJointAccount(accountId) {
+  const aid = accountId ?? get(activeJointAccountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const data = await request(`/joint-account${qs}`);
   const decrypted = await decryptJointAccount(data);
   jointAccount.set(decrypted);
   return decrypted;
 }
 
 export async function createJointAccount(payload) {
-  const body = { ...payload, name: await enc(payload.name) };
-  const data = await request('/joint-account', {
+  const body = {
+    ...payload,
+    name: await enc(payload.name),
+    member_names: payload.member_names
+      ? await Promise.all(payload.member_names.map((u) => enc(u)))
+      : [],
+  };
+  const data = await request('/joint-accounts', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const decrypted = await decryptJointAccount(data);
+  jointAccounts.update((prev) => [...prev, decrypted]);
+  activeJointAccountId.set(decrypted.id);
   jointAccount.set(decrypted);
   return decrypted;
 }
 
-export async function updateJointAccount(payload) {
+export async function updateJointAccount(payload, accountId) {
+  const aid = accountId ?? get(activeJointAccountId);
   const body = { ...payload };
   if (payload.name) body.name = await enc(payload.name);
-  const data = await request('/joint-account', {
+  if (payload.member_names) {
+    body.member_names = await Promise.all(payload.member_names.map((u) => enc(u)));
+  }
+  const data = await request(`/joint-accounts/${aid}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
   });
   const decrypted = await decryptJointAccount(data);
-  jointAccount.set(decrypted);
+  jointAccounts.update((prev) => prev.map((a) => (a.id === aid ? decrypted : a)));
+  if (get(activeJointAccountId) === aid) {
+    jointAccount.set(decrypted);
+  }
   return decrypted;
 }
 
-export async function deleteJointAccount() {
-  const res = await authFetch('/joint-account', { method: 'DELETE' });
-  if (!res.ok) throw new Error(`DELETE /joint-account → ${res.status}`);
-  jointAccount.set(null);
-  jointCategories.set([]);
-  jointDeposits.set([]);
-  jointExpectedCosts.set([]);
-  jointCorrections.set([]);
-  jointDashboard.set(null);
+export async function deleteJointAccount(accountId) {
+  const aid = accountId ?? get(activeJointAccountId);
+  const res = await authFetch(`/joint-accounts/${aid}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error(`DELETE /joint-accounts/${aid} → ${res.status}`);
+  jointAccounts.update((prev) => prev.filter((a) => a.id !== aid));
+  const remaining = get(jointAccounts);
+  if (remaining.length > 0) {
+    activeJointAccountId.set(remaining[0].id);
+    jointAccount.set(remaining[0]);
+  } else {
+    activeJointAccountId.set(1);
+    jointAccount.set(null);
+    jointCategories.set([]);
+    jointDeposits.set([]);
+    jointExpectedCosts.set([]);
+    jointCorrections.set([]);
+    jointDashboard.set(null);
+  }
+}
+
+function resolveAccountId(accountId) {
+  if (typeof accountId === 'number' && !isNaN(accountId)) return accountId;
+  if (typeof accountId === 'string' && accountId.trim() !== '' && !isNaN(Number(accountId))) {
+    return Number(accountId);
+  }
+  const storeVal = get(activeJointAccountId);
+  if (typeof storeVal === 'number' && !isNaN(storeVal)) return storeVal;
+  return 1;
 }
 
 // ── Categories ──────────────────────────────────────────────────────────────────
 
-export async function fetchJointCategories() {
-  // Categories are stored as encrypted ciphertexts but compared as-is against splits.
-  // Decrypt only for display; the store keeps decrypted values alongside enc for form use.
-  const raw = await request('/joint-account/categories');
-  // Decrypt each category for display
+export async function fetchJointCategories(accountId) {
+  const aid = resolveAccountId(accountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const raw = await request(`/joint-account/categories${qs}`);
   const decrypted = await Promise.all(raw.map((c) => dec(c)));
-  // Store objects with both enc (for API calls) and plain (for display)
   const pairs = raw.map((enc_cat, i) => ({ enc: enc_cat, plain: decrypted[i] }));
   jointCategories.set(pairs);
   return pairs;
 }
 
-export async function addJointCategory(encryptedCategory) {
-  // encryptedCategory is already encrypted (comes from splits store enc field or enc())
+export async function addJointCategory(encryptedCategory, accountId) {
+  const aid = resolveAccountId(accountId);
   const data = await request('/joint-account/categories', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ category: encryptedCategory }),
+    body: JSON.stringify({ category: encryptedCategory, account_id: aid }),
   });
-  await fetchJointCategories();
+  await fetchJointCategories(aid);
   return data;
 }
 
-export async function removeJointCategory(encryptedCategory) {
-  const res = await authFetch(`/joint-account/categories/${encodeURIComponent(encryptedCategory)}`, { method: 'DELETE' });
+export async function removeJointCategory(encryptedCategory, accountId) {
+  const aid = resolveAccountId(accountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const res = await authFetch(`/joint-account/categories/${encodeURIComponent(encryptedCategory)}${qs}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`DELETE /joint-account/categories → ${res.status}`);
-  await fetchJointCategories();
+  await fetchJointCategories(aid);
 }
 
 // ── Deposits ─────────────────────────────────────────────────────────────────────
 
-export async function fetchJointDeposits() {
-  const raw = await request('/joint-account/deposits');
+export async function fetchJointDeposits(accountId) {
+  const aid = resolveAccountId(accountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const raw = await request(`/joint-account/deposits${qs}`);
   const decrypted = await Promise.all(raw.map(decryptJointDeposit));
   jointDeposits.set(decrypted);
   return decrypted;
 }
 
-export async function setJointDeposits(deposits) {
-  // deposits: [{ user_name (plain), amount_cents, day_of_month }]
+export async function setJointDeposits(deposits, accountId) {
+  const aid = resolveAccountId(accountId);
   const encrypted = await Promise.all(
-    deposits.map(async (d) => ({ ...d, user_name: await enc(d.user_name) }))
+    deposits.map(async (d) => ({ ...d, user_name: await enc(d.user_name), account_id: aid }))
   );
-  const raw = await request('/joint-account/deposits', {
+  const raw = await request(`/joint-account/deposits?account_id=${aid}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(encrypted),
@@ -1154,19 +1244,24 @@ export async function setJointDeposits(deposits) {
   return decrypted;
 }
 
-export async function fetchJointMonthlyDeposits(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+export async function fetchJointMonthlyDeposits(month, accountId) {
+  const aid = resolveAccountId(accountId);
+  const params = new URLSearchParams();
+  if (month) params.append('month', month);
+  if (aid) params.append('account_id', aid);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const raw = await request(`/joint-account/monthly-deposits${qs}`);
   const decrypted = await Promise.all(raw.map(decryptJointMonthlyDepositRow));
   jointMonthlyDeposits.set(decrypted);
   return decrypted;
 }
 
-export async function updateJointMonthlyDeposit(payload) {
-  // payload: { month, user_name (plain), actual_cents, is_paid, paid_date? }
+export async function updateJointMonthlyDeposit(payload, accountId) {
+  const aid = resolveAccountId(accountId ?? payload?.account_id);
   const encryptedPayload = {
     ...payload,
     user_name: await enc(payload.user_name),
+    account_id: aid,
   };
   const raw = await request('/joint-account/monthly-deposits', {
     method: 'POST',
@@ -1183,25 +1278,27 @@ export async function updateJointMonthlyDeposit(payload) {
     }
     return [...prev, decrypted];
   });
-  await fetchJointAccount();
+  await fetchJointAccount(aid);
   return decrypted;
 }
 
 // ── Expected Costs ─────────────────────────────────────────────────────────────
 
-export async function fetchJointExpectedCosts() {
-  const raw = await request('/joint-account/expected-costs');
+export async function fetchJointExpectedCosts(accountId) {
+  const aid = resolveAccountId(accountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const raw = await request(`/joint-account/expected-costs${qs}`);
   const decrypted = await Promise.all(raw.map(decryptJointExpectedCost));
   jointExpectedCosts.set(decrypted);
   return decrypted;
 }
 
-export async function setJointExpectedCosts(costs) {
-  // costs: [{ category (plain), expected_cents }]
+export async function setJointExpectedCosts(costs, accountId) {
+  const aid = resolveAccountId(accountId);
   const encrypted = await Promise.all(
-    costs.map(async (c) => ({ ...c, category: await enc(c.category) }))
+    costs.map(async (c) => ({ ...c, category: await enc(c.category), account_id: aid }))
   );
-  const raw = await request('/joint-account/expected-costs', {
+  const raw = await request(`/joint-account/expected-costs?account_id=${aid}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(encrypted),
@@ -1213,19 +1310,22 @@ export async function setJointExpectedCosts(costs) {
 
 // ── Corrections ──────────────────────────────────────────────────────────────────
 
-export async function fetchJointCorrections() {
-  const raw = await request('/joint-account/corrections');
+export async function fetchJointCorrections(accountId) {
+  const aid = resolveAccountId(accountId);
+  const qs = aid ? `?account_id=${aid}` : '';
+  const raw = await request(`/joint-account/corrections${qs}`);
   const decrypted = await Promise.all(raw.map(decryptJointCorrection));
   jointCorrections.set(decrypted);
   return decrypted;
 }
 
-export async function createJointCorrection(payload) {
-  // payload: { amount_cents, correction_date, note? (plain) }
+export async function createJointCorrection(payload, accountId) {
+  const aid = resolveAccountId(accountId ?? payload?.account_id);
   const body = {
     amount_cents: payload.amount_cents,
     correction_date: payload.correction_date,
     note: payload.note ? await enc(payload.note) : null,
+    account_id: aid,
   };
   const raw = await request('/joint-account/corrections', {
     method: 'POST',
@@ -1234,38 +1334,42 @@ export async function createJointCorrection(payload) {
   });
   const decrypted = await decryptJointCorrection(raw);
   jointCorrections.update((prev) => [decrypted, ...(Array.isArray(prev) ? prev : [])]);
-  // Refresh joint account balance
-  await fetchJointAccount();
+  await fetchJointAccount(aid);
   return decrypted;
 }
 
-export async function deleteJointCorrection(id) {
+export async function deleteJointCorrection(id, accountId) {
+  const aid = resolveAccountId(accountId);
   const res = await authFetch(`/joint-account/corrections/${id}`, { method: 'DELETE' });
   if (!res.ok) throw new Error(`DELETE /joint-account/corrections/${id} → ${res.status}`);
   jointCorrections.update((prev) => prev.filter((c) => c.id !== id));
-  await fetchJointAccount();
+  await fetchJointAccount(aid);
 }
 
 // ── Dashboard ────────────────────────────────────────────────────────────────────
 
-export async function fetchJointDashboard(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+export async function fetchJointDashboard(month, accountId) {
+  const aid = resolveAccountId(accountId);
+  const params = new URLSearchParams();
+  if (month) params.append('month', month);
+  if (aid) params.append('account_id', aid);
+  const qs = params.toString() ? `?${params.toString()}` : '';
   try {
     const raw = await request(`/joint-account/dashboard${qs}`);
     const decrypted = await decryptJointDashboard(raw);
     jointDashboard.set(decrypted);
     return decrypted;
   } catch {
-    // No joint account configured — silently set null
     jointDashboard.set(null);
     return null;
   }
 }
 
-export async function settleJointAccount(payload) {
+export async function settleJointAccount(payload, accountId) {
+  const aid = resolveAccountId(accountId ?? payload?.account_id);
   return request('/joint-account/settle', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(payload),
+    body: JSON.stringify({ ...payload, account_id: aid }),
   });
 }

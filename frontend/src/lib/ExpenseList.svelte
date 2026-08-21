@@ -11,13 +11,16 @@
    * - Dates converted from YYYY-MM-DD (storage) → DD/MM/YYYY (display).
    */
 
-  import { expenses, selectedMonth, projects, tags, settlements, users, splits, currencySymbol, jointCategories, jointAccountEnabled, showProjectsInExpense } from './stores.js';
+  import { expenses, selectedMonth, projects, tags, settlements, users, splits, currencySymbol, jointCategories, jointAccountEnabled, jointAccounts, activeJointAccountId, showProjectsInExpense } from './stores.js';
   import { deleteExpense, updateExpense } from './api.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
 
   /** Set of plain category names assigned to the joint account */
   $: jointCategorySet = new Set(($jointCategories || []).map((c) => (typeof c === 'string' ? c : c.plain)));
+
+  /** Map of joint account IDs to account objects */
+  $: jointAccountMap = Object.fromEntries(($jointAccounts || []).map((ja) => [ja.id, ja]));
 
   /** Lookup user color from the users store. */
   function userColor(name) {
@@ -144,6 +147,7 @@
   let editCategory = '';
   let editWhoPaid = '';
   let editPaidByJoint = false;
+  let editJointAccountId = null;
   let editProjectId = null;
   let editTagId = null;
   let editCustomSplit = false;
@@ -160,6 +164,7 @@
     editDate = expense.expense_date || '';
     editCategory = expense.category || '';
     editPaidByJoint = !!expense.is_joint;
+    editJointAccountId = expense.joint_account_id || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
     editWhoPaid = expense.who_paid || (activeUsers[0]?.name ?? '');
     editProjectId = expense.project_id ?? null;
     editTagId = expense.tag_id ?? null;
@@ -245,6 +250,7 @@
         project_id: editProjectId ? Number(editProjectId) : null,
         tag_id: editTagId ? Number(editTagId) : null,
         is_joint: editPaidByJoint,
+        joint_account_id: editPaidByJoint ? (editJointAccountId || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
       };
 
       if (!editPaidByJoint && editCustomSplit && editOverrideOk) {
@@ -495,7 +501,9 @@
                 {expense.who_paid}
               </span>
               {#if expense.is_joint}
-                <span class="block text-[10px] text-indigo-400 font-medium">(Joint)</span>
+                <span class="block text-[10px] text-indigo-400 font-medium">
+                  🏦 {jointAccountMap[expense.joint_account_id]?.name || 'Joint'}
+                </span>
               {/if}
             </td>
 
@@ -719,6 +727,25 @@
               </label>
             {/if}
           </div>
+
+          {#if editPaidByJoint && ($jointAccounts || []).length > 1}
+            <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1.5 animate-fadeIn">
+              <label for="edit-expense-joint-account" class="block text-xs font-semibold text-indigo-300">
+                Select Joint Account
+              </label>
+              <select
+                id="edit-expense-joint-account"
+                bind:value={editJointAccountId}
+                class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-indigo-500"
+              >
+                {#each $jointAccounts as acc}
+                  <option value={acc.id}>
+                    🏦 {acc.name} {acc.member_names?.length ? `(${acc.member_names.join(' & ')})` : ''}
+                  </option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         </div>
 
         <!-- 6. Custom Split Allocations -->

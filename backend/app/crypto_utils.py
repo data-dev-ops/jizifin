@@ -50,6 +50,7 @@ def process_database_connection(conn: sqlite3.Connection, key: bytes, encrypt: b
         "splits": ["category"],
         "income_categories": ["category"],
         "projects": ["name"],
+        "project_users": ["user_name"],
         "expenses": ["name", "who_paid", "category"],
         "expense_overrides": ["user_name"],
         "income": ["name", "who", "category"],
@@ -59,7 +60,12 @@ def process_database_connection(conn: sqlite3.Connection, key: bytes, encrypt: b
         "split_allocations": ["category", "user_name"],
         "tags": ["name", "description"],
         "joint_account": ["name"],
+        "joint_accounts": ["name"],
+        "joint_account_members": ["user_name"],
+        "joint_account_categories": ["category"],
+        "joint_account_expected_costs": ["category"],
         "joint_account_deposits": ["user_name"],
+        "joint_account_monthly_deposits": ["user_name"],
         "joint_account_corrections": ["note"],
     }
     

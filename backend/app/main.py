@@ -292,7 +292,7 @@ async def process_recurring_expenses() -> None:
 
         async with conn.execute(
             """
-            SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+            SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
             FROM recurring_expenses
             WHERE is_active = 1
             """
@@ -325,12 +325,14 @@ async def process_recurring_expenses() -> None:
                 continue
 
             is_joint_val = 1 if rec["is_joint"] else 0
+            ja_id = rec["joint_account_id"] if rec["is_joint"] else None
             await conn.execute(
-                "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, is_joint) VALUES (?, ?, ?, ?, ?, ?)",
-                (rec["name"], rec["cost_cents"], today_str, rec["who_paid"], rec["category"], is_joint_val),
+                "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, is_joint, joint_account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (rec["name"], rec["cost_cents"], today_str, rec["who_paid"], rec["category"], is_joint_val, ja_id),
             )
             if rec["is_joint"]:
-                await conn.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (rec["cost_cents"],))
+                target_ja_id = ja_id or 1
+                await conn.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (rec["cost_cents"], target_ja_id))
 
         await conn.commit()
 
@@ -752,6 +754,7 @@ async def _build_expense_responses(
             project_id=r["project_id"],
             tag_id=r["tag_id"],
             is_joint=bool(r["is_joint"]) if "is_joint" in r.keys() else False,
+            joint_account_id=r["joint_account_id"] if "joint_account_id" in r.keys() else None,
             overrides=overrides_map[r["id"]],
         )
         for r in rows
@@ -871,7 +874,7 @@ async def list_expenses(
         params.append(category)
     where = ("WHERE " + " AND ".join(conditions)) if conditions else ""
     query = f"""
-        SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint
+        SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id
         FROM   expenses
         {where}
         ORDER  BY expense_date DESC, id DESC
@@ -903,9 +906,10 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
             )
 
     is_joint_val = 1 if expense.is_joint else 0
+    ja_id = expense.joint_account_id if expense.is_joint else None
     async with db.execute(
-        "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-        (expense.name, expense.cost_cents, expense.expense_date, expense.who_paid, expense.category, expense.project_id, expense.tag_id, is_joint_val),
+        "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        (expense.name, expense.cost_cents, expense.expense_date, expense.who_paid, expense.category, expense.project_id, expense.tag_id, is_joint_val, ja_id),
     ) as cur:
         new_id = cur.lastrowid
 
@@ -917,12 +921,13 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
             )
 
     if expense.is_joint:
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (expense.cost_cents,))
+        target_ja_id = ja_id or 1
+        await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (expense.cost_cents, target_ja_id))
 
     await db.commit()
 
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id FROM expenses WHERE id = ?",
         (new_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -932,6 +937,7 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
         "id": new_id, "name": expense.name, "cost_cents": expense.cost_cents,
         "expense_date": expense.expense_date, "who_paid": expense.who_paid,
         "category": expense.category, "is_joint": expense.is_joint,
+        "joint_account_id": ja_id,
     }})
     return result
 
@@ -939,7 +945,7 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
 @app.put("/expenses/{expense_id}", response_model=ExpenseResponse, tags=["expenses"])
 async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> ExpenseResponse:
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id FROM expenses WHERE id = ?",
         (expense_id,),
     ) as cur:
         existing = await cur.fetchone()
@@ -961,13 +967,17 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
     new_tag_id       = update.tag_id       if update.tag_id       is not None else existing["tag_id"]
     new_is_joint     = update.is_joint     if update.is_joint     is not None else bool(existing["is_joint"])
     new_is_joint_val = 1 if new_is_joint else 0
+    new_joint_acc_id = update.joint_account_id if update.joint_account_id is not None else (existing["joint_account_id"] if "joint_account_id" in existing.keys() else None)
+    if not new_is_joint:
+        new_joint_acc_id = None
 
     old_is_joint = bool(existing["is_joint"])
+    old_joint_acc_id = (existing["joint_account_id"] if "joint_account_id" in existing.keys() else None) or 1
     old_cost = existing["cost_cents"]
 
     await db.execute(
-        "UPDATE expenses SET name=?, cost_cents=?, expense_date=?, who_paid=?, category=?, project_id=?, tag_id=?, is_joint=? WHERE id=?",
-        (new_name, new_cost_cents, new_expense_date, new_who_paid, new_category, new_project_id, new_tag_id, new_is_joint_val, expense_id),
+        "UPDATE expenses SET name=?, cost_cents=?, expense_date=?, who_paid=?, category=?, project_id=?, tag_id=?, is_joint=?, joint_account_id=? WHERE id=?",
+        (new_name, new_cost_cents, new_expense_date, new_who_paid, new_category, new_project_id, new_tag_id, new_is_joint_val, new_joint_acc_id, expense_id),
     )
 
     # Overrides: None = keep as-is; [] = clear all; [items] = replace
@@ -979,19 +989,25 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
                 (expense_id, alloc.user_name, alloc.pct),
             )
 
-    # Adjust joint account balance if is_joint or cost changed
+    # Adjust joint account balance
+    target_new_ja_id = new_joint_acc_id or 1
     if old_is_joint and not new_is_joint:
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents + ? WHERE id = 1", (old_cost,))
+        await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents + ? WHERE id = ?", (old_cost, old_joint_acc_id))
     elif not old_is_joint and new_is_joint:
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (new_cost_cents,))
-    elif old_is_joint and new_is_joint and old_cost != new_cost_cents:
-        diff = new_cost_cents - old_cost
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (diff,))
+        await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (new_cost_cents, target_new_ja_id))
+    elif old_is_joint and new_is_joint:
+        if old_joint_acc_id == target_new_ja_id:
+            diff = new_cost_cents - old_cost
+            if diff != 0:
+                await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (diff, target_new_ja_id))
+        else:
+            await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents + ? WHERE id = ?", (old_cost, old_joint_acc_id))
+            await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (new_cost_cents, target_new_ja_id))
 
     await db.commit()
 
     async with db.execute(
-        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint FROM expenses WHERE id = ?",
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id FROM expenses WHERE id = ?",
         (expense_id,),
     ) as cur:
         row = await cur.fetchone()
@@ -1000,13 +1016,14 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
 
 @app.delete("/expenses/{expense_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["expenses"])
 async def delete_expense(expense_id: int, db: DbDep) -> None:
-    async with db.execute("SELECT id, expense_date, cost_cents, is_joint FROM expenses WHERE id = ?", (expense_id,)) as cur:
+    async with db.execute("SELECT id, expense_date, cost_cents, is_joint, joint_account_id FROM expenses WHERE id = ?", (expense_id,)) as cur:
         row = await cur.fetchone()
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Expense {expense_id} not found.")
     await _check_month_not_locked(db, row["expense_date"])
     if row["is_joint"]:
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents + ? WHERE id = 1", (row["cost_cents"],))
+        target_ja_id = (row["joint_account_id"] if "joint_account_id" in row.keys() else None) or 1
+        await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents + ? WHERE id = ?", (row["cost_cents"], target_ja_id))
     await db.execute("DELETE FROM expenses WHERE id = ?", (expense_id,))
     await db.commit()
 
@@ -1062,6 +1079,13 @@ async def _build_project_response(db: aiosqlite.Connection, row: aiosqlite.Row) 
         last_day = calendar.monthrange(y, m)[1]
         est_date = _date(y, m, min(today.day, last_day)).isoformat()
 
+    async with db.execute(
+        "SELECT user_name FROM project_users WHERE project_id = ? ORDER BY user_name",
+        (project_id,),
+    ) as cur:
+        pu_rows = await cur.fetchall()
+    user_names = [r["user_name"] for r in pu_rows]
+
     return ProjectResponse(
         id=project_id,
         name=row["name"],
@@ -1072,6 +1096,7 @@ async def _build_project_response(db: aiosqlite.Connection, row: aiosqlite.Row) 
         last_payment=last_payment,
         is_joint=bool(row["is_joint"]) if "is_joint" in row.keys() else False,
         allow_subcategories=bool(row["allow_subcategories"]) if "allow_subcategories" in row.keys() else True,
+        user_names=user_names,
         estimated_completion_date=est_date,
     )
 
@@ -1091,6 +1116,12 @@ async def create_project(project: ProjectCreate, db: DbDep) -> ProjectResponse:
             (project.name, project.target_cents, project.target_date, 1 if project.is_joint else 0, 1 if project.allow_subcategories else 0),
         ) as cur:
             new_id = cur.lastrowid
+        if project.user_names:
+            for uname in project.user_names:
+                await db.execute(
+                    "INSERT OR IGNORE INTO project_users (project_id, user_name) VALUES (?, ?)",
+                    (new_id, uname),
+                )
         await db.commit()
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Project '{project.name}' already exists.") from exc
@@ -1111,6 +1142,10 @@ async def update_project(project_id: int, update: ProjectUpdate, db: DbDep) -> P
     new_joint  = 1 if update.is_joint else (0 if update.is_joint is False else existing["is_joint"])
     new_allow_subcats = 1 if update.allow_subcategories else (0 if update.allow_subcategories is False else existing["allow_subcategories"])
     await db.execute("UPDATE projects SET name=?, target_cents=?, target_date=?, is_joint=?, allow_subcategories=? WHERE id=?", (new_name, new_target, new_date, new_joint, new_allow_subcats, project_id))
+    if update.user_names is not None:
+        await db.execute("DELETE FROM project_users WHERE project_id = ?", (project_id,))
+        for uname in update.user_names:
+            await db.execute("INSERT OR IGNORE INTO project_users (project_id, user_name) VALUES (?, ?)", (project_id, uname))
     await db.commit()
     async with db.execute("SELECT id, name, target_cents, target_date, is_joint, allow_subcategories FROM projects WHERE id = ?", (project_id,)) as cur:
         row = await cur.fetchone()
@@ -1122,6 +1157,7 @@ async def delete_project(project_id: int, db: DbDep) -> None:
     async with db.execute("SELECT id FROM projects WHERE id = ?", (project_id,)) as cur:
         if await cur.fetchone() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found.")
+    await db.execute("DELETE FROM project_users WHERE project_id = ?", (project_id,))
     await db.execute("UPDATE expenses SET project_id = NULL WHERE project_id = ?", (project_id,))
     await db.execute("DELETE FROM projects WHERE id = ?", (project_id,))
     await db.commit()
@@ -1366,7 +1402,22 @@ async def update_split(category: str, update: SplitUpdate, db: DbDep) -> SplitRe
 # ---------------------------------------------------------------------------
 
 @app.get("/analytics/monthly-total", response_model=MonthlyTotal, tags=["analytics"])
-async def get_monthly_total(db: DbDep, month: str | None = None) -> MonthlyTotal:
+async def get_monthly_total(db: DbDep, month: str | None = None, users: str | None = None) -> MonthlyTotal:
+    user_list = [u.strip() for u in users.split(",") if u.strip()] if users else []
+    target_month = month or _date.today().strftime("%Y-%m")
+    if user_list:
+        ph = ",".join("?" * len(user_list))
+        async with db.execute(
+            f"""
+            SELECT COALESCE(ROUND(SUM(cost_cents) / 100.0, 2), 0.0) AS total_amount,
+                   COUNT(*) AS expense_count, ? AS month
+            FROM expenses WHERE strftime('%Y-%m', expense_date) = ? AND who_paid IN ({ph})
+            """,
+            (target_month, target_month, *user_list),
+        ) as cur:
+            row = await cur.fetchone()
+        return MonthlyTotal(**(dict(row) if row else {"total_amount": 0.0, "expense_count": 0, "month": target_month}))
+
     if month:
         async with db.execute(
             """
@@ -1381,13 +1432,27 @@ async def get_monthly_total(db: DbDep, month: str | None = None) -> MonthlyTotal
     async with db.execute("SELECT total_amount, expense_count, month FROM view_monthly_total") as cur:
         row = await cur.fetchone()
     if row is None:
-        from datetime import date
-        return MonthlyTotal(total_amount=0.0, expense_count=0, month=date.today().strftime("%Y-%m"))
+        return MonthlyTotal(total_amount=0.0, expense_count=0, month=_date.today().strftime("%Y-%m"))
     return MonthlyTotal(**dict(row))
 
 
 @app.get("/analytics/by-category", response_model=list[MonthlyCategoryRow], tags=["analytics"])
-async def get_monthly_by_category(db: DbDep, month: str | None = None) -> list[MonthlyCategoryRow]:
+async def get_monthly_by_category(db: DbDep, month: str | None = None, users: str | None = None) -> list[MonthlyCategoryRow]:
+    user_list = [u.strip() for u in users.split(",") if u.strip()] if users else []
+    target_month = month or _date.today().strftime("%Y-%m")
+    if user_list:
+        ph = ",".join("?" * len(user_list))
+        async with db.execute(
+            f"""
+            SELECT category, ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count
+            FROM expenses WHERE strftime('%Y-%m', expense_date) = ? AND who_paid IN ({ph})
+            GROUP BY category
+            """,
+            (target_month, *user_list),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [MonthlyCategoryRow(**dict(r)) for r in rows]
+
     if month:
         async with db.execute(
             """
@@ -1404,7 +1469,22 @@ async def get_monthly_by_category(db: DbDep, month: str | None = None) -> list[M
 
 
 @app.get("/analytics/by-payer", response_model=list[MonthlyPayerRow], tags=["analytics"])
-async def get_monthly_by_payer(db: DbDep, month: str | None = None) -> list[MonthlyPayerRow]:
+async def get_monthly_by_payer(db: DbDep, month: str | None = None, users: str | None = None) -> list[MonthlyPayerRow]:
+    user_list = [u.strip() for u in users.split(",") if u.strip()] if users else []
+    target_month = month or _date.today().strftime("%Y-%m")
+    if user_list:
+        ph = ",".join("?" * len(user_list))
+        async with db.execute(
+            f"""
+            SELECT who_paid, ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount, COUNT(*) AS expense_count
+            FROM expenses WHERE strftime('%Y-%m', expense_date) = ? AND who_paid IN ({ph})
+            GROUP BY who_paid
+            """,
+            (target_month, *user_list),
+        ) as cur:
+            rows = await cur.fetchall()
+        return [MonthlyPayerRow(**dict(r)) for r in rows]
+
     if month:
         async with db.execute(
             """
@@ -1428,7 +1508,8 @@ async def get_paybacks(
     jane_name: str,
     john_name: str,
     db: DbDep,
-    month: str | None = None
+    month: str | None = None,
+    users: str | None = None,
 ) -> PaybackSummary:
     """
     Compute per-category and overall payback balances for the given month.
@@ -1494,6 +1575,15 @@ async def get_paybacks(
     all_users: set[str] = {e["who_paid"] for e in expenses}
     for cat_alloc in splits_dict.values():
         all_users.update(cat_alloc.keys())
+
+    if users:
+        user_filter = set(u.strip() for u in users.split(",") if u.strip())
+        if user_filter:
+            expenses = [
+                e for e in expenses
+                if e["who_paid"] in user_filter or (e["id"] in override_map and any(u in user_filter for u in override_map[e["id"]]))
+            ]
+            all_users = user_filter
 
     # 5. Per-category accumulation
     cat_paid:     dict[str, dict[str, int]] = {}  # {cat: {user: cents_paid}}
@@ -1640,7 +1730,7 @@ async def create_income(entries: list[IncomeCreate], db: DbDep) -> list[IncomeRe
         ) as cur:
             new_id = cur.lastrowid
         if entry.is_joint:
-            await db.execute("UPDATE joint_account SET balance_cents = balance_cents + ? WHERE id = 1", (entry.amount_cents,))
+            await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents + ? WHERE id = 1", (entry.amount_cents,))
         async with db.execute("SELECT id, name, amount_cents, who, category, income_date, is_joint FROM income WHERE id = ?", (new_id,)) as cur:
             row = await cur.fetchone()
         created.append(IncomeResponse(**dict(row)))
@@ -1656,7 +1746,7 @@ async def delete_income(income_id: int, db: DbDep) -> None:
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Income entry {income_id} not found.")
     if row["is_joint"]:
-        await db.execute("UPDATE joint_account SET balance_cents = balance_cents - ? WHERE id = 1", (row["amount_cents"],))
+        await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = 1", (row["amount_cents"],))
     await db.execute("DELETE FROM income WHERE id = ?", (income_id,))
     await db.commit()
 
@@ -1898,7 +1988,7 @@ async def get_latest_salary(salary_cat: str, db: DbDep) -> list[LatestSalaryRow]
 
 
 @app.get("/analytics/income-by-person", response_model=list[IncomeByPersonRow], tags=["analytics"])
-async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = None) -> list[IncomeByPersonRow]:
+async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = None, users: str | None = None) -> list[IncomeByPersonRow]:
     """
     Return total income per active user for the requested month.
     Combines effective base salary from active jobs (or legacy salary carry-forward)
@@ -1912,6 +2002,10 @@ async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = N
     # Iterate over every active user
     async with db.execute("SELECT name FROM users WHERE is_active = 1 ORDER BY name") as cur:
         active_users = [r["name"] async for r in cur]
+
+    if users:
+        user_filter = set(u.strip() for u in users.split(",") if u.strip())
+        active_users = [p for p in active_users if p in user_filter]
 
     result: list[IncomeByPersonRow] = []
     for person in active_users:
@@ -2049,7 +2143,7 @@ async def delete_budget(category: str, month: str, db: DbDep) -> None:
 async def list_recurring(db: DbDep, month: str | None = None) -> list[RecurringResponse]:
     async with db.execute(
         """
-        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
         FROM recurring_expenses ORDER BY id
         """
     ) as cur:
@@ -2098,10 +2192,11 @@ async def create_recurring(rec: RecurringCreate, db: DbDep) -> RecurringResponse
         except Exception:
             day_of_month = 1
 
+    ja_id = rec.joint_account_id if rec.is_joint else None
     async with db.execute(
         """
-        INSERT INTO recurring_expenses (name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO recurring_expenses (name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             rec.name,
@@ -2114,6 +2209,7 @@ async def create_recurring(rec: RecurringCreate, db: DbDep) -> RecurringResponse
             rec.end_date,
             1 if rec.is_active else 0,
             1 if rec.is_joint else 0,
+            ja_id,
         ),
     ) as cur:
         new_id = cur.lastrowid
@@ -2121,7 +2217,7 @@ async def create_recurring(rec: RecurringCreate, db: DbDep) -> RecurringResponse
 
     async with db.execute(
         """
-        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
         FROM recurring_expenses WHERE id = ?
         """,
         (new_id,),
@@ -2137,7 +2233,7 @@ async def create_recurring(rec: RecurringCreate, db: DbDep) -> RecurringResponse
 async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> RecurringResponse:
     async with db.execute(
         """
-        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
         FROM recurring_expenses WHERE id = ?
         """,
         (rec_id,),
@@ -2166,6 +2262,9 @@ async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> R
     new_end_date     = update.end_date     if update.end_date     is not None else existing["end_date"]
     new_is_active    = update.is_active    if update.is_active    is not None else bool(existing["is_active"])
     new_is_joint     = update.is_joint     if update.is_joint     is not None else bool(existing["is_joint"])
+    new_joint_acc_id = update.joint_account_id if update.joint_account_id is not None else (existing["joint_account_id"] if "joint_account_id" in existing.keys() else None)
+    if not new_is_joint:
+        new_joint_acc_id = None
 
     if new_end_date is not None and new_end_date < new_start_date:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="end_date cannot be earlier than start_date")
@@ -2173,7 +2272,7 @@ async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> R
     await db.execute(
         """
         UPDATE recurring_expenses
-        SET name=?, cost_cents=?, who_paid=?, category=?, frequency=?, day_of_month=?, start_date=?, end_date=?, is_active=?, is_joint=?
+        SET name=?, cost_cents=?, who_paid=?, category=?, frequency=?, day_of_month=?, start_date=?, end_date=?, is_active=?, is_joint=?, joint_account_id=?
         WHERE id=?
         """,
         (
@@ -2187,6 +2286,7 @@ async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> R
             new_end_date,
             1 if new_is_active else 0,
             1 if new_is_joint else 0,
+            new_joint_acc_id,
             rec_id,
         ),
     )
@@ -2194,7 +2294,7 @@ async def update_recurring(rec_id: int, update: RecurringUpdate, db: DbDep) -> R
 
     async with db.execute(
         """
-        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
         FROM recurring_expenses WHERE id = ?
         """,
         (rec_id,),
@@ -2212,7 +2312,7 @@ async def get_recurring_analytics(db: DbDep, month: str | None = None) -> Recurr
 
     async with db.execute(
         """
-        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint
+        SELECT id, name, cost_cents, who_paid, category, frequency, day_of_month, start_date, end_date, is_active, is_joint, joint_account_id
         FROM recurring_expenses
         WHERE is_active = 1
         """
@@ -2311,46 +2411,103 @@ async def create_settlement(payload: SettlementCreate, db: DbDep) -> SettlementR
 # Joint Account
 # ---------------------------------------------------------------------------
 
-async def _get_joint_account(db: aiosqlite.Connection) -> dict | None:
-    """Return the singleton joint account row or None."""
+# ---------------------------------------------------------------------------
+# Joint Account (Multi-account support)
+# ---------------------------------------------------------------------------
+
+async def _get_joint_account(db: aiosqlite.Connection, account_id: int | None = None) -> dict | None:
+    """Return joint account row and its members by id or the first available."""
+    if account_id is not None:
+        async with db.execute(
+            "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_accounts WHERE id = ?",
+            (account_id,),
+        ) as cur:
+            row = await cur.fetchone()
+    else:
+        async with db.execute(
+            "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_accounts ORDER BY id LIMIT 1"
+        ) as cur:
+            row = await cur.fetchone()
+
+    if not row:
+        # Fallback check legacy table if joint_accounts is empty
+        async with db.execute(
+            "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_account WHERE id = 1"
+        ) as cur:
+            row = await cur.fetchone()
+        if not row:
+            return None
+
+    d = dict(row)
     async with db.execute(
-        "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_account WHERE id = 1"
+        "SELECT user_name FROM joint_account_members WHERE account_id = ? ORDER BY user_name",
+        (d["id"],),
     ) as cur:
-        row = await cur.fetchone()
-    return dict(row) if row else None
+        m_rows = await cur.fetchall()
+    d["member_names"] = [r["user_name"] for r in m_rows]
+    return d
 
 
-@app.get("/joint-account", response_model=JointAccountResponse | None, tags=["joint-account"])
-async def get_joint_account(db: DbDep):
-    """Return singleton joint account config, or null if not configured."""
-    return await _get_joint_account(db)
+async def _get_all_joint_accounts(db: aiosqlite.Connection) -> list[JointAccountResponse]:
+    async with db.execute(
+        "SELECT id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents FROM joint_accounts ORDER BY id"
+    ) as cur:
+        rows = await cur.fetchall()
+    res: list[JointAccountResponse] = []
+    for r in rows:
+        d = dict(r)
+        async with db.execute(
+            "SELECT user_name FROM joint_account_members WHERE account_id = ? ORDER BY user_name",
+            (d["id"],),
+        ) as cur:
+            m_rows = await cur.fetchall()
+        d["member_names"] = [m["user_name"] for m in m_rows]
+        res.append(JointAccountResponse(**d))
+    return res
 
 
-@app.post("/joint-account", response_model=JointAccountResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
-async def create_joint_account(payload: JointAccountCreate, db: DbDep) -> JointAccountResponse:
-    """Create the singleton joint account (id=1). Fails if one already exists."""
-    try:
-        await db.execute(
-            """
-            INSERT INTO joint_account (id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents)
-            VALUES (1, ?, ?, ?, ?, ?)
-            """,
-            (payload.name, payload.balance_cents, payload.safety_margin_pct,
-             payload.deposit_split_mode, payload.expected_total_cents),
-        )
-        await db.commit()
-    except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Joint account already exists.") from exc
-    row = await _get_joint_account(db)
+@app.get("/joint-accounts", response_model=list[JointAccountResponse], tags=["joint-account"])
+async def list_joint_accounts(db: DbDep) -> list[JointAccountResponse]:
+    """List all configured joint accounts with member lists."""
+    return await _get_all_joint_accounts(db)
+
+
+@app.post("/joint-accounts", response_model=JointAccountResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
+async def create_joint_account_multi(payload: JointAccountCreate, db: DbDep) -> JointAccountResponse:
+    """Create a new joint account with specific members."""
+    async with db.execute(
+        """
+        INSERT INTO joint_accounts (name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (payload.name, payload.balance_cents, payload.safety_margin_pct,
+         payload.deposit_split_mode, payload.expected_total_cents),
+    ) as cur:
+        new_id = cur.lastrowid
+    if payload.member_names:
+        for uname in payload.member_names:
+            await db.execute(
+                "INSERT OR IGNORE INTO joint_account_members (account_id, user_name) VALUES (?, ?)",
+                (new_id, uname),
+            )
+    await db.commit()
+    row = await _get_joint_account(db, account_id=new_id)
     return JointAccountResponse(**row)
 
 
-@app.patch("/joint-account", response_model=JointAccountResponse, tags=["joint-account"])
-async def update_joint_account(payload: JointAccountUpdate, db: DbDep) -> JointAccountResponse:
-    """Partially update the joint account config."""
-    row = await _get_joint_account(db)
+@app.get("/joint-accounts/{account_id}", response_model=JointAccountResponse, tags=["joint-account"])
+async def get_joint_account_by_id(account_id: int, db: DbDep) -> JointAccountResponse:
+    row = await _get_joint_account(db, account_id=account_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Joint account {account_id} not found.")
+    return JointAccountResponse(**row)
+
+
+@app.patch("/joint-accounts/{account_id}", response_model=JointAccountResponse, tags=["joint-account"])
+async def update_joint_account_by_id(account_id: int, payload: JointAccountUpdate, db: DbDep) -> JointAccountResponse:
+    row = await _get_joint_account(db, account_id=account_id)
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Joint account {account_id} not found.")
     updates: list[str] = []
     params: list = []
     for field, col in [
@@ -2364,82 +2521,170 @@ async def update_joint_account(payload: JointAccountUpdate, db: DbDep) -> JointA
         if val is not None:
             updates.append(f"{col} = ?")
             params.append(val)
-    if not updates:
-        return JointAccountResponse(**row)
-    params.append(1)
-    await db.execute(f"UPDATE joint_account SET {', '.join(updates)} WHERE id = ?", params)
+    if updates:
+        params.append(account_id)
+        await db.execute(f"UPDATE joint_accounts SET {', '.join(updates)} WHERE id = ?", params)
+    if payload.member_names is not None:
+        await db.execute("DELETE FROM joint_account_members WHERE account_id = ?", (account_id,))
+        for uname in payload.member_names:
+            await db.execute("INSERT OR IGNORE INTO joint_account_members (account_id, user_name) VALUES (?, ?)", (account_id, uname))
     await db.commit()
-    row = await _get_joint_account(db)
+    row = await _get_joint_account(db, account_id=account_id)
     return JointAccountResponse(**row)
 
 
-@app.delete("/joint-account", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
-async def delete_joint_account(db: DbDep) -> None:
-    """Remove the joint account and all associated config."""
-    await db.execute("DELETE FROM joint_account_corrections")
-    await db.execute("DELETE FROM joint_account_expected_costs")
-    await db.execute("DELETE FROM joint_account_deposits")
-    await db.execute("DELETE FROM joint_account_categories")
-    await db.execute("DELETE FROM joint_account WHERE id = 1")
+@app.delete("/joint-accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
+async def delete_joint_account_by_id(account_id: int, db: DbDep) -> None:
+    await db.execute("DELETE FROM joint_account_corrections WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_account_expected_costs WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_account_deposits WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_account_monthly_deposits WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_account_categories WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_account_members WHERE account_id = ?", (account_id,))
+    await db.execute("DELETE FROM joint_accounts WHERE id = ?", (account_id,))
     await db.commit()
+
+
+# ── Legacy single joint-account endpoints for backward compatibility ─────────
+
+@app.get("/joint-account", response_model=JointAccountResponse | None, tags=["joint-account"])
+async def get_joint_account(db: DbDep, account_id: int | None = None):
+    """Return joint account config, or null if not configured."""
+    return await _get_joint_account(db, account_id=account_id)
+
+
+@app.post("/joint-account", response_model=JointAccountResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
+async def create_joint_account(payload: JointAccountCreate, db: DbDep) -> JointAccountResponse:
+    """Create or replace primary joint account (id=1)."""
+    async with db.execute(
+        """
+        INSERT INTO joint_accounts (id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents)
+        VALUES (1, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            balance_cents = excluded.balance_cents,
+            safety_margin_pct = excluded.safety_margin_pct,
+            deposit_split_mode = excluded.deposit_split_mode,
+            expected_total_cents = excluded.expected_total_cents
+        """,
+        (payload.name, payload.balance_cents, payload.safety_margin_pct,
+         payload.deposit_split_mode, payload.expected_total_cents),
+    ) as cur:
+        pass
+    if payload.member_names:
+        await db.execute("DELETE FROM joint_account_members WHERE account_id = 1")
+        for uname in payload.member_names:
+            await db.execute("INSERT OR IGNORE INTO joint_account_members (account_id, user_name) VALUES (1, ?)", (uname,))
+    await db.commit()
+    row = await _get_joint_account(db, account_id=1)
+    return JointAccountResponse(**row)
+
+
+@app.patch("/joint-account", response_model=JointAccountResponse, tags=["joint-account"])
+async def update_joint_account(payload: JointAccountUpdate, db: DbDep, account_id: int | None = None) -> JointAccountResponse:
+    """Partially update the joint account config."""
+    target_id = account_id or 1
+    return await update_joint_account_by_id(target_id, payload, db)
+
+
+@app.delete("/joint-account", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
+async def delete_joint_account(db: DbDep, account_id: int | None = None) -> None:
+    """Remove the joint account and all associated config."""
+    target_id = account_id or 1
+    await delete_joint_account_by_id(target_id, db)
 
 
 # ── Joint Account Categories ─────────────────────────────────────────────────
 
 @app.get("/joint-account/categories", response_model=list[str], tags=["joint-account"])
-async def list_joint_account_categories(db: DbDep) -> list[str]:
-    async with db.execute("SELECT category FROM joint_account_categories") as cur:
-        rows = await cur.fetchall()
+async def list_joint_account_categories(db: DbDep, account_id: int | None = None) -> list[str]:
+    if account_id is not None:
+        async with db.execute("SELECT category FROM joint_account_categories WHERE account_id = ?", (account_id,)) as cur:
+            rows = await cur.fetchall()
+    else:
+        async with db.execute("SELECT DISTINCT category FROM joint_account_categories") as cur:
+            rows = await cur.fetchall()
     return [r["category"] for r in rows]
 
 
 @app.post("/joint-account/categories", status_code=status.HTTP_201_CREATED, tags=["joint-account"])
 async def add_joint_account_category(payload: dict, db: DbDep):
-    """Add a category to the joint account. Payload: {category: str}"""
+    """Add a category to the joint account. Payload: {category: str, account_id?: int}"""
     category = payload.get("category")
+    raw_aid = payload.get("account_id", 1)
+    try:
+        account_id = int(raw_aid)
+    except (ValueError, TypeError):
+        account_id = 1
     if not category:
         raise HTTPException(status_code=400, detail="category required")
+
+    # Ensure target joint account exists, fallback to 1
+    async with db.execute("SELECT id FROM joint_accounts WHERE id = ?", (account_id,)) as cur:
+        if await cur.fetchone() is None:
+            account_id = 1
+
     try:
-        await db.execute("INSERT INTO joint_account_categories (category) VALUES (?)", (category,))
+        await db.execute(
+            """
+            INSERT INTO joint_account_categories (category, account_id)
+            VALUES (?, ?)
+            ON CONFLICT(category, account_id) DO NOTHING
+            """,
+            (category, account_id),
+        )
         await db.commit()
     except Exception as exc:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category already assigned.") from exc
-    return {"category": category}
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Category assignment failed.") from exc
+    return {"category": category, "account_id": account_id}
 
 
 @app.delete("/joint-account/categories/{category}", status_code=status.HTTP_204_NO_CONTENT, tags=["joint-account"])
-async def remove_joint_account_category(category: str, db: DbDep) -> None:
-    await db.execute("DELETE FROM joint_account_categories WHERE category = ?", (category,))
+async def remove_joint_account_category(category: str, db: DbDep, account_id: int | None = None) -> None:
+    if account_id is not None:
+        await db.execute("DELETE FROM joint_account_categories WHERE category = ? AND account_id = ?", (category, account_id))
+    else:
+        await db.execute("DELETE FROM joint_account_categories WHERE category = ?", (category,))
     await db.commit()
 
 
 # ── Joint Account Deposits ────────────────────────────────────────────────────
 
 @app.get("/joint-account/deposits", response_model=list[JointAccountDepositResponse], tags=["joint-account"])
-async def list_joint_account_deposits(db: DbDep) -> list[JointAccountDepositResponse]:
-    async with db.execute("SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits") as cur:
+async def list_joint_account_deposits(db: DbDep, account_id: int | None = None) -> list[JointAccountDepositResponse]:
+    target_id = account_id or 1
+    async with db.execute(
+        "SELECT user_name, amount_cents, day_of_month, account_id FROM joint_account_deposits WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         rows = await cur.fetchall()
     return [JointAccountDepositResponse(**dict(r)) for r in rows]
 
 
 @app.put("/joint-account/deposits", response_model=list[JointAccountDepositResponse], tags=["joint-account"])
 async def set_joint_account_deposits(
-    deposits: list[JointAccountDepositCreate], db: DbDep
+    deposits: list[JointAccountDepositCreate], db: DbDep, account_id: int | None = None
 ) -> list[JointAccountDepositResponse]:
-    """Replace all deposit records (upsert per user)."""
+    """Replace deposit records for the given account."""
+    target_id = account_id or (deposits[0].account_id if deposits else 1)
+    await db.execute("DELETE FROM joint_account_deposits WHERE account_id = ?", (target_id,))
     for d in deposits:
+        aid = d.account_id if d.account_id != 1 else target_id
         await db.execute(
             """
-            INSERT INTO joint_account_deposits (user_name, amount_cents, day_of_month)
-            VALUES (?, ?, ?)
-            ON CONFLICT(user_name) DO UPDATE SET
+            INSERT INTO joint_account_deposits (user_name, amount_cents, day_of_month, account_id)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(user_name, account_id) DO UPDATE SET
                 amount_cents = excluded.amount_cents,
                 day_of_month = excluded.day_of_month
             """,
-            (d.user_name, d.amount_cents, d.day_of_month),
+            (d.user_name, d.amount_cents, d.day_of_month, aid),
         )
     await db.commit()
-    async with db.execute("SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits") as cur:
+    async with db.execute(
+        "SELECT user_name, amount_cents, day_of_month, account_id FROM joint_account_deposits WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         rows = await cur.fetchall()
     return [JointAccountDepositResponse(**dict(r)) for r in rows]
 
@@ -2447,26 +2692,34 @@ async def set_joint_account_deposits(
 # ── Joint Account Expected Costs ─────────────────────────────────────────────
 
 @app.get("/joint-account/expected-costs", response_model=list[JointAccountExpectedCostResponse], tags=["joint-account"])
-async def list_joint_account_expected_costs(db: DbDep) -> list[JointAccountExpectedCostResponse]:
-    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+async def list_joint_account_expected_costs(db: DbDep, account_id: int | None = None) -> list[JointAccountExpectedCostResponse]:
+    target_id = account_id or 1
+    async with db.execute(
+        "SELECT category, expected_cents, account_id FROM joint_account_expected_costs WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         rows = await cur.fetchall()
     return [JointAccountExpectedCostResponse(**dict(r)) for r in rows]
 
 
 @app.put("/joint-account/expected-costs", response_model=list[JointAccountExpectedCostResponse], tags=["joint-account"])
 async def set_joint_account_expected_costs(
-    costs: list[JointAccountExpectedCostCreate], db: DbDep
+    costs: list[JointAccountExpectedCostCreate], db: DbDep, account_id: int | None = None
 ) -> list[JointAccountExpectedCostResponse]:
-    """Replace all expected cost records."""
-    # Clear and rewrite
-    await db.execute("DELETE FROM joint_account_expected_costs")
+    """Replace all expected cost records for a joint account."""
+    target_id = account_id or (costs[0].account_id if costs else 1)
+    await db.execute("DELETE FROM joint_account_expected_costs WHERE account_id = ?", (target_id,))
     for c in costs:
+        aid = c.account_id if c.account_id != 1 else target_id
         await db.execute(
-            "INSERT INTO joint_account_expected_costs (category, expected_cents) VALUES (?, ?)",
-            (c.category, c.expected_cents),
+            "INSERT INTO joint_account_expected_costs (category, expected_cents, account_id) VALUES (?, ?, ?)",
+            (c.category, c.expected_cents, aid),
         )
     await db.commit()
-    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+    async with db.execute(
+        "SELECT category, expected_cents, account_id FROM joint_account_expected_costs WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         rows = await cur.fetchall()
     return [JointAccountExpectedCostResponse(**dict(r)) for r in rows]
 
@@ -2474,9 +2727,11 @@ async def set_joint_account_expected_costs(
 # ── Joint Account Corrections ────────────────────────────────────────────────
 
 @app.get("/joint-account/corrections", response_model=list[JointAccountCorrectionResponse], tags=["joint-account"])
-async def list_joint_account_corrections(db: DbDep) -> list[JointAccountCorrectionResponse]:
+async def list_joint_account_corrections(db: DbDep, account_id: int | None = None) -> list[JointAccountCorrectionResponse]:
+    target_id = account_id or 1
     async with db.execute(
-        "SELECT id, amount_cents, correction_date, note FROM joint_account_corrections ORDER BY correction_date DESC, id DESC"
+        "SELECT id, amount_cents, correction_date, note, account_id FROM joint_account_corrections WHERE account_id = ? ORDER BY correction_date DESC, id DESC",
+        (target_id,),
     ) as cur:
         rows = await cur.fetchall()
     return [JointAccountCorrectionResponse(**dict(r)) for r in rows]
@@ -2485,20 +2740,21 @@ async def list_joint_account_corrections(db: DbDep) -> list[JointAccountCorrecti
 @app.post("/joint-account/corrections", response_model=JointAccountCorrectionResponse, status_code=status.HTTP_201_CREATED, tags=["joint-account"])
 async def create_joint_account_correction(payload: JointAccountCorrectionCreate, db: DbDep) -> JointAccountCorrectionResponse:
     """Log a balance correction (positive = top-up, negative = withdrawal)."""
-    row = await _get_joint_account(db)
+    target_id = payload.account_id or 1
+    row = await _get_joint_account(db, account_id=target_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No joint account {target_id} configured.")
     async with db.execute(
-        "INSERT INTO joint_account_corrections (amount_cents, correction_date, note) VALUES (?, ?, ?)",
-        (payload.amount_cents, payload.correction_date, payload.note),
+        "INSERT INTO joint_account_corrections (amount_cents, correction_date, note, account_id) VALUES (?, ?, ?, ?)",
+        (payload.amount_cents, payload.correction_date, payload.note, target_id),
     ) as cur:
         new_id = cur.lastrowid
     # Update balance
     new_balance = row["balance_cents"] + payload.amount_cents
-    await db.execute("UPDATE joint_account SET balance_cents = ? WHERE id = 1", (new_balance,))
+    await db.execute("UPDATE joint_accounts SET balance_cents = ? WHERE id = ?", (new_balance, target_id))
     await db.commit()
     async with db.execute(
-        "SELECT id, amount_cents, correction_date, note FROM joint_account_corrections WHERE id = ?", (new_id,)
+        "SELECT id, amount_cents, correction_date, note, account_id FROM joint_account_corrections WHERE id = ?", (new_id,)
     ) as cur:
         corr_row = await cur.fetchone()
     return JointAccountCorrectionResponse(**dict(corr_row))
@@ -2508,41 +2764,52 @@ async def create_joint_account_correction(payload: JointAccountCorrectionCreate,
 async def delete_joint_account_correction(correction_id: int, db: DbDep) -> None:
     """Delete a correction and reverse its effect on balance."""
     async with db.execute(
-        "SELECT amount_cents FROM joint_account_corrections WHERE id = ?", (correction_id,)
+        "SELECT amount_cents, account_id FROM joint_account_corrections WHERE id = ?", (correction_id,)
     ) as cur:
         corr = await cur.fetchone()
     if corr is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Correction not found.")
-    row = await _get_joint_account(db)
+    target_id = corr["account_id"]
+    row = await _get_joint_account(db, account_id=target_id)
     if row:
         new_balance = row["balance_cents"] - corr["amount_cents"]
-        await db.execute("UPDATE joint_account SET balance_cents = ? WHERE id = 1", (new_balance,))
+        await db.execute("UPDATE joint_accounts SET balance_cents = ? WHERE id = ?", (new_balance, target_id))
     await db.execute("DELETE FROM joint_account_corrections WHERE id = ?", (correction_id,))
     await db.commit()
 
 
-# ── Joint Account Dashboard ──────────────────────────────────────────────────
-
 # ── Joint Account Monthly Deposit Tracking ──────────────────────────────
 
-async def _get_monthly_deposits_data(db: DbConnection, target_month: str):
-    """Fetch scheduled vs actual deposit status for all active users for a month."""
+async def _get_monthly_deposits_data(db: DbConnection, target_month: str, account_id: int = 1):
+    """Fetch scheduled vs actual deposit status for joint account members for a month."""
     from datetime import date as _date
     today = _date.today()
     current_month_str = today.strftime("%Y-%m")
     current_day = today.day
 
-    async with db.execute("SELECT name FROM users WHERE is_active = 1 ORDER BY name") as cur:
-        u_rows = await cur.fetchall()
-    active_users = [r["name"] for r in u_rows]
+    # Check members for this joint account
+    async with db.execute(
+        "SELECT user_name FROM joint_account_members WHERE account_id = ? ORDER BY user_name",
+        (account_id,),
+    ) as cur:
+        m_rows = await cur.fetchall()
+    member_users = [r["user_name"] for r in m_rows]
 
-    async with db.execute("SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits") as cur:
+    if not member_users:
+        async with db.execute("SELECT name FROM users WHERE is_active = 1 ORDER BY name") as cur:
+            u_rows = await cur.fetchall()
+        member_users = [r["name"] for r in u_rows]
+
+    async with db.execute(
+        "SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits WHERE account_id = ?",
+        (account_id,),
+    ) as cur:
         cfg_rows = await cur.fetchall()
     cfg_map = {r["user_name"]: (r["amount_cents"], r["day_of_month"]) for r in cfg_rows}
 
     async with db.execute(
-        "SELECT user_name, scheduled_cents, actual_cents, is_paid, paid_date FROM joint_account_monthly_deposits WHERE month = ?",
-        (target_month,),
+        "SELECT user_name, scheduled_cents, actual_cents, is_paid, paid_date FROM joint_account_monthly_deposits WHERE month = ? AND account_id = ?",
+        (target_month, account_id),
     ) as cur:
         log_rows = await cur.fetchall()
     log_map = {r["user_name"]: dict(r) for r in log_rows}
@@ -2550,7 +2817,7 @@ async def _get_monthly_deposits_data(db: DbConnection, target_month: str):
     user_rows: list[JointAccountMonthlyDepositRow] = []
     total_logged_paid_cents = 0
 
-    for u in active_users:
+    for u in member_users:
         sched_cents, day_m = cfg_map.get(u, (0, 1))
         log = log_map.get(u, {})
 
@@ -2583,16 +2850,18 @@ async def _get_monthly_deposits_data(db: DbConnection, target_month: str):
             is_paid=is_paid,
             paid_date=paid_date,
             status=status_str,
+            account_id=account_id,
         ))
 
     return user_rows, total_logged_paid_cents
 
 
 @app.get("/joint-account/monthly-deposits", response_model=list[JointAccountMonthlyDepositRow], tags=["joint-account"])
-async def get_joint_account_monthly_deposits(db: DbDep, month: str | None = None) -> list[JointAccountMonthlyDepositRow]:
+async def get_joint_account_monthly_deposits(db: DbDep, month: str | None = None, account_id: int | None = None) -> list[JointAccountMonthlyDepositRow]:
     from datetime import date as _date
     target_month = month or _date.today().strftime("%Y-%m")
-    user_rows, _ = await _get_monthly_deposits_data(db, target_month)
+    target_id = account_id or 1
+    user_rows, _ = await _get_monthly_deposits_data(db, target_month, account_id=target_id)
     return user_rows
 
 
@@ -2601,18 +2870,19 @@ async def update_joint_account_monthly_deposit(db: DbDep, update: JointAccountMo
     """Mark a user's monthly deposit as paid/unpaid, with actual amount paid and date."""
     from datetime import date as _date
     paid_date = update.paid_date or _date.today().strftime("%Y-%m-%d")
+    target_id = update.account_id or 1
 
     async with db.execute(
-        "SELECT amount_cents, day_of_month FROM joint_account_deposits WHERE user_name = ?",
-        (update.user_name,),
+        "SELECT amount_cents, day_of_month FROM joint_account_deposits WHERE user_name = ? AND account_id = ?",
+        (update.user_name, target_id),
     ) as cur:
         cfg = await cur.fetchone()
     sched_cents = cfg["amount_cents"] if cfg else update.actual_cents
     day_m = cfg["day_of_month"] if cfg else 1
 
     async with db.execute(
-        "SELECT is_paid, actual_cents FROM joint_account_monthly_deposits WHERE month = ? AND user_name = ?",
-        (update.month, update.user_name),
+        "SELECT is_paid, actual_cents FROM joint_account_monthly_deposits WHERE month = ? AND user_name = ? AND account_id = ?",
+        (update.month, update.user_name, target_id),
     ) as cur:
         existing = await cur.fetchone()
 
@@ -2621,18 +2891,18 @@ async def update_joint_account_monthly_deposit(db: DbDep, update: JointAccountMo
 
     await db.execute(
         """
-        INSERT INTO joint_account_monthly_deposits (month, user_name, scheduled_cents, actual_cents, is_paid, paid_date)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ON CONFLICT(month, user_name) DO UPDATE SET
+        INSERT INTO joint_account_monthly_deposits (month, user_name, scheduled_cents, actual_cents, is_paid, paid_date, account_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(month, user_name, account_id) DO UPDATE SET
             scheduled_cents = excluded.scheduled_cents,
             actual_cents    = excluded.actual_cents,
             is_paid         = excluded.is_paid,
             paid_date       = excluded.paid_date
         """,
-        (update.month, update.user_name, sched_cents, update.actual_cents, 1 if update.is_paid else 0, paid_date if update.is_paid else None),
+        (update.month, update.user_name, sched_cents, update.actual_cents, 1 if update.is_paid else 0, paid_date if update.is_paid else None, target_id),
     )
 
-    row = await _get_joint_account(db)
+    row = await _get_joint_account(db, account_id=target_id)
     if row:
         current_bal = row["balance_cents"]
         diff = 0
@@ -2645,7 +2915,7 @@ async def update_joint_account_monthly_deposit(db: DbDep, update: JointAccountMo
             if was_paid:
                 diff = -old_actual
         if diff != 0:
-            await db.execute("UPDATE joint_account SET balance_cents = ? WHERE id = 1", (current_bal + diff,))
+            await db.execute("UPDATE joint_accounts SET balance_cents = ? WHERE id = ?", (current_bal + diff, target_id))
 
     await db.commit()
 
@@ -2662,36 +2932,44 @@ async def update_joint_account_monthly_deposit(db: DbDep, update: JointAccountMo
         is_paid=update.is_paid,
         paid_date=paid_date if update.is_paid else None,
         status=st,
+        account_id=target_id,
     )
 
 
 # ── Joint Account Dashboard ──────────────────────────────────────────────────
 
 @app.get("/joint-account/dashboard", response_model=JointAccountDashboardResponse, tags=["joint-account"])
-async def get_joint_account_dashboard(db: DbDep, month: str | None = None) -> JointAccountDashboardResponse:
+async def get_joint_account_dashboard(db: DbDep, month: str | None = None, account_id: int | None = None) -> JointAccountDashboardResponse:
     """Compute actual vs expected spending for joint account categories in a month."""
     from datetime import date as _date
     target_month = month or _date.today().strftime("%Y-%m")
+    target_id = account_id or 1
 
-    row = await _get_joint_account(db)
+    row = await _get_joint_account(db, account_id=target_id)
     if row is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
 
     # Actuals per category for the month
     async with db.execute(
-        "SELECT category, total_amount, expense_count FROM view_joint_account_monthly WHERE month = ?",
-        (target_month,),
+        "SELECT category, total_amount, expense_count FROM view_joint_account_monthly WHERE month = ? AND account_id = ?",
+        (target_month, target_id),
     ) as cur:
         actual_rows = await cur.fetchall()
     actual_map: dict[str, int] = {r["category"]: round(r["total_amount"] * 100) for r in actual_rows}
 
     # Expected costs per category
-    async with db.execute("SELECT category, expected_cents FROM joint_account_expected_costs") as cur:
+    async with db.execute(
+        "SELECT category, expected_cents FROM joint_account_expected_costs WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         expected_rows = await cur.fetchall()
     expected_map: dict[str, int] = {r["category"]: r["expected_cents"] for r in expected_rows}
 
-    # All joint categories
-    async with db.execute("SELECT category FROM joint_account_categories") as cur:
+    # All joint categories for this account
+    async with db.execute(
+        "SELECT category FROM joint_account_categories WHERE account_id = ?",
+        (target_id,),
+    ) as cur:
         cat_rows = await cur.fetchall()
     all_cats = [r["category"] for r in cat_rows]
 
@@ -2706,11 +2984,11 @@ async def get_joint_account_dashboard(db: DbDep, month: str | None = None) -> Jo
     target_deposit_cents = round(expected_total * (1 + safety / 100.0))
 
     # User deposits & total deposits for month
-    user_deposits, total_logged_paid_cents = await _get_monthly_deposits_data(db, target_month)
+    user_deposits, total_logged_paid_cents = await _get_monthly_deposits_data(db, target_month, account_id=target_id)
 
     async with db.execute(
-        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0",
-        (target_month,),
+        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0 AND account_id = ?",
+        (target_month, target_id),
     ) as cur:
         dep_row = await cur.fetchone()
     corr_deposits = dep_row["total"] if dep_row else 0
@@ -2757,6 +3035,7 @@ async def get_joint_account_dashboard(db: DbDep, month: str | None = None) -> Jo
         user_deposits=user_deposits,
         deposit_status=deposit_status,
         pending_due_day=pending_due_day,
+        account_id=target_id,
     )
 
 
@@ -2769,31 +3048,32 @@ async def settle_joint_account(
 ) -> dict:
     """
     Settle the joint account balance.
-    Payload: {mode: 'direct_pay' | 'adjust_deposits', month: str, correction_note: str}
+    Payload: {mode: 'direct_pay' | 'adjust_deposits', month: str, correction_note: str, account_id?: int}
     - direct_pay:       log a correction for the difference; returns suggested transfers.
     - adjust_deposits:  rebalance deposit amounts to recover deficit/surplus over next month.
     """
     from datetime import date as _date
-    mode  = payload.get("mode", "direct_pay")
-    month = payload.get("month") or _date.today().strftime("%Y-%m")
-    note  = payload.get("correction_note", "")
+    mode       = payload.get("mode", "direct_pay")
+    month      = payload.get("month") or _date.today().strftime("%Y-%m")
+    note       = payload.get("correction_note", "")
+    account_id = payload.get("account_id", 1)
 
-    row = await _get_joint_account(db)
+    row = await _get_joint_account(db, account_id=account_id)
     if row is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="No joint account configured.")
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"No joint account {account_id} configured.")
 
-    # Actual spending this month
+    # Actual spending this month for this joint account
     async with db.execute(
-        "SELECT COALESCE(ROUND(SUM(cost_cents) / 100.0, 2), 0.0) AS total FROM expenses e INNER JOIN joint_account_categories jac ON jac.category = e.category WHERE strftime('%Y-%m', e.expense_date) = ?",
-        (month,),
+        "SELECT COALESCE(ROUND(SUM(cost_cents) / 100.0, 2), 0.0) AS total FROM expenses e INNER JOIN joint_account_categories jac ON jac.category = e.category WHERE strftime('%Y-%m', e.expense_date) = ? AND jac.account_id = ?",
+        (month, account_id),
     ) as cur:
         spend_row = await cur.fetchone()
     actual_cents = round((spend_row["total"] or 0) * 100)
 
-    # Deposits this month
+    # Deposits this month for this joint account
     async with db.execute(
-        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0",
-        (month,),
+        "SELECT COALESCE(SUM(amount_cents), 0) AS total FROM joint_account_corrections WHERE strftime('%Y-%m', correction_date) = ? AND amount_cents > 0 AND account_id = ?",
+        (month, account_id),
     ) as cur:
         dep_row = await cur.fetchone()
     deposit_cents = dep_row["total"] if dep_row else 0
@@ -2806,11 +3086,13 @@ async def settle_joint_account(
             "month": month,
             "difference_cents": difference_cents,
             "message": "Surplus" if difference_cents >= 0 else "Deficit",
+            "account_id": account_id,
         }
     elif mode == "adjust_deposits":
         # Distribute difference proportionally across deposits
         async with db.execute(
-            "SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits"
+            "SELECT user_name, amount_cents, day_of_month FROM joint_account_deposits WHERE account_id = ?",
+            (account_id,),
         ) as cur:
             dep_rows = await cur.fetchall()
         deposits = [dict(r) for r in dep_rows]
@@ -2821,8 +3103,8 @@ async def settle_joint_account(
             adj = round(-difference_cents * share)  # distribute recovery
             new_amt = max(0, d["amount_cents"] + adj)
             await db.execute(
-                "UPDATE joint_account_deposits SET amount_cents = ? WHERE user_name = ?",
-                (new_amt, d["user_name"]),
+                "UPDATE joint_account_deposits SET amount_cents = ? WHERE user_name = ? AND account_id = ?",
+                (new_amt, d["user_name"], account_id),
             )
             adjustments.append({"user_name": d["user_name"], "old_cents": d["amount_cents"], "new_cents": new_amt})
         await db.commit()
@@ -2831,6 +3113,7 @@ async def settle_joint_account(
             "month": month,
             "difference_cents": difference_cents,
             "adjustments": adjustments,
+            "account_id": account_id,
         }
     else:
         raise HTTPException(status_code=400, detail="mode must be direct_pay or adjust_deposits")

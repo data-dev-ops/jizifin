@@ -3,10 +3,11 @@
    * AnalyticsSummary.svelte
    *
    * Household Financial Pulse & Category Breakdown:
-   *   1. High-level Household Financial Pulse (Total Income, Total Spend, Net Saved & Savings Rate %)
-   *   2. Individual payer spending cards
-   *   3. Joint Account status pulse (when joint module enabled)
-   *   4. Category spend visualization (Doughnut / Bar chart switcher)
+   *   1. Top Scope Switcher: Radio buttons for All Household / Individual Users / Joint Accounts
+   *   2. High-level Household Financial Pulse (Total Income, Total Spend, Net Saved & Savings Rate %)
+   *   3. Individual payer spending cards
+   *   4. Joint Account status pulse (when joint module enabled)
+   *   5. Category spend visualization (Doughnut / Bar chart switcher)
    */
 
   import { onMount, onDestroy } from 'svelte';
@@ -18,11 +19,14 @@
     jointAccountEnabled,
     jointDashboard,
     jointAccount,
+    jointAccounts,
+    dashboardScope,
     incomeEntries,
     incomeAnalytics,
     jobs,
     selectedMonth,
   } from './stores.js';
+  import { fetchAnalytics, fetchIncomeByPerson } from './api.js';
   import Chart from 'chart.js/auto';
 
   // ── Doughnut chart state & refs ───────────────────────────────────────────
@@ -168,7 +172,91 @@
 
   $: activeUsers = $users.filter((u) => u.is_active !== false);
 
-  $: userIncomeList = activeUsers.map((u) => {
+  // ── Multi-Scope filter reactivity ─────────────────────────────────────────
+  function parseScope(scopeStr) {
+    if (!scopeStr || scopeStr === 'ALL') return ['ALL'];
+    const parts = scopeStr.split(',').map((s) => s.trim()).filter(Boolean);
+    return parts.length > 0 ? parts : ['ALL'];
+  }
+
+  $: selectedTokens = parseScope($dashboardScope);
+  $: isEveryoneSelected = selectedTokens.includes('ALL');
+
+  function selectEveryone() {
+    dashboardScope.set('ALL');
+  }
+
+  function toggleUser(userName) {
+    const token = `USER:${userName}`;
+    let current = selectedTokens.filter((t) => t !== 'ALL');
+    if (current.includes(token)) {
+      current = current.filter((t) => t !== token);
+    } else {
+      current = [...current, token];
+    }
+    if (current.length === 0) {
+      dashboardScope.set('ALL');
+    } else {
+      dashboardScope.set(current.join(','));
+    }
+  }
+
+  function toggleJoint(jointId) {
+    const token = `JOINT:${jointId}`;
+    let current = selectedTokens.filter((t) => t !== 'ALL');
+    if (current.includes(token)) {
+      current = current.filter((t) => t !== token);
+    } else {
+      current = [...current, token];
+    }
+    if (current.length === 0) {
+      dashboardScope.set('ALL');
+    } else {
+      dashboardScope.set(current.join(','));
+    }
+  }
+
+  $: {
+    let usersParam = null;
+    if (!isEveryoneSelected) {
+      const userSet = new Set();
+      for (const token of selectedTokens) {
+        if (token.startsWith('USER:')) {
+          userSet.add(token.slice(5));
+        } else if (token.startsWith('JOINT:')) {
+          const jId = parseInt(token.slice(6), 10);
+          const targetJa = ($jointAccounts || []).find((a) => a.id === jId) || ($jointAccount?.id === jId ? $jointAccount : null);
+          if (targetJa?.member_names?.length) {
+            targetJa.member_names.forEach((m) => userSet.add(m));
+          }
+        }
+      }
+      if (userSet.size > 0) {
+        usersParam = Array.from(userSet);
+      }
+    }
+    fetchAnalytics($selectedMonth, usersParam);
+    fetchIncomeByPerson($selectedMonth, usersParam);
+  }
+
+  $: filteredActiveUsers = activeUsers.filter((u) => {
+    if (isEveryoneSelected) return true;
+    const userSet = new Set();
+    for (const token of selectedTokens) {
+      if (token.startsWith('USER:')) {
+        userSet.add(token.slice(5));
+      } else if (token.startsWith('JOINT:')) {
+        const jId = parseInt(token.slice(6), 10);
+        const targetJa = ($jointAccounts || []).find((a) => a.id === jId) || ($jointAccount?.id === jId ? $jointAccount : null);
+        if (targetJa?.member_names?.length) {
+          targetJa.member_names.forEach((m) => userSet.add(m));
+        }
+      }
+    }
+    return userSet.has(u.name);
+  });
+
+  $: userIncomeList = filteredActiveUsers.map((u) => {
     const userJobs = $jobs.filter((j) => j.who === u.name && isJobActiveInMonth(j, $selectedMonth));
     let baseSalaryCents = userJobs.reduce((sum, j) => sum + toMonthlyEquivalent(j.amount_cents, j.frequency), 0);
     if (userJobs.length === 0) {
@@ -192,6 +280,113 @@
   $: netCashFlow = totalIncomeEuros - total;
   $: savingsRatePct = totalIncomeEuros > 0 ? ((netCashFlow / totalIncomeEuros) * 100) : 0;
 </script>
+
+<!-- ── Dashboard Scope Switcher (Multi-Select Filter) ───────────────────────── -->
+<div class="card p-3 sm:p-4 mb-6 border-neutral-800 bg-neutral-900/80 backdrop-blur">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <div class="flex items-center gap-2">
+      <span class="text-sm font-semibold text-neutral-200">Dashboard View:</span>
+      <span class="text-xs text-neutral-500 hidden sm:inline">
+        {#if isEveryoneSelected}
+          Showing all household data
+        {:else}
+          Filtered to: {filteredActiveUsers.map((u) => u.name).join(', ') || 'Selected members'}
+        {/if}
+      </span>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-1.5 p-1 bg-neutral-950/70 rounded-xl border border-neutral-800/80" role="group" aria-label="Dashboard Scope">
+      <!-- 1. All Household / Everyone Option (Exclusive) -->
+      <label class="cursor-pointer">
+        <input
+          type="checkbox"
+          name="dashboard-scope"
+          value="ALL"
+          checked={isEveryoneSelected}
+          on:change={selectEveryone}
+          class="sr-only"
+        />
+        <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all {isEveryoneSelected ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'}">
+          <span>👥</span>
+          <span>Everyone</span>
+          {#if isEveryoneSelected}
+            <span class="text-[10px] text-white">✓</span>
+          {/if}
+        </span>
+      </label>
+
+      <!-- 2. Per-User Multi-Select Options -->
+      {#each activeUsers as u}
+        {@const isChecked = selectedTokens.includes(`USER:${u.name}`)}
+        <label class="cursor-pointer">
+          <input
+            type="checkbox"
+            name="dashboard-scope"
+            value="USER:{u.name}"
+            checked={isChecked}
+            on:change={() => toggleUser(u.name)}
+            class="sr-only"
+          />
+          <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all {isChecked ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'}">
+            <span class="w-2 h-2 rounded-full flex-none" style="background-color: {u.color}"></span>
+            <span>👤 {u.name}</span>
+            {#if isChecked}
+              <span class="text-[10px] text-white">✓</span>
+            {/if}
+          </span>
+        </label>
+      {/each}
+
+      <!-- 3. Joint Accounts Multi-Select Options -->
+      {#if $jointAccountEnabled && (($jointAccounts && $jointAccounts.length > 0) || $jointAccount)}
+        {#if $jointAccounts && $jointAccounts.length > 0}
+          {#each $jointAccounts as ja}
+            {@const isChecked = selectedTokens.includes(`JOINT:${ja.id}`)}
+            <label class="cursor-pointer">
+              <input
+                type="checkbox"
+                name="dashboard-scope"
+                value="JOINT:{ja.id}"
+                checked={isChecked}
+                on:change={() => toggleJoint(ja.id)}
+                class="sr-only"
+              />
+              <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all {isChecked ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'}">
+                <span>🏦</span>
+                <span>{ja.name}</span>
+                {#if ja.member_names && ja.member_names.length > 0}
+                  <span class="text-[10px] opacity-75">({ja.member_names.join(' & ')})</span>
+                {/if}
+                {#if isChecked}
+                  <span class="text-[10px] text-white">✓</span>
+                {/if}
+              </span>
+            </label>
+          {/each}
+        {:else if $jointAccount}
+          {@const isChecked = selectedTokens.includes('JOINT:1')}
+          <label class="cursor-pointer">
+            <input
+              type="checkbox"
+              name="dashboard-scope"
+              value="JOINT:1"
+              checked={isChecked}
+              on:change={() => toggleJoint(1)}
+              class="sr-only"
+            />
+            <span class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all {isChecked ? 'bg-indigo-600 text-white shadow-sm ring-1 ring-indigo-400' : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800/50'}">
+              <span>🏦</span>
+              <span>{$jointAccount.name}</span>
+              {#if isChecked}
+                <span class="text-[10px] text-white">✓</span>
+              {/if}
+            </span>
+          </label>
+        {/if}
+      {/if}
+    </div>
+  </div>
+</div>
 
 <!-- ── Household Financial Pulse (Top Summary Cards) ────────────────────────── -->
 <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

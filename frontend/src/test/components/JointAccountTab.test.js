@@ -362,7 +362,10 @@ describe('JointAccountTab.svelte — account exists', () => {
     await fireEvent.click(document.getElementById('ja-save-expected-btn'));
 
     await waitFor(() => {
-      expect(updateSpy).toHaveBeenCalledWith({ expected_total_cents: expectedCents });
+      expect(updateSpy).toHaveBeenCalledWith(
+        { expected_total_cents: expectedCents },
+        expect.anything()
+      );
     });
   });
 

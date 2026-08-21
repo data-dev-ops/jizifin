@@ -88,6 +88,7 @@ class ProjectCreate(BaseModel):
     target_date:         str = Field(..., description="ISO date YYYY-MM-DD")
     is_joint:            bool = False
     allow_subcategories: bool = True
+    user_names:          list[str] = Field(default_factory=list, description="Assigned user names (empty = all active users)")
 
     @field_validator("target_date")
     @classmethod
@@ -103,6 +104,7 @@ class ProjectUpdate(BaseModel):
     target_date:         Optional[str] = None
     is_joint:            Optional[bool] = None
     allow_subcategories: Optional[bool] = None
+    user_names:          Optional[list[str]] = None
 
     @field_validator("target_date")
     @classmethod
@@ -129,6 +131,7 @@ class ProjectResponse(BaseModel):
     last_payment:              Optional[LastPaymentInfo] = None
     is_joint:                  bool = False
     allow_subcategories:       bool = True
+    user_names:                list[str] = Field(default_factory=list)
     estimated_completion_date: Optional[str] = None
 
     model_config = {"from_attributes": True}
@@ -249,15 +252,16 @@ class SplitResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class ExpenseCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=256)]
-    cost_cents:   Annotated[int, Field(gt=0, description="Whole cents — e.g. €12.50 → 1250")]
-    expense_date: str = Field(..., description="ISO date YYYY-MM-DD")
-    who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
-    category:     Annotated[str, Field(max_length=256)]
-    project_id:   Optional[int] = None
-    tag_id:       Optional[int] = None
-    is_joint:     bool = False
-    overrides:    Optional[list[AllocationEntry]] = None
+    name:             Annotated[str, Field(min_length=1, max_length=256)]
+    cost_cents:       Annotated[int, Field(gt=0, description="Whole cents — e.g. €12.50 → 1250")]
+    expense_date:     str = Field(..., description="ISO date YYYY-MM-DD")
+    who_paid:         Annotated[str, Field(min_length=1, max_length=256)]
+    category:         Annotated[str, Field(max_length=256)]
+    project_id:       Optional[int] = None
+    tag_id:           Optional[int] = None
+    is_joint:         bool = False
+    joint_account_id: Optional[int] = None
+    overrides:        Optional[list[AllocationEntry]] = None
 
     @field_validator("expense_date")
     @classmethod
@@ -275,15 +279,16 @@ class ExpenseCreate(BaseModel):
 
 class ExpenseUpdate(BaseModel):
     """Partial update — all fields optional."""
-    name:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
-    cost_cents:   Optional[Annotated[int, Field(gt=0)]] = None
-    expense_date: Optional[str] = None
-    who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
-    category:     Optional[Annotated[str, Field(max_length=256)]] = None
-    project_id:   Optional[int] = None
-    tag_id:       Optional[int] = None
-    is_joint:     Optional[bool] = None
-    overrides:    Optional[list[AllocationEntry]] = None  # None = keep existing; [] = clear all
+    name:             Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    cost_cents:       Optional[Annotated[int, Field(gt=0)]] = None
+    expense_date:     Optional[str] = None
+    who_paid:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    category:         Optional[Annotated[str, Field(max_length=256)]] = None
+    project_id:       Optional[int] = None
+    tag_id:           Optional[int] = None
+    is_joint:         Optional[bool] = None
+    joint_account_id: Optional[int] = None
+    overrides:        Optional[list[AllocationEntry]] = None  # None = keep existing; [] = clear all
 
     @field_validator("expense_date")
     @classmethod
@@ -300,16 +305,17 @@ class ExpenseUpdate(BaseModel):
 
 
 class ExpenseResponse(BaseModel):
-    id:           int
-    name:         str
-    cost_cents:   int
-    expense_date: str
-    who_paid:     str
-    category:     str
-    project_id:   Optional[int] = None
-    tag_id:       Optional[int] = None
-    is_joint:     bool = False
-    overrides:    list[AllocationEntry] = []
+    id:               int
+    name:             str
+    cost_cents:       int
+    expense_date:     str
+    who_paid:         str
+    category:         str
+    project_id:       Optional[int] = None
+    tag_id:           Optional[int] = None
+    is_joint:         bool = False
+    joint_account_id: Optional[int] = None
+    overrides:        list[AllocationEntry] = []
 
     model_config = {"from_attributes": True}
 
@@ -506,16 +512,17 @@ class PaybackSummary(BaseModel):
 # ---------------------------------------------------------------------------
 
 class RecurringCreate(BaseModel):
-    name:         Annotated[str, Field(min_length=1, max_length=256)]
-    cost_cents:   Annotated[int, Field(gt=0, description="Whole cents")]
-    who_paid:     Annotated[str, Field(min_length=1, max_length=256)]
-    category:     Annotated[str, Field(max_length=256)]
-    frequency:    Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"] = "monthly"
-    day_of_month: Optional[Annotated[int, Field(ge=1, le=31)]] = None
-    start_date:   Optional[str] = None
-    end_date:     Optional[str] = None
-    is_active:    bool = True
-    is_joint:     bool = False
+    name:             Annotated[str, Field(min_length=1, max_length=256)]
+    cost_cents:       Annotated[int, Field(gt=0, description="Whole cents")]
+    who_paid:         Annotated[str, Field(min_length=1, max_length=256)]
+    category:         Annotated[str, Field(max_length=256)]
+    frequency:        Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"] = "monthly"
+    day_of_month:     Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    start_date:       Optional[str] = None
+    end_date:         Optional[str] = None
+    is_active:        bool = True
+    is_joint:         bool = False
+    joint_account_id: Optional[int] = None
 
     @field_validator("start_date")
     @classmethod
@@ -547,16 +554,17 @@ class RecurringCreate(BaseModel):
 
 
 class RecurringUpdate(BaseModel):
-    name:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
-    cost_cents:   Optional[Annotated[int, Field(gt=0)]] = None
-    who_paid:     Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
-    category:     Optional[Annotated[str, Field(max_length=256)]] = None
-    frequency:    Optional[Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"]] = None
-    day_of_month: Optional[Annotated[int, Field(ge=1, le=31)]] = None
-    start_date:   Optional[str] = None
-    end_date:     Optional[str] = None
-    is_active:    Optional[bool] = None
-    is_joint:     Optional[bool] = None
+    name:             Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    cost_cents:       Optional[Annotated[int, Field(gt=0)]] = None
+    who_paid:         Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    category:         Optional[Annotated[str, Field(max_length=256)]] = None
+    frequency:        Optional[Literal["monthly", "weekly", "biweekly", "4-weekly", "quarterly", "annual"]] = None
+    day_of_month:     Optional[Annotated[int, Field(ge=1, le=31)]] = None
+    start_date:       Optional[str] = None
+    end_date:         Optional[str] = None
+    is_active:        Optional[bool] = None
+    is_joint:         Optional[bool] = None
+    joint_account_id: Optional[int] = None
 
     @field_validator("start_date")
     @classmethod
@@ -585,6 +593,7 @@ class RecurringResponse(BaseModel):
     end_date:             Optional[str] = None
     is_active:            bool = True
     is_joint:             bool = False
+    joint_account_id:     Optional[int] = None
     occurrences_in_month: Optional[int] = None
     monthly_cost_cents:   Optional[int] = None
     dates_in_month:       Optional[list[str]] = None
@@ -676,12 +685,13 @@ class SettlementResponse(BaseModel):
 # ---------------------------------------------------------------------------
 
 class JointAccountCreate(BaseModel):
-    """Payload to create the singleton joint account config."""
+    """Payload to create a joint account config."""
     name:                 Annotated[str, Field(min_length=1, max_length=256)]
     balance_cents:        int = Field(default=0, description="Current balance in whole cents")
     safety_margin_pct:    Annotated[int, Field(ge=0, le=100)] = 10
     deposit_split_mode:   str = Field(default="even", description="salary | even | manual")
     expected_total_cents: Optional[int] = Field(default=None, ge=0)
+    member_names:         list[str] = Field(default_factory=list, description="Household user names belonging to this joint account")
 
     @field_validator("deposit_split_mode")
     @classmethod
@@ -698,6 +708,7 @@ class JointAccountUpdate(BaseModel):
     safety_margin_pct:    Optional[Annotated[int, Field(ge=0, le=100)]] = None
     deposit_split_mode:   Optional[str] = None
     expected_total_cents: Optional[int] = Field(default=None, ge=0)
+    member_names:         Optional[list[str]] = None
 
     @field_validator("deposit_split_mode")
     @classmethod
@@ -715,6 +726,7 @@ class JointAccountResponse(BaseModel):
     safety_margin_pct:    int
     deposit_split_mode:   str
     expected_total_cents: Optional[int] = None
+    member_names:         list[str] = Field(default_factory=list)
 
     model_config = {"from_attributes": True}
 
@@ -723,12 +735,14 @@ class JointAccountDepositCreate(BaseModel):
     user_name:    Annotated[str, Field(min_length=1, max_length=256)]
     amount_cents: Annotated[int, Field(ge=0)]
     day_of_month: Annotated[int, Field(ge=1, le=31)]
+    account_id:   int = 1
 
 
 class JointAccountDepositResponse(BaseModel):
     user_name:    str
     amount_cents: int
     day_of_month: int
+    account_id:   int = 1
 
     model_config = {"from_attributes": True}
 
@@ -736,11 +750,13 @@ class JointAccountDepositResponse(BaseModel):
 class JointAccountExpectedCostCreate(BaseModel):
     category:       Annotated[str, Field(min_length=1, max_length=256)]
     expected_cents: Annotated[int, Field(ge=0)]
+    account_id:     int = 1
 
 
 class JointAccountExpectedCostResponse(BaseModel):
     category:       str
     expected_cents: int
+    account_id:     int = 1
 
     model_config = {"from_attributes": True}
 
@@ -749,6 +765,7 @@ class JointAccountCorrectionCreate(BaseModel):
     amount_cents:    int = Field(..., description="Signed cents — positive = top-up, negative = withdrawal")
     correction_date: str = Field(..., description="ISO date YYYY-MM-DD")
     note:            Optional[Annotated[str, Field(max_length=512)]] = None
+    account_id:      int = 1
 
     @field_validator("correction_date")
     @classmethod
@@ -763,6 +780,7 @@ class JointAccountCorrectionResponse(BaseModel):
     amount_cents:    int
     correction_date: str
     note:            Optional[str] = None
+    account_id:      int = 1
 
     model_config = {"from_attributes": True}
 
@@ -773,6 +791,7 @@ class JointAccountMonthlyDepositUpdate(BaseModel):
     actual_cents: Annotated[int, Field(ge=0)]
     is_paid:      bool
     paid_date:    Optional[str] = None
+    account_id:   int = 1
 
 
 class JointAccountMonthlyDepositRow(BaseModel):
@@ -783,6 +802,7 @@ class JointAccountMonthlyDepositRow(BaseModel):
     is_paid:         bool
     paid_date:       Optional[str] = None
     status:          str  # 'paid', 'paid_diverted', 'pending', 'overdue'
+    account_id:      int = 1
 
 
 class JointAccountCategoryRow(BaseModel):
@@ -807,6 +827,7 @@ class JointAccountDashboardResponse(BaseModel):
     deposit_status:       str = "below_target"  # "target_met", "pending", "below_target"
     pending_due_day:      Optional[int] = None
     has_joint_account:    bool = True
+    account_id:           int = 1
 
 JobCreate.model_rebuild()
 JobUpdate.model_rebuild()

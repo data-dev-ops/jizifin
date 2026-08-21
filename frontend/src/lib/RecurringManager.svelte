@@ -1,8 +1,9 @@
 <script>
-  import { recurringExpenses, splits, users, currencySymbol, selectedMonth } from './stores.js';
+  import { recurringExpenses, splits, users, currencySymbol, selectedMonth, jointAccounts, activeJointAccountId } from './stores.js';
   import { createRecurring, updateRecurring, deleteRecurring } from './api.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
+  $: jointAccountMap = Object.fromEntries(($jointAccounts || []).map((ja) => [ja.id, ja]));
 
   const FREQUENCIES = [
     { value: 'monthly', label: '🗓️ Monthly', desc: 'Once per month on a set day' },
@@ -28,8 +29,13 @@
     start_date: todayIso(),
     end_date: '',
     is_joint: false,
+    joint_account_id: null,
     is_active: true,
   };
+
+  $: if (form.is_joint && !form.joint_account_id) {
+    form.joint_account_id = $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
+  }
 
   // Default who_paid to first active user once users load
   $: if (!form.who_paid && activeUsers.length > 0) form.who_paid = activeUsers[0].name;
@@ -212,6 +218,7 @@
         start_date: form.start_date || todayIso(),
         end_date: form.end_date || null,
         is_joint: form.is_joint,
+        joint_account_id: form.is_joint ? (form.joint_account_id || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
         is_active: form.is_active,
       });
       form = {
@@ -224,6 +231,7 @@
         start_date: todayIso(),
         end_date: '',
         is_joint: false,
+        joint_account_id: $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1),
         is_active: true,
       };
     } catch (e) {
@@ -247,6 +255,7 @@
       start_date: item.start_date || '2026-01-01',
       end_date: item.end_date || '',
       is_joint: Boolean(item.is_joint),
+      joint_account_id: item.joint_account_id || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1),
       is_active: item.is_active !== false,
     };
   }
@@ -280,6 +289,7 @@
         start_date: editForm.start_date,
         end_date: editForm.end_date || null,
         is_joint: editForm.is_joint,
+        joint_account_id: editForm.is_joint ? (editForm.joint_account_id || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
         is_active: editForm.is_active,
       });
       editingItem = null;
@@ -530,7 +540,7 @@
               <td class="px-4 py-3.5">
                 {#if rec.is_joint}
                   <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
-                    🏦 Joint Account
+                    🏦 {jointAccountMap[rec.joint_account_id]?.name || 'Joint Account'}
                   </span>
                 {:else}
                   <span
@@ -807,6 +817,25 @@
               🏦 Joint
             </button>
           </div>
+
+          {#if form.is_joint && ($jointAccounts || []).length > 1}
+            <div class="mt-2 p-2 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1 animate-fadeIn">
+              <label for="rec-joint-account" class="block text-[11px] font-semibold text-indigo-300">
+                Select Joint Account
+              </label>
+              <select
+                id="rec-joint-account"
+                bind:value={form.joint_account_id}
+                class="select-field text-xs py-1.5"
+              >
+                {#each $jointAccounts as acc}
+                  <option value={acc.id}>
+                    🏦 {acc.name} {acc.member_names?.length ? `(${acc.member_names.join(' & ')})` : ''}
+                  </option>
+                {/each}
+              </select>
+            </div>
+          {/if}
         </div>
       </div>
 
@@ -974,6 +1003,25 @@
                 🏦 Joint
               </button>
             </div>
+
+            {#if editForm.is_joint && ($jointAccounts || []).length > 1}
+              <div class="mt-2 p-2 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1 animate-fadeIn">
+                <label for="edit-rec-joint-account" class="block text-[11px] font-semibold text-indigo-300">
+                  Select Joint Account
+                </label>
+                <select
+                  id="edit-rec-joint-account"
+                  bind:value={editForm.joint_account_id}
+                  class="select-field text-xs py-1.5"
+                >
+                  {#each $jointAccounts as acc}
+                    <option value={acc.id}>
+                      🏦 {acc.name} {acc.member_names?.length ? `(${acc.member_names.join(' & ')})` : ''}
+                    </option>
+                  {/each}
+                </select>
+              </div>
+            {/if}
           </div>
         </div>
 
