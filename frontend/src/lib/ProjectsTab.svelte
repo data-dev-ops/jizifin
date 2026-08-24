@@ -10,7 +10,7 @@
    */
 
   import { projects, users, currencySymbol, showProjectsInExpense } from './stores.js';
-  import { createProject, updateProject, deleteProject } from './api.js';
+  import { createProject, updateProject, deleteProject, fetchProjectSettlement } from './api.js';
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -62,6 +62,28 @@
   let addSubmitting         = false;
   let addError              = null;
   let addSuccess            = false;
+
+  // ── Project Settlement Drawer State ──
+  let settlementsData    = {};
+  let settlementsLoading = {};
+  let settlementsOpen    = {};
+
+  async function toggleSettlement(projId) {
+    settlementsOpen[projId] = !settlementsOpen[projId];
+    if (settlementsOpen[projId] && !settlementsData[projId]) {
+      settlementsLoading[projId] = true;
+      try {
+        settlementsData[projId] = await fetchProjectSettlement(projId);
+      } catch (err) {
+        console.error('Failed to load project settlement:', err);
+      } finally {
+        settlementsLoading[projId] = false;
+      }
+    }
+    settlementsOpen    = { ...settlementsOpen };
+    settlementsData    = { ...settlementsData };
+    settlementsLoading = { ...settlementsLoading };
+  }
 
   function toggleNewMember(userName) {
     if (newMembers.includes(userName)) {
@@ -582,6 +604,73 @@
                   {estLabel(project.estimated_completion_date)}
                 </p>
               </div>
+            </div>
+
+            <!-- Project Settlement & Equity Breakdown Toggle -->
+            <div class="mt-4 pt-3 border-t border-neutral-800/80">
+              <button
+                type="button"
+                id="toggle-settlement-{project.id}"
+                on:click={() => toggleSettlement(project.id)}
+                class="inline-flex items-center gap-1.5 text-xs font-semibold text-indigo-400 hover:text-indigo-300 transition-colors cursor-pointer"
+              >
+                <span>⚖️</span>
+                <span>{settlementsOpen[project.id] ? 'Hide Settlement Balance Sheet' : 'View Settlement & Equity Balance Sheet'}</span>
+                <span class="text-[10px] transform transition-transform duration-200 {settlementsOpen[project.id] ? 'rotate-180' : ''}">▼</span>
+              </button>
+
+              {#if settlementsOpen[project.id]}
+                <div class="mt-3 p-3.5 bg-neutral-950/80 border border-indigo-900/40 rounded-xl space-y-3 animate-fadeIn">
+                  {#if settlementsLoading[project.id]}
+                    <p class="text-xs text-neutral-500 py-2">Loading project balance sheet…</p>
+                  {:else if settlementsData[project.id]}
+                    {@const sData = settlementsData[project.id]}
+                    <div>
+                      <div class="flex items-center justify-between text-xs mb-2">
+                        <span class="font-semibold text-neutral-300 uppercase tracking-wider text-[10px]">Participant Equity</span>
+                        <span class="font-mono text-neutral-400 text-[11px]">Total Spent: {fmtEur(sData.total_spent_cents)}</span>
+                      </div>
+
+                      <div class="space-y-2">
+                        {#each sData.participants as p}
+                          <div class="flex items-center justify-between p-2 rounded-lg bg-neutral-900/90 border border-neutral-800 text-xs">
+                            <div class="flex items-center gap-2">
+                              <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(p.user_name)}"></span>
+                              <span class="font-medium text-neutral-200">{p.user_name}</span>
+                            </div>
+                            <div class="flex items-center gap-3 font-mono text-[11px]">
+                              <span class="text-neutral-400">Paid: {fmtEur(p.effective_funding_cents)}</span>
+                              <span class="text-neutral-500">|</span>
+                              <span class="text-neutral-400">Share: {fmtEur(p.assigned_liability_cents)}</span>
+                              <span class="px-2 py-0.5 rounded font-bold {p.net_balance_cents > 0 ? 'bg-emerald-950/80 text-emerald-300 border border-emerald-800/60' : p.net_balance_cents < 0 ? 'bg-rose-950/80 text-rose-300 border border-rose-800/60' : 'bg-neutral-800 text-neutral-400'}">
+                                {p.net_balance_cents > 0 ? `+${fmtEur(p.net_balance_cents)}` : p.net_balance_cents < 0 ? `-${fmtEur(Math.abs(p.net_balance_cents))}` : '€0.00'}
+                              </span>
+                            </div>
+                          </div>
+                        {/each}
+                      </div>
+
+                      {#if sData.debts && sData.debts.length > 0}
+                        <div class="mt-3 pt-2.5 border-t border-neutral-800">
+                          <p class="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider mb-1.5">Project Settlement Transfers</p>
+                          <div class="space-y-1">
+                            {#each sData.debts as d}
+                              <div class="flex items-center justify-between text-xs py-1 px-2 rounded bg-neutral-900 border border-neutral-800/80 font-mono">
+                                <div class="flex items-center gap-1.5 font-sans text-neutral-300">
+                                  <span class="font-semibold" style="color: {userColor(d.from_user)}">{d.from_user}</span>
+                                  <span class="text-neutral-500">→ pays →</span>
+                                  <span class="font-semibold" style="color: {userColor(d.to_user)}">{d.to_user}</span>
+                                </div>
+                                <span class="font-bold text-amber-300">{fmtEur(Math.round(d.amount * 100))}</span>
+                              </div>
+                            {/each}
+                          </div>
+                        </div>
+                      {/if}
+                    </div>
+                  {/if}
+                </div>
+              {/if}
             </div>
 
             {#if deleteError && confirmDeleteId === project.id}

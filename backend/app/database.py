@@ -126,6 +126,8 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
             name        TEXT    NOT NULL UNIQUE CHECK(length(name) <= 256),
             color       TEXT    NOT NULL DEFAULT '#f59e0b',
             description TEXT             CHECK(length(description) <= 512),
+            start_date  TEXT             CHECK(start_date IS NULL OR start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            end_date    TEXT             CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
             created_at  TEXT    NOT NULL DEFAULT (datetime('now')),
             is_joint    INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)),
             is_active   INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))
@@ -629,6 +631,8 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     # tags
     await ensure_column(conn, "tags", "color", "TEXT NOT NULL DEFAULT '#f59e0b'", "'#f59e0b'")
     await ensure_column(conn, "tags", "description", "TEXT")
+    await ensure_column(conn, "tags", "start_date", "TEXT")
+    await ensure_column(conn, "tags", "end_date", "TEXT")
     await ensure_column(conn, "tags", "created_at", "TEXT", "datetime('now')")
     await ensure_column(conn, "tags", "is_joint", is_joint_def, "0")
     await ensure_column(conn, "tags", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))", "1")
@@ -777,6 +781,8 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
             t.name,
             t.color,
             t.description,
+            t.start_date,
+            t.end_date,
             t.is_joint,
             t.is_active,
             COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount,
@@ -785,7 +791,7 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
             MAX(e.expense_date)                                  AS last_date
         FROM tags t
         LEFT JOIN expenses e ON e.tag_id = t.id
-        GROUP BY t.id, t.name, t.color, t.description, t.is_joint, t.is_active
+        GROUP BY t.id, t.name, t.color, t.description, t.start_date, t.end_date, t.is_joint, t.is_active
         """
     )
 

@@ -47,10 +47,10 @@ class AllocationEntry(BaseModel):
 
     @field_validator("pct")
     @classmethod
-    def validate_pct_is_integer(cls, v: float) -> float:
-        if v % 1 != 0:
-            raise ValueError("Allocation percentage must be an integer value.")
-        return v
+    def validate_pct(cls, v: float) -> float:
+        if v < 0.0 or v > 100.0:
+            raise ValueError("Allocation percentage must be between 0.0 and 100.0.")
+        return round(v, 4)
 
 
 
@@ -146,8 +146,16 @@ class TagCreate(BaseModel):
     name:        Annotated[str, Field(min_length=1, max_length=256)]
     color:       str = Field(default="#f59e0b", description="CSS hex colour for chart rendering")
     description: Optional[Annotated[str, Field(max_length=512)]] = None
+    start_date:  Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = None
+    end_date:    Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = None
     is_joint:    bool = False
     is_active:   bool = True
+
+    @model_validator(mode="after")
+    def validate_dates(self) -> "TagCreate":
+        if self.start_date and self.end_date and self.start_date > self.end_date:
+            raise ValueError("start_date must be less than or equal to end_date.")
+        return self
 
 
 class TagUpdate(BaseModel):
@@ -155,6 +163,8 @@ class TagUpdate(BaseModel):
     name:        Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
     color:       Optional[str]  = None
     description: Optional[Annotated[str, Field(max_length=512)]] = None
+    start_date:  Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = None
+    end_date:    Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$")]] = None
     is_joint:    Optional[bool] = None
     is_active:   Optional[bool] = None
 
@@ -164,6 +174,8 @@ class TagResponse(BaseModel):
     name:        str
     color:       str
     description: Optional[str] = None
+    start_date:  Optional[str] = None
+    end_date:    Optional[str] = None
     created_at:  str
     is_joint:    bool = False
     is_active:   bool = True
@@ -177,6 +189,8 @@ class TagTotalRow(BaseModel):
     name:          str
     color:         str
     description:   Optional[str] = None
+    start_date:    Optional[str] = None
+    end_date:      Optional[str] = None
     total_amount:  float
     expense_count: int
     first_date:    Optional[str] = None
@@ -217,9 +231,9 @@ def _validate_allocations(allocations: list[AllocationEntry]) -> list[Allocation
     names = [a.user_name for a in allocations]
     if len(names) != len(set(names)):
         raise ValueError("Duplicate user_name entries in allocations.")
-    total = round(sum(a.pct for a in allocations), 4)
-    if total != 100.0:
-        raise ValueError(f"Allocations must sum to 100.0 (got {total})")
+    total = sum(a.pct for a in allocations)
+    if abs(total - 100.0) > 0.02 and round(total, 2) != 100.0:
+        raise ValueError(f"Allocations must sum to 100.0 (got {total:.4f})")
     return allocations
 
 
@@ -504,6 +518,26 @@ class PaybackSummary(BaseModel):
     rows:  list[PaybackRow]
     debts: list[DebtItem]  # greedy-simplified debt transfers
     month: str
+
+
+class ProjectParticipantSettlement(BaseModel):
+    user_name:               str
+    effective_funding_cents: int
+    assigned_liability_cents: int
+    net_balance_cents:       int
+    effective_funding:       float
+    assigned_liability:      float
+    net_balance:             float
+
+
+class ProjectSettlementResponse(BaseModel):
+    project_id:        int
+    project_name:      str
+    target_cents:      int
+    total_spent_cents: int
+    total_spent:       float
+    participants:      list[ProjectParticipantSettlement]
+    debts:             list[DebtItem]
 
 
 # ---------------------------------------------------------------------------

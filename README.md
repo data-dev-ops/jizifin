@@ -1,23 +1,23 @@
 # Personal Finance Tracker (Jizifin)
 
-A monorepo personal finance tracking application designed for managing shared household expenses, employment incomes, budgets, joint accounts, and paybacks. Built with a high-performance Python/FastAPI backend and a reactive Vanilla Svelte frontend.
+A monorepo personal finance tracking application designed for managing shared household expenses, employment incomes, budgets, joint accounts, and paybacks across multi-member and multi-couple households. Built with a high-performance Python/FastAPI backend and a reactive Vanilla Svelte frontend.
 
 ---
 
 ## 🚀 Key Features
 
-- **Dashboard & Analytics:** Comprehensive overview of balances, monthly totals, category breakdowns, and dynamic real-time spending charts.
+- **Dashboard & Analytics:** Comprehensive overview of balances, monthly totals, category breakdowns, and dynamic real-time spending charts with multi-select household scope filtering (Everyone, individual members, and joint accounts).
 - **Jobs & Employment Streams:** Define employment contracts and regular income streams per person with customizable frequency (monthly, weekly, bi-weekly, annual), timeline start/end dates, and 1-click raise/promotion/leave adjustments. Effective monthly base salaries and household split ratios are computed automatically for any active or historical month.
-- **One-Off Income & Bonus Ledger:** Append-only ledger for ad-hoc income such as performance bonuses, tax returns, gifts, and dividends, supporting personal or joint account destinations.
+- **Exact Basis-Point & Float Percentage Splits:** Configure category split allocations with full basis-point float precision (`0.01%`), supporting proportional income splits (e.g. $26.6667\% / 13.3333\% / 25.9259\% / 11.1111\% / 18.5185\%$) without forced integer coercion.
+- **Signed Hare-Niemeyer / Largest Remainder Math:** Integer-cent split distribution supporting positive transactions, zero, and negative refunds/credit memos using mathematical `math.floor`, paired with a deterministic transaction-salted SHA-256 tie-breaker to prevent alphabetical bias.
+- **Multi-Tenant Joint Accounts:** Isolated joint accounts owned by specific household sub-groups (e.g., Couple AB, Couple CD) with custom safety margins, expected monthly costs, per-user monthly deposit schedules, and signed balance corrections.
+- **Payback Calculator & Graph Decomposition:** Computes exact net balances based on payer, category shares, and joint exclusions. Employs connected-component graph decomposition to isolate subgroup debts from cross-household transfers before executing greedy debt simplification.
+- **Dynamic Tag Timelines & Boundary Enforcement:** Open-ended color-coded tag labeling system with `start_date` and `end_date` active windows. Validates that expenses fall strictly within active tag milestones and prevents retrospective tag window shrinkage.
+- **Projects & Settlement Equity Balance Sheets:** Long-term project budget targets with estimated completion dates and dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), tracking effective funding vs assigned liability.
 - **Expense Tracking & Full Management:** Log and manage shared/personal expenses with split percentage overrides, project allocations, and tag associations. Features a live search/filter toolbar, quick inline tag popover assignment, a full-featured Edit Expense modal, and date-locking for settled historical months.
-- **Split Management:** Configure exact percentage splits per user for different expense categories or instantly re-calculate split allocations based on current salary ratios.
-- **Joint Account Management:** Track shared account balances, safety margins, per-category expected costs, per-user monthly deposit obligations, manual balance corrections (top-ups/withdrawals), and automated settlement modes with payback exclusion. Configurable as an opt-in module.
-- **Payback Calculator & Debt Simplification:** Computes exact net balances based on payer, category shares, and joint exclusions, running a greedy debt simplification algorithm and applying custom household deduction rules.
-- **Budgets & Projects:** Track monthly spending limits per category and monitor long-term project budget targets with estimated completion projections. Includes toggleable expense form project selector integration.
-- **Tags & Labels:** Open-ended color-coded tag labeling system for tracking multi-category events (e.g., vacations, renovations, weddings) across time, with 1-click inline tag assignment directly on expense rows.
-- **Recurring Expenses:** Formulate templates to log routine subscription costs and fixed bills automatically on a specified day of the month.
 - **Centralized Settings & Personalization:** Comprehensive 7-domain settings panel managing household members and color palettes, feature modules, navigation tab visibility, entry defaults with 1-click currency presets (€, $, £, CHF, ¥, kr), chart & split visualization styles, mobile layout density, and zero-knowledge encrypted database backups.
 - **Zero-Knowledge Privacy:** Client-side AES-GCM 256-bit encryption (via Web Crypto API) ensures all names, descriptions, notes, and category labels are stored encrypted at rest on the server, with secure in-place server-side database export/import utilities.
+- **Modern UI & Design System:** Modern typography powered by Plus Jakarta Sans and JetBrains Mono, `tabular-nums` formatting on all currency and financial amounts, and glassmorphic depth.
 
 ---
 
@@ -28,11 +28,11 @@ A monorepo personal finance tracking application designed for managing shared ho
 - FastAPI (Strict Pydantic v2 validation)
 - SQLite (`aiosqlite`) with WAL mode and foreign key enforcement
 - `uv` for dependency and virtual environment management
-- Pytest with coverage reporting
+- Pytest with coverage reporting (`pytest-cov`, `pytest-asyncio`)
 
 **Frontend:**
 - Vanilla Svelte (Flat component architecture, no heavy SSR framework)
-- Tailwind CSS (Utility-first styling)
+- Tailwind CSS (Utility-first styling, glassmorphism tokens)
 - Chart.js (Native Canvas 2D rendering)
 - Vite build tool & development server
 - Vitest with `@testing-library/svelte` and JSDOM
@@ -101,12 +101,30 @@ This starts the Vite server on `http://localhost:5173`. Local client development
 
 ## 🧪 Testing & Quality Assurance
 
-The application features full-stack automated test suites ensuring zero regression and mathematical precision.
+The application features full-stack automated test suites ensuring zero regression and mathematical precision across all domain logic.
 
-### 1. Frontend Test Suite (Vitest)
+> **CRITICAL REQUIREMENT:** All future code changes, migrations, and additions must execute and pass 100% of both test suites (`pytest` and `vitest`) with zero regressions before being committed.
+
+### 1. Backend Test Suite & Integration Scenarios (Pytest)
+- **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
+- **Coverage:** **327 passed tests** across 17 test modules, including:
+  - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, and graph-decomposed couple debt isolation.
+  - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_multi_household_couples.py`, etc.
+
+```bash
+# Run full backend test suite with coverage:
+uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
+
+# Run integration scenario tests specifically:
+uv run --directory backend pytest tests/test_scenarios_integration.py
+
+# Run backend tests inside Docker container:
+docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest
+```
+
+### 2. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Setup & Polyfills (`src/test/setup.js`)**: Polyfills Node `webcrypto` for browser AES-GCM 256-bit encryption, Canvas 2D context for Chart.js graphics, `ResizeObserver`, and establishes a global fetch router.
-- **Coverage:** 33 test suites with 272+ tests covering encryption/decryption, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
+- **Coverage:** **288 passed tests** across 34 test files covering encryption/decryption, stores, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:
@@ -114,15 +132,14 @@ npm --prefix frontend test
 
 # Generate frontend lcov coverage:
 npm --prefix frontend run test:coverage
-```
 
-### 2. Backend Test Suite (Pytest)
-- **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** 309+ tests covering jobs and salary timelines, joint account management, ledger transfers, currency precision, budgeting engine, locking reconciliation, and deterministic cryptography.
-
-```bash
-# Run Pytest test suite:
-uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
+# Run frontend tests inside Docker container:
+docker run --rm \
+  -v $(pwd)/frontend/src:/app/src \
+  -v $(pwd)/frontend/index.html:/app/index.html \
+  -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js \
+  -v $(pwd)/frontend/vite.config.js:/app/vite.config.js \
+  jizifin-frontend-test npm test
 ```
 
 ---
@@ -138,6 +155,7 @@ uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-
 ## 🏗 Architecture & Design Principles
 
 - **Integer Cents Precision:** All currencies are represented as whole `INTEGER` cents at the database layer to eliminate floating-point rounding errors. Presentation and decimal formatting (`cents / 100.0`) occur strictly at the presentation boundary.
+- **Mathematical Exactness:** Split distributions use Hare-Niemeyer / Largest Remainder with signed math floor and transaction-salted SHA-256 tie-breaking.
 - **No ORMs:** Backend endpoint logic executes raw, optimized, ANSI-compliant SQL queries directly with `aiosqlite`.
 - **Zero-Knowledge Privacy:** Client derives a 256-bit AES-GCM key from the user passphrase. Sensitive text columns are encrypted before transmission. Deterministic encryption enables exact matching, indexing, and foreign key referential integrity without plaintext exposure on the server disk.
 
@@ -145,3 +163,4 @@ uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-
 
 ## 📜 License
 Private.
+

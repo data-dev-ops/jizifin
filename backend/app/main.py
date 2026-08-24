@@ -102,7 +102,9 @@ from .models import (
     PaybackRow,
     PaybackSummary,
     ProjectCreate,
+    ProjectParticipantSettlement,
     ProjectResponse,
+    ProjectSettlementResponse,
     ProjectUpdate,
     RecurringCreate,
     RecurringResponse,
@@ -274,6 +276,49 @@ def calculate_recurring_occurrences(
                 dates.append(dt.isoformat())
 
     return sorted(dates)
+
+
+def allocate_cents_largest_remainder(
+    total_cents: int,
+    allocations: dict[str, float],
+    seed: str | int = "",
+) -> dict[str, int]:
+    """
+    Deterministically divides total_cents across users according to percentage allocations
+    using the largest-remainder / Hare-Niemeyer method, ensuring exact integer cent preservation:
+    sum(result.values()) == total_cents with 0 cent drop loss across positive, zero, and negative amounts.
+
+    Tie-breaking uses a transaction-specific deterministic hash (seed) to eliminate lexicographical
+    drift and prevent alphabetical bias (e.g. Alice always getting the extra cent).
+    """
+    if not allocations or total_cents == 0:
+        return {u: 0 for u in allocations}
+
+    total_pct = sum(allocations.values())
+    if total_pct <= 0:
+        return {u: 0 for u in allocations}
+
+    sign = 1 if total_cents >= 0 else -1
+    abs_total = abs(total_cents)
+
+    exact_shares = {u: (abs_total * pct / total_pct) for u, pct in allocations.items()}
+    floor_shares = {u: int(share) for u, share in exact_shares.items()}
+    remainders = {u: (share - floor_shares[u]) for u, share in exact_shares.items()}
+
+    allocated_sum = sum(floor_shares.values())
+    cents_to_distribute = abs_total - allocated_sum
+
+    import hashlib
+    # Deterministic tie-breaker per user and seed (e.g. expense ID or transaction hash)
+    def tie_key(u: str) -> tuple[float, str]:
+        h = hashlib.sha256(f"{seed}:{u}".encode("utf-8")).hexdigest()
+        return (-remainders[u], h)
+
+    sorted_users = sorted(allocations.keys(), key=tie_key)
+    for i in range(cents_to_distribute):
+        floor_shares[sorted_users[i % len(sorted_users)]] += 1
+
+    return {u: share * sign for u, share in floor_shares.items()}
 
 
 async def process_recurring_expenses() -> None:
@@ -905,6 +950,21 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
                 detail=f"Category '{expense.category}' does not exist in splits table.",
             )
 
+    if expense.tag_id:
+        async with db.execute("SELECT id, name, start_date, end_date FROM tags WHERE id = ?", (expense.tag_id,)) as cur:
+            tag_row = await cur.fetchone()
+        if tag_row:
+            if tag_row["start_date"] and expense.expense_date < tag_row["start_date"]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Expense date {expense.expense_date} is before start_date {tag_row['start_date']} of tag.",
+                )
+            if tag_row["end_date"] and expense.expense_date > tag_row["end_date"]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Expense date {expense.expense_date} is after end_date {tag_row['end_date']} of tag.",
+                )
+
     is_joint_val = 1 if expense.is_joint else 0
     ja_id = expense.joint_account_id if expense.is_joint else None
     async with db.execute(
@@ -970,6 +1030,21 @@ async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> E
     new_joint_acc_id = update.joint_account_id if update.joint_account_id is not None else (existing["joint_account_id"] if "joint_account_id" in existing.keys() else None)
     if not new_is_joint:
         new_joint_acc_id = None
+
+    if new_tag_id:
+        async with db.execute("SELECT id, name, start_date, end_date FROM tags WHERE id = ?", (new_tag_id,)) as cur:
+            tag_row = await cur.fetchone()
+        if tag_row:
+            if tag_row["start_date"] and new_expense_date < tag_row["start_date"]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Expense date {new_expense_date} is before start_date {tag_row['start_date']} of tag.",
+                )
+            if tag_row["end_date"] and new_expense_date > tag_row["end_date"]:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Expense date {new_expense_date} is after end_date {tag_row['end_date']} of tag.",
+                )
 
     old_is_joint = bool(existing["is_joint"])
     old_joint_acc_id = (existing["joint_account_id"] if "joint_account_id" in existing.keys() else None) or 1
@@ -1163,6 +1238,181 @@ async def delete_project(project_id: int, db: DbDep) -> None:
     await db.commit()
 
 
+@app.get("/projects/{project_id}/settlement", response_model=ProjectSettlementResponse, tags=["projects"])
+async def get_project_settlement(project_id: int, db: DbDep) -> ProjectSettlementResponse:
+    """
+    Computes a decomposed project settlement balance sheet:
+    - Finds all project members.
+    - Analyzes all expenses linked to the project.
+    - Decomposes joint-account funded expenses into co-owners' equity proportions based on deposit schedules/shares.
+    - Computes each participant's effective funding, assigned liability obligations, and net settlement position.
+    - Verifies exact zero-sum double-entry ledger balance.
+    - Generates minimal greedy debt settlement transfers.
+    """
+    async with db.execute("SELECT id, name, target_cents FROM projects WHERE id = ?", (project_id,)) as cur:
+        proj = await cur.fetchone()
+    if proj is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Project {project_id} not found.")
+
+    # 1. Project members
+    async with db.execute("SELECT user_name FROM project_users WHERE project_id = ?", (project_id,)) as cur:
+        member_rows = await cur.fetchall()
+    members = [r["user_name"] for r in member_rows]
+
+    # 2. Project expenses
+    async with db.execute(
+        "SELECT id, name, cost_cents, expense_date, who_paid, category, is_joint, joint_account_id FROM expenses WHERE project_id = ?",
+        (project_id,),
+    ) as cur:
+        exp_rows = await cur.fetchall()
+
+    if not members and exp_rows:
+        members = list({r["who_paid"] for r in exp_rows})
+
+    exp_ids = [r["id"] for r in exp_rows]
+    override_map: dict[int, dict[str, float]] = {}
+    if exp_ids:
+        placeholders = ",".join("?" * len(exp_ids))
+        async with db.execute(
+            f"SELECT expense_id, user_name, pct FROM expense_overrides WHERE expense_id IN ({placeholders})",
+            exp_ids,
+        ) as cur:
+            for r in await cur.fetchall():
+                override_map.setdefault(r["expense_id"], {})[r["user_name"]] = r["pct"]
+
+    # Load category splits
+    async with db.execute("SELECT category, user_name, pct FROM split_allocations") as cur:
+        alloc_rows = await cur.fetchall()
+    splits_dict: dict[str, dict[str, float]] = {}
+    for r in alloc_rows:
+        splits_dict.setdefault(r["category"], {})[r["user_name"]] = r["pct"]
+
+    # Preload joint account equity shares
+    async with db.execute("SELECT id FROM joint_accounts") as cur:
+        all_ja_ids = [r["id"] for r in await cur.fetchall()]
+
+    ja_equity_map: dict[int, dict[str, float]] = {}
+    for ja_id in all_ja_ids:
+        async with db.execute(
+            "SELECT user_name, amount_cents FROM joint_account_deposits WHERE account_id = ?",
+            (ja_id,),
+        ) as cur:
+            dep_rows = await cur.fetchall()
+
+        async with db.execute(
+            "SELECT user_name FROM joint_account_members WHERE account_id = ?",
+            (ja_id,),
+        ) as cur:
+            ja_m_rows = await cur.fetchall()
+        ja_m_names = [r["user_name"] for r in ja_m_rows]
+
+        tot_dep = sum(r["amount_cents"] for r in dep_rows)
+        if tot_dep > 0:
+            ja_equity_map[ja_id] = {r["user_name"]: (r["amount_cents"] / tot_dep) * 100.0 for r in dep_rows}
+        elif ja_m_names:
+            ja_equity_map[ja_id] = {u: 100.0 / len(ja_m_names) for u in ja_m_names}
+        else:
+            ja_equity_map[ja_id] = {}
+
+    effective_funding: dict[str, int] = {m: 0 for m in members}
+    assigned_liability: dict[str, int] = {m: 0 for m in members}
+
+    total_spent_cents = sum(r["cost_cents"] for r in exp_rows)
+
+    for e in exp_rows:
+        cost = e["cost_cents"]
+        payer = e["who_paid"]
+        eid = e["id"]
+        is_joint = bool(e["is_joint"])
+        ja_id = e["joint_account_id"] or 1
+        m = e["expense_date"][:7]
+
+        # 1. Effective Funding Breakdown with Point-in-Time Equity
+        expense_ja_equity: dict[str, float] = {}
+        if is_joint:
+            async with db.execute(
+                "SELECT user_name, scheduled_cents, actual_cents FROM joint_account_monthly_deposits WHERE account_id = ? AND month = ?",
+                (ja_id, m),
+            ) as cur:
+                m_dep_rows = await cur.fetchall()
+
+            m_tot = sum((r["scheduled_cents"] or r["actual_cents"] or 0) for r in m_dep_rows)
+            if m_tot > 0:
+                expense_ja_equity = {
+                    r["user_name"]: (((r["scheduled_cents"] or r["actual_cents"] or 0) / m_tot) * 100.0)
+                    for r in m_dep_rows
+                }
+            elif ja_id in ja_equity_map and ja_equity_map[ja_id]:
+                expense_ja_equity = ja_equity_map[ja_id]
+
+        if is_joint and expense_ja_equity:
+            dist = allocate_cents_largest_remainder(cost, expense_ja_equity, seed=eid)
+            for u, funded_cents in dist.items():
+                effective_funding[u] = effective_funding.get(u, 0) + funded_cents
+        else:
+            effective_funding[payer] = effective_funding.get(payer, 0) + cost
+
+        # 2. Assigned Liability Breakdown
+        if eid in override_map:
+            alloc = override_map[eid]
+        else:
+            alloc = splits_dict.get(e["category"]) or {}
+            if not alloc:
+                n = len(members) or 1
+                alloc = {m_u: 100.0 / n for m_u in members}
+
+        dist = allocate_cents_largest_remainder(cost, alloc, seed=eid)
+        for u, owe_cents in dist.items():
+            assigned_liability[u] = assigned_liability.get(u, 0) + owe_cents
+
+    participants: list[ProjectParticipantSettlement] = []
+    net_map: dict[str, int] = {}
+    for m in members:
+        f_c = effective_funding.get(m, 0)
+        l_c = assigned_liability.get(m, 0)
+        net_c = f_c - l_c
+        net_map[m] = net_c
+        participants.append(ProjectParticipantSettlement(
+            user_name=m,
+            effective_funding_cents=f_c,
+            assigned_liability_cents=l_c,
+            net_balance_cents=net_c,
+            effective_funding=round(f_c / 100.0, 2),
+            assigned_liability=round(l_c / 100.0, 2),
+            net_balance=round(net_c / 100.0, 2),
+        ))
+
+    creditors = [[u, c] for u, c in net_map.items() if c > 0]
+    debtors = [[u, -c] for u, c in net_map.items() if c < 0]
+    creditors.sort(key=lambda x: -x[1])
+    debtors.sort(key=lambda x: -x[1])
+
+    debts: list[DebtItem] = []
+    ci, di = 0, 0
+    while ci < len(creditors) and di < len(debtors):
+        cred_u, cred_amt = creditors[ci]
+        deb_u, deb_amt = debtors[di]
+        settle_amt = min(cred_amt, deb_amt)
+        if settle_amt > 0:
+            debts.append(DebtItem(from_user=deb_u, to_user=cred_u, amount=round(settle_amt / 100.0, 2)))
+        creditors[ci][1] -= settle_amt
+        debtors[di][1] -= settle_amt
+        if creditors[ci][1] == 0:
+            ci += 1
+        if debtors[di][1] == 0:
+            di += 1
+
+    return ProjectSettlementResponse(
+        project_id=proj["id"],
+        project_name=proj["name"],
+        target_cents=proj["target_cents"],
+        total_spent_cents=total_spent_cents,
+        total_spent=round(total_spent_cents / 100.0, 2),
+        participants=participants,
+        debts=debts,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Tags
 # ---------------------------------------------------------------------------
@@ -1171,7 +1421,7 @@ async def delete_project(project_id: int, db: DbDep) -> None:
 async def list_tags(db: DbDep) -> list[TagTotalRow]:
     """Return all tags with all-time aggregated totals from view_tag_totals."""
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, is_active, total_amount, expense_count, first_date, last_date"
+        "SELECT id, name, color, description, start_date, end_date, is_joint, is_active, total_amount, expense_count, first_date, last_date"
         " FROM view_tag_totals ORDER BY name"
     ) as cur:
         rows = await cur.fetchall()
@@ -1181,6 +1431,8 @@ async def list_tags(db: DbDep) -> list[TagTotalRow]:
             name=r["name"],
             color=r["color"],
             description=r["description"],
+            start_date=r["start_date"] if "start_date" in r.keys() else None,
+            end_date=r["end_date"] if "end_date" in r.keys() else None,
             total_amount=r["total_amount"],
             expense_count=r["expense_count"],
             first_date=r["first_date"],
@@ -1197,8 +1449,8 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
     """Create a new expense tag."""
     try:
         async with db.execute(
-            "INSERT INTO tags (name, color, description, is_joint, is_active) VALUES (?, ?, ?, ?, ?)",
-            (tag.name, tag.color, tag.description, 1 if tag.is_joint else 0, 1 if tag.is_active else 0),
+            "INSERT INTO tags (name, color, description, start_date, end_date, is_joint, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (tag.name, tag.color, tag.description, tag.start_date, tag.end_date, 1 if tag.is_joint else 0, 1 if tag.is_active else 0),
         ) as cur:
             new_id = cur.lastrowid
     except Exception as exc:
@@ -1208,7 +1460,7 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
         ) from exc
     await db.commit()
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (new_id,)
+        "SELECT id, name, color, description, start_date, end_date, is_joint, is_active, created_at FROM tags WHERE id = ?", (new_id,)
     ) as cur:
         row = await cur.fetchone()
     return TagResponse(
@@ -1216,6 +1468,8 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
         name=row["name"],
         color=row["color"],
         description=row["description"],
+        start_date=row["start_date"],
+        end_date=row["end_date"],
         created_at=row["created_at"],
         is_joint=bool(row["is_joint"]),
         is_active=bool(row["is_active"]),
@@ -1224,9 +1478,9 @@ async def create_tag(tag: TagCreate, db: DbDep) -> TagResponse:
 
 @app.put("/tags/{tag_id}", response_model=TagResponse, tags=["tags"])
 async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
-    """Rename, recolor, toggle active state, or update the description of a tag."""
+    """Rename, recolor, toggle active state, or update the description/dates of a tag."""
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
+        "SELECT id, name, color, description, start_date, end_date, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
     ) as cur:
         existing = await cur.fetchone()
     if existing is None:
@@ -1235,16 +1489,40 @@ async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
     new_name        = update.name        if update.name        is not None else existing["name"]
     new_color       = update.color       if update.color       is not None else existing["color"]
     new_description = update.description if update.description is not None else existing["description"]
+    new_start_date  = update.start_date  if update.start_date  is not None else (existing["start_date"] if "start_date" in existing.keys() else None)
+    new_end_date    = update.end_date    if update.end_date    is not None else (existing["end_date"] if "end_date" in existing.keys() else None)
     new_joint       = (1 if update.is_joint else 0) if update.is_joint is not None else (existing["is_joint"] if existing["is_joint"] is not None else 0)
     new_active      = (1 if update.is_active else 0) if update.is_active is not None else (existing["is_active"] if existing["is_active"] is not None else 1)
 
+    if new_start_date and new_end_date and new_start_date > new_end_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="start_date must be <= end_date")
+
+    # Validate that existing linked expenses fall within the new tag timeline window
+    if new_start_date or new_end_date:
+        async with db.execute(
+            "SELECT id, expense_date FROM expenses WHERE tag_id = ?", (tag_id,)
+        ) as cur:
+            linked_exps = await cur.fetchall()
+        for le in linked_exps:
+            ed = le["expense_date"]
+            if new_start_date and ed < new_start_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Cannot update tag timeline: linked expense {le['id']} on {ed} is before new start_date {new_start_date}.",
+                )
+            if new_end_date and ed > new_end_date:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Cannot update tag timeline: linked expense {le['id']} on {ed} is after new end_date {new_end_date}.",
+                )
+
     await db.execute(
-        "UPDATE tags SET name=?, color=?, description=?, is_joint=?, is_active=? WHERE id=?",
-        (new_name, new_color, new_description, new_joint, new_active, tag_id),
+        "UPDATE tags SET name=?, color=?, description=?, start_date=?, end_date=?, is_joint=?, is_active=? WHERE id=?",
+        (new_name, new_color, new_description, new_start_date, new_end_date, new_joint, new_active, tag_id),
     )
     await db.commit()
     async with db.execute(
-        "SELECT id, name, color, description, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
+        "SELECT id, name, color, description, start_date, end_date, is_joint, is_active, created_at FROM tags WHERE id = ?", (tag_id,)
     ) as cur:
         row = await cur.fetchone()
     return TagResponse(
@@ -1252,6 +1530,8 @@ async def update_tag(tag_id: int, update: TagUpdate, db: DbDep) -> TagResponse:
         name=row["name"],
         color=row["color"],
         description=row["description"],
+        start_date=row["start_date"],
+        end_date=row["end_date"],
         created_at=row["created_at"],
         is_joint=bool(row["is_joint"]),
         is_active=bool(row["is_active"]),
@@ -1510,13 +1790,14 @@ async def get_paybacks(
     db: DbDep,
     month: str | None = None,
     users: str | None = None,
+    dynamic_income_cats: str | None = None,
 ) -> PaybackSummary:
     """
     Compute per-category and overall payback balances for the given month.
 
     Algorithm:
       1. For each expense, determine the effective split (expense override >
-         split_allocations default > equal share across all payers seen).
+         dynamic income split > split_allocations default > equal share).
       2. Accumulate per-user net balance in cents (positive = overpaid = owed money).
       3. Greedy debt simplification: match creditors against debtors to produce
          a minimal list of DebtItem transfers.
@@ -1571,10 +1852,22 @@ async def get_paybacks(
         else:
             e["_personal"] = False
 
+    # Dynamic income categories evaluation
+    dynamic_cats_set: set[str] = set(c.strip() for c in dynamic_income_cats.split(",") if c.strip()) if dynamic_income_cats else set()
+    income_weights: dict[str, float] = {}
+    if dynamic_cats_set:
+        inc_data = await get_income_by_person(salary_cat="SALARY", db=db, month=target_month)
+        inc_map = {row.who: max(0, row.total_cents) for row in inc_data}
+        tot_inc = sum(inc_map.values())
+        if tot_inc > 0:
+            income_weights = {u: round((c / tot_inc) * 100.0, 4) for u, c in inc_map.items()}
+
     # Collect all users that appear in expenses or allocations
     all_users: set[str] = {e["who_paid"] for e in expenses}
     for cat_alloc in splits_dict.values():
         all_users.update(cat_alloc.keys())
+    if income_weights:
+        all_users.update(income_weights.keys())
 
     if users:
         user_filter = set(u.strip() for u in users.split(",") if u.strip())
@@ -1594,19 +1887,18 @@ async def get_paybacks(
         payer = e["who_paid"]
         cost  = e["cost_cents"]
         eid   = e["id"]
+        base_cat = cat.rsplit(" ", 1)[0]
 
         # Determine effective split for this expense
         if e["_personal"]:
-            # 100% borne by the payer
             eff_split: dict[str, float] = {payer: 100.0}
         elif eid in override_map:
             eff_split = override_map[eid]
+        elif (cat in dynamic_cats_set or base_cat in dynamic_cats_set) and income_weights:
+            eff_split = income_weights
         else:
-            # Strip personal-pay suffix before looking up allocations
-            base_cat = cat.rsplit(" ", 1)[0]
             eff_split = splits_dict.get(cat) or splits_dict.get(base_cat) or {}
             if not eff_split:
-                # Fallback: equal share across all known users
                 n = len(all_users) or 1
                 eff_split = {u: round(100.0 / n, 4) for u in all_users}
 
@@ -1616,8 +1908,8 @@ async def get_paybacks(
 
         cat_paid[cat][payer] = cat_paid[cat].get(payer, 0) + cost
 
-        for user, pct in eff_split.items():
-            exp_cents = round(cost * pct / 100.0)
+        exp_dist = allocate_cents_largest_remainder(cost, eff_split, seed=eid)
+        for user, exp_cents in exp_dist.items():
             cat_expected[cat][user] = cat_expected[cat].get(user, 0) + exp_cents
 
     # 6. Build PaybackRow per category; accumulate global net balance (in cents)
@@ -1663,30 +1955,62 @@ async def get_paybacks(
         net_balance[john_name] = net_balance.get(john_name, 0) - deduction
         net_balance[jane_name] = net_balance.get(jane_name, 0) + deduction
 
-    # 7. Greedy debt simplification
-    creditors = sorted(((u, v) for u, v in net_balance.items() if v > 0), key=lambda x: -x[1])
-    debtors   = sorted(((u, -v) for u, v in net_balance.items() if v < 0), key=lambda x: -x[1])
+    # 7. Connected-Component Greedy Debt Simplification
+    # Build graph of user interactions across categories to isolate disconnected couple sub-communities
+    user_adj: dict[str, set[str]] = {u: set() for u in net_balance if net_balance[u] != 0}
+    for cat, paid_map in cat_paid.items():
+        exp_map = cat_expected.get(cat, {})
+        cat_active = {u for u in (set(paid_map) | set(exp_map)) if u in user_adj}
+        for u1 in cat_active:
+            for u2 in cat_active:
+                if u1 != u2:
+                    user_adj[u1].add(u2)
+                    user_adj[u2].add(u1)
 
-    # Work with mutable lists of (user, cents)
-    cred_list = list(creditors)
-    debt_list = list(debtors)
+    # Find connected components
+    visited: set[str] = set()
+    components: list[list[str]] = []
+    for u in sorted(user_adj.keys()):
+        if u not in visited:
+            comp: list[str] = []
+            queue = [u]
+            visited.add(u)
+            while queue:
+                curr = queue.pop(0)
+                comp.append(curr)
+                for neighbor in user_adj.get(curr, set()):
+                    if neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+            components.append(comp)
+
     debts: list[DebtItem] = []
-    ci = di = 0
-
-    while ci < len(cred_list) and di < len(debt_list):
-        creditor, credit_c = cred_list[ci]
-        debtor,   debt_c   = debt_list[di]
-        transfer = min(credit_c, debt_c)
-        if transfer > 0:
-            debts.append(DebtItem(from_user=debtor, to_user=creditor, amount=round(transfer / 100.0, 2)))
-        credit_c -= transfer
-        debt_c   -= transfer
-        cred_list[ci] = (creditor, credit_c)
-        debt_list[di] = (debtor,   debt_c)
-        if credit_c <= 0:
-            ci += 1
-        if debt_c <= 0:
-            di += 1
+    for comp in components:
+        comp_creditors = sorted(
+            [[u, net_balance[u]] for u in comp if net_balance[u] > 0],
+            key=lambda x: -x[1],
+        )
+        comp_debtors = sorted(
+            [[u, -net_balance[u]] for u in comp if net_balance[u] < 0],
+            key=lambda x: -x[1],
+        )
+        ci = di = 0
+        while ci < len(comp_creditors) and di < len(comp_debtors):
+            cred_u, cred_c = comp_creditors[ci]
+            deb_u, deb_c = comp_debtors[di]
+            transfer = min(cred_c, deb_c)
+            if transfer > 0:
+                debts.append(DebtItem(
+                    from_user=deb_u,
+                    to_user=cred_u,
+                    amount=round(transfer / 100.0, 2),
+                ))
+            comp_creditors[ci][1] -= transfer
+            comp_debtors[di][1] -= transfer
+            if comp_creditors[ci][1] <= 0:
+                ci += 1
+            if comp_debtors[di][1] <= 0:
+                di += 1
 
     return PaybackSummary(rows=rows, debts=debts, month=target_month)
 

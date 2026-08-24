@@ -66,8 +66,8 @@
     });
   }
 
-  $: overrideSum = Object.values(overridePcts).reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
-  $: overrideOk  = overrideSum === 100;
+  $: overrideSum = Number(Object.values(overridePcts).reduce((s, v) => s + (parseFloat(v) || 0), 0).toFixed(2));
+  $: overrideOk  = Math.abs(overrideSum - 100) < 0.05;
 
   // ── Form state ──────────────────────────────────────────────────────────────────
   let name           = '';
@@ -198,7 +198,7 @@
       if (!paidByJoint && customSplit && overrideOk) {
         payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
           user_name,
-          pct: Math.round(parseFloat(pct)),
+          pct: Number(parseFloat(pct).toFixed(4)),
         }));
       }
       await createExpense(payload, $selectedMonth);

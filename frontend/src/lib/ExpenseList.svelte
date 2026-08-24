@@ -210,8 +210,8 @@
     }
   }
 
-  $: editOverrideSum = Object.values(editOverridePcts).reduce((s, v) => s + (parseInt(v, 10) || 0), 0);
-  $: editOverrideOk = editOverrideSum === 100;
+  $: editOverrideSum = Number(Object.values(editOverridePcts).reduce((s, v) => s + (parseFloat(v) || 0), 0).toFixed(2));
+  $: editOverrideOk = Math.abs(editOverrideSum - 100) < 0.05;
 
   async function handleSaveEdit() {
     editError = null;
@@ -256,7 +256,7 @@
       if (!editPaidByJoint && editCustomSplit && editOverrideOk) {
         payload.overrides = Object.entries(editOverridePcts).map(([user_name, pct]) => ({
           user_name,
-          pct: Math.round(parseFloat(pct)),
+          pct: Number(parseFloat(pct).toFixed(4)),
         }));
       } else if (!editCustomSplit) {
         payload.overrides = [];

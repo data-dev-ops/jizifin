@@ -56,6 +56,8 @@
   let newName        = '';
   let newColor       = getRandomPastelColor();
   let newDescription = '';
+  let newStartDate   = '';
+  let newEndDate     = '';
   let addSubmitting  = false;
   let addError       = null;
   let addSuccess     = false;
@@ -71,11 +73,15 @@
         name:        newName.trim(),
         color:       newColor,
         description: newDescription.trim() || null,
+        start_date:  newStartDate || null,
+        end_date:    newEndDate || null,
       });
       addSuccess    = true;
       newName        = '';
       newColor       = getRandomPastelColor();
       newDescription = '';
+      newStartDate   = '';
+      newEndDate     = '';
     } catch (err) {
       addError = err.message ?? 'Failed to create tag.';
     } finally {
@@ -89,17 +95,21 @@
   let editName       = '';
   let editColor      = '';
   let editDesc       = '';
+  let editStartDate  = '';
+  let editEndDate    = '';
   let editIsActive   = true;
   let editSubmitting = false;
   let editError      = null;
 
   function startEdit(t) {
-    editingId    = t.id;
-    editName     = t.name;
-    editColor    = t.color;
-    editDesc     = t.description ?? '';
-    editIsActive = t.is_active !== false && t.is_active !== 0;
-    editError    = null;
+    editingId     = t.id;
+    editName      = t.name;
+    editColor     = t.color;
+    editDesc      = t.description ?? '';
+    editStartDate = t.start_date ?? '';
+    editEndDate   = t.end_date ?? '';
+    editIsActive  = t.is_active !== false && t.is_active !== 0;
+    editError     = null;
   }
 
   function cancelEdit() { editingId = null; editError = null; }
@@ -114,6 +124,8 @@
         name:        editName.trim(),
         color:       editColor,
         description: editDesc.trim() || null,
+        start_date:  editStartDate || null,
+        end_date:    editEndDate || null,
         is_active:   editIsActive,
       });
       if (selectedTagId === id) await loadTagDetail(id);
@@ -352,6 +364,28 @@
                        [color-scheme:dark] p-0.5"
               />
             </div>
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label for="tag-start-date" class="block text-xs font-medium text-neutral-400 mb-1.5">
+              Start Date <span class="text-neutral-500">(optional)</span>
+            </label>
+            <input
+              id="tag-start-date"
+              type="date"
+              bind:value={newStartDate}
+              class="input-field [color-scheme:dark]"
+            />
+          </div>
+          <div>
+            <label for="tag-end-date" class="block text-xs font-medium text-neutral-400 mb-1.5">
+              End Date <span class="text-neutral-500">(optional)</span>
+            </label>
+            <input
+              id="tag-end-date"
+              type="date"
+              bind:value={newEndDate}
+              class="input-field [color-scheme:dark]"
+            />
           </div>
         </div>
 
@@ -430,6 +464,27 @@
                   class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm
                          text-neutral-100 placeholder-neutral-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500"
                 />
+                <div class="grid grid-cols-2 gap-2">
+                  <div>
+                    <label for="edit-tag-start-{tag.id}" class="text-[10px] text-neutral-400 block mb-0.5">Start Date</label>
+                    <input
+                      id="edit-tag-start-{tag.id}"
+                      type="date"
+                      bind:value={editStartDate}
+                      class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-100 [color-scheme:dark]"
+                    />
+                  </div>
+                  <div>
+                    <label for="edit-tag-end-{tag.id}" class="text-[10px] text-neutral-400 block mb-0.5">End Date</label>
+                    <input
+                      id="edit-tag-end-{tag.id}"
+                      type="date"
+                      bind:value={editEndDate}
+                      class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-100 [color-scheme:dark]"
+                    />
+                  </div>
+                </div>
+
                 <div class="flex items-center justify-between gap-3 pt-1">
                   <div class="flex items-center gap-2">
                     <label for="edit-tag-color-{tag.id}" class="text-xs text-neutral-400">Color</label>
@@ -507,6 +562,12 @@
                   </div>
                   {#if tag.description}
                     <p class="text-[11px] text-neutral-500 truncate mt-0.5">{tag.description}</p>
+                  {/if}
+                  {#if tag.start_date || tag.end_date}
+                    <div class="mt-1 flex items-center gap-1 text-[10px] text-amber-400/90 font-mono">
+                      <span>📅</span>
+                      <span>{tag.start_date ? fmtDate(tag.start_date) : '…'} → {tag.end_date ? fmtDate(tag.end_date) : '…'}</span>
+                    </div>
                   {/if}
                 </div>
               </div>
