@@ -219,6 +219,7 @@ export const mobileTabVisibility = persistedObject('mobileTabVisibility', {
   expenses: true,
   income: true,
   splits: true,
+  budgets: true,
   projects: true,
   tags: true,
   recurring: true,
@@ -258,6 +259,12 @@ export const paybackDisplayMode = persistedString('paybackDisplayMode', 'cards')
  * 'bar'      — horizontal bar chart with categories on the Y axis.
  */
 export const chartStyle = persistedString('chartStyle', 'doughnut');
+
+/**
+ * Theme mode preference: 'dark' | 'light' | 'system'
+ * Defaults to 'dark' to preserve the signature aesthetic while supporting crisp light mode.
+ */
+export const theme = persistedString('theme', 'dark');
 
 export const authSalt = writable('');
 export const cryptoKey = writable(null);

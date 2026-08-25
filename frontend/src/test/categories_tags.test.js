@@ -29,7 +29,7 @@ describe('Categories & Tags Domain Specifications', () => {
       const parts = path.split(':').map(s => s.trim()).filter(Boolean);
       expect(parts[0]).toBe(expectedRoot);
       expect(parts[parts.length - 1]).toBe(expectedLeaf);
-      expect(parts.length).toBe(expectedDepth);
+      expect(parts).toHaveLength(expectedDepth);
     });
   });
 

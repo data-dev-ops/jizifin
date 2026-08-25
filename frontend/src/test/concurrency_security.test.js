@@ -47,7 +47,7 @@ describe('Concurrency & Security Domain Specifications', () => {
       await Promise.all(expensePromises);
 
       const currentExpenses = get(expenses);
-      expect(currentExpenses.length).toBe(5);
+      expect(currentExpenses).toHaveLength(5);
 
       const totalCostCents = currentExpenses.reduce((sum, e) => sum + e.cost_cents, 0);
       expect(totalCostCents).toBe(15000);
@@ -61,7 +61,7 @@ describe('Concurrency & Security Domain Specifications', () => {
       ]);
 
       const corrections = get(jointCorrections);
-      expect(corrections.length).toBe(2);
+      expect(corrections).toHaveLength(2);
 
       const accountState = get(jointAccount);
       expect(accountState.balance_cents).toBe(7000);

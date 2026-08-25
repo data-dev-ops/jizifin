@@ -27,10 +27,13 @@
     return $users.find((u) => u.name === name)?.color ?? '#6366f1';
   }
 
+  /** Set of locked YYYY-MM strings — O(1) lookup per row instead of O(N) scan */
+  $: lockedMonthsSet = new Set($settlements.map((s) => s.month));
+
   /** True if a given expense_date month is locked */
   function isLocked(expDate) {
     const m = expDate ? expDate.slice(0, 7) : null;
-    return m ? $settlements.some((s) => s.month === m) : false;
+    return m ? lockedMonthsSet.has(m) : false;
   }
 
   /** Build id→name lookup map from projects store */
@@ -39,9 +42,16 @@
   /** Build id→tag lookup map from tags store */
   $: tagMap = Object.fromEntries($tags.map((t) => [t.id, t]));
 
+  /** Active tags precomputed — used in both quick-tag popover and modal to avoid per-row filter */
+  $: activeTags = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
+
   /** Helper to get active tags plus currently assigned tag for an expense */
   function getSelectableTags(currentTagId) {
-    return $tags.filter((t) => (t.is_active !== false && t.is_active !== 0) || t.id === currentTagId);
+    if (!currentTagId) return activeTags;
+    // Include the currently assigned tag even if inactive
+    if (activeTags.some((t) => t.id === currentTagId)) return activeTags;
+    const currentTag = $tags.find((t) => t.id === currentTagId);
+    return currentTag ? [...activeTags, currentTag] : activeTags;
   }
 
   /** Active tags for modal */
@@ -279,7 +289,7 @@
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <!-- Search Bar -->
     <div class="relative flex-1 min-w-[180px]">
-      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-500">
+      <span class="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400 dark:text-neutral-500">
         <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
           <path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
         </svg>
@@ -289,12 +299,12 @@
         type="text"
         placeholder="Filter by name, payer, or tag…"
         bind:value={searchQuery}
-        class="w-full bg-neutral-950/80 border border-neutral-800 rounded-xl pl-9 pr-3 py-1.5 text-xs text-neutral-100 placeholder-neutral-500 focus:outline-none focus:border-indigo-500 transition-colors"
+        class="input-field pl-9 pr-8 text-xs py-1.5"
       />
       {#if searchQuery}
         <button
           on:click={() => (searchQuery = '')}
-          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-500 hover:text-neutral-300 text-xs font-bold"
+          class="absolute right-2.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-300 text-xs font-bold"
         >✕</button>
       {/if}
     </div>
@@ -303,7 +313,7 @@
     <select
       id="expense-category-filter"
       bind:value={selectedCategoryFilter}
-      class="bg-neutral-950/80 border border-neutral-800 rounded-xl px-2.5 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-indigo-500 transition-colors"
+      class="select-field text-xs py-1.5 w-auto"
     >
       <option value="ALL">All Categories</option>
       {#each $splits as s}
@@ -316,7 +326,7 @@
       <select
         id="expense-tag-filter"
         bind:value={selectedTagFilter}
-        class="bg-neutral-950/80 border border-neutral-800 rounded-xl px-2.5 py-1.5 text-xs text-neutral-300 focus:outline-none focus:border-indigo-500 transition-colors"
+        class="select-field text-xs py-1.5 w-auto"
       >
         <option value="ALL">All Tags</option>
         <option value="UNTAGGED">No Tag</option>
@@ -328,28 +338,28 @@
   </div>
 
   <!-- Summary Stats Bar -->
-  <div class="flex items-center justify-between text-xs text-neutral-400 px-1">
+  <div class="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 px-1">
     <span>
-      Showing <strong class="text-neutral-200">{filtered.length}</strong> of {monthExpenses.length} entries
+      Showing <strong class="text-neutral-900 dark:text-neutral-200">{filtered.length}</strong> of {monthExpenses.length} entries
     </span>
-    <span class="font-semibold text-neutral-200">
-      Total: <span class="text-indigo-400 font-bold">{formatAmount(totalFilteredCents)}</span>
+    <span class="font-semibold text-neutral-800 dark:text-neutral-200">
+      Total: <span class="text-indigo-600 dark:text-indigo-400 font-bold">{formatAmount(totalFilteredCents)}</span>
     </span>
   </div>
 </div>
 
 {#if filtered.length === 0}
-  <div class="flex flex-col items-center justify-center py-16 text-center gap-3">
-    <div class="w-14 h-14 rounded-2xl bg-neutral-800/80 flex items-center justify-center mb-1">
-      <svg class="w-7 h-7 text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+  <div class="flex flex-col items-center justify-center py-16 text-center gap-3 empty-state-box">
+    <div class="w-14 h-14 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 flex items-center justify-center mb-1">
+      <svg class="w-7 h-7 text-neutral-400 dark:text-neutral-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
         <path stroke-linecap="round" stroke-linejoin="round"
           d="M9 14l2 2 4-4M7.5 3.75A1.5 1.5 0 006 5.25v13.5A1.5 1.5 0 007.5 20.25h9A1.5 1.5 0 0018 18.75V5.25A1.5 1.5 0 0016.5 3.75H7.5z" />
       </svg>
     </div>
-    <p class="text-neutral-400 text-sm font-medium">
+    <p class="text-neutral-700 dark:text-neutral-400 text-sm font-medium">
       {monthExpenses.length === 0 ? 'No expenses for this month.' : 'No matching expenses found.'}
     </p>
-    <p class="text-neutral-600 text-xs max-w-xs">
+    <p class="text-neutral-500 text-xs max-w-xs">
       {#if monthExpenses.length === 0}
         Expenses you log will appear here. Use the form on the left to add your first entry.
       {:else}
@@ -362,7 +372,7 @@
   <div class="overflow-x-auto -mx-1">
     <table class="w-full text-sm border-collapse" id="expense-table">
       <thead>
-        <tr class="border-b border-neutral-800">
+        <tr class="border-b border-neutral-200 dark:border-neutral-800">
           <th class="text-left text-xs font-medium text-neutral-500 pb-3 pr-4 pl-1">Date</th>
           <th class="text-left text-xs font-medium text-neutral-500 pb-3 pr-4">Description</th>
           <th class="text-left text-xs font-medium text-neutral-500 pb-3 pr-4">Category</th>
@@ -373,25 +383,27 @@
       </thead>
       <tbody>
         {#each filtered as expense (expense.id)}
-          <tr class="border-b border-neutral-800/60 hover:bg-neutral-800/40 transition-colors group">
+          <tr class="border-b border-neutral-200/60 dark:border-neutral-800/60 hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40 transition-colors group">
             <!-- Date -->
             <td class="py-3 pr-4 pl-1 text-neutral-500 tabular-nums whitespace-nowrap">
               {formatDate(expense.expense_date)}
             </td>
 
             <!-- Description & Badges -->
-            <td class="py-3 pr-4 text-neutral-200 max-w-[200px]" title={expense.name}>
-              <span class="block truncate font-medium text-neutral-100">{expense.name}</span>
+            <td class="py-3 pr-4 text-neutral-800 dark:text-neutral-200 max-w-[200px]" title={expense.name}>
+              <span class="block truncate font-medium text-neutral-900 dark:text-neutral-100">{expense.name}</span>
               
               <div class="flex items-center gap-1.5 flex-wrap mt-1">
                 {#if expense.project_id && projectMap[expense.project_id]}
                   <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                               bg-indigo-950/60 text-indigo-400 border border-indigo-900/60 font-medium">
+                               bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/60 font-medium">
                     ▰ {projectMap[expense.project_id]}
                   </span>
                 {/if}
 
                 <!-- Tag Badge & Quick Tagging Trigger -->
+                <!-- svelte-ignore a11y-click-events-have-key-events -->
+                <!-- svelte-ignore a11y-no-static-element-interactions -->
                 <div class="relative inline-block" on:click|stopPropagation>
                   {#if expense.tag_id && tagMap[expense.tag_id]}
                     {@const tag = tagMap[expense.tag_id]}
@@ -399,7 +411,7 @@
                       type="button"
                       id="tag-badge-{expense.id}"
                       on:click={(e) => toggleQuickTag(expense.id, e)}
-                      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border font-medium hover:brightness-125 transition-all"
+                      class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] border font-medium hover:brightness-110 transition-all"
                       style="background-color: {tag.color}18; color: {tag.color}; border-color: {tag.color}40;"
                       title="Click to edit or remove tag"
                     >
@@ -410,7 +422,7 @@
                       type="button"
                       id="add-tag-btn-{expense.id}"
                       on:click={(e) => toggleQuickTag(expense.id, e)}
-                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-neutral-500 hover:text-neutral-300 hover:bg-neutral-800 border border-transparent hover:border-neutral-700 transition-all font-medium"
+                      class="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300 hover:bg-neutral-200/60 dark:hover:bg-neutral-800 border border-transparent hover:border-neutral-300 dark:hover:border-neutral-700 transition-all font-medium"
                       title="Add tag to this expense"
                     >
                       + Tag
@@ -420,9 +432,9 @@
                   <!-- Quick Tag Dropdown Popover -->
                   {#if quickTagExpenseId === expense.id}
                     <div
-                      class="absolute left-0 top-full mt-1.5 z-40 w-48 bg-neutral-900 border border-neutral-700 rounded-xl shadow-2xl p-2 space-y-1 text-left animate-fadeIn"
+                      class="absolute left-0 top-full mt-1.5 z-40 w-48 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700 rounded-xl shadow-2xl p-2 space-y-1 text-left animate-fadeIn"
                     >
-                      <p class="text-[10px] font-semibold text-neutral-400 uppercase tracking-wider px-2 py-1">Assign Tag</p>
+                      <p class="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider px-2 py-1">Assign Tag</p>
                       
                       {#if getSelectableTags(expense.tag_id).length === 0}
                         <p class="text-xs text-neutral-500 px-2 py-1.5">No active tags available.</p>
@@ -433,14 +445,14 @@
                               type="button"
                               on:click={() => setExpenseTag(expense, t.id)}
                               disabled={tagUpdatingId === expense.id}
-                              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-neutral-800 transition-colors text-left {expense.tag_id === t.id ? 'bg-neutral-800/80 font-semibold' : ''}"
+                              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-left {expense.tag_id === t.id ? 'bg-neutral-100 dark:bg-neutral-800/80 font-semibold' : ''}"
                             >
                               <span class="w-2.5 h-2.5 rounded-full flex-none" style="background-color: {t.color}"></span>
-                              <span class="truncate flex-1 text-neutral-200">
+                              <span class="truncate flex-1 text-neutral-800 dark:text-neutral-200">
                                 {t.name}{t.is_active === false || t.is_active === 0 ? ' (Closed)' : ''}
                               </span>
                               {#if expense.tag_id === t.id}
-                                <span class="text-indigo-400 text-xs">✓</span>
+                                <span class="text-indigo-600 dark:text-indigo-400 text-xs">✓</span>
                               {/if}
                             </button>
                           {/each}
@@ -448,12 +460,12 @@
                       {/if}
 
                       {#if expense.tag_id}
-                        <div class="border-t border-neutral-800 pt-1 mt-1">
+                        <div class="border-t border-neutral-200 dark:border-neutral-800 pt-1 mt-1">
                           <button
                             type="button"
                             on:click={() => setExpenseTag(expense, null)}
                             disabled={tagUpdatingId === expense.id}
-                            class="w-full text-left px-2 py-1 rounded-lg text-[11px] text-red-400 hover:bg-red-950/40 transition-colors"
+                            class="w-full text-left px-2 py-1 rounded-lg text-[11px] text-rose-600 dark:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-colors"
                           >
                             ✕ Remove Tag
                           </button>
@@ -465,13 +477,13 @@
 
                 {#if expense.is_joint}
                   <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                               bg-indigo-950/80 text-indigo-300 border border-indigo-700/60 font-semibold"
+                               bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60 font-semibold"
                         title="Paid by Joint Account">
                     🏦 Joint
                   </span>
                   {#if !jointCategorySet.has(expense.category)}
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                                 bg-amber-950/80 text-amber-300 border border-amber-700/60 font-semibold"
+                                 bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/60 font-semibold"
                           title="Category is not in the list of coupled joint account categories">
                       ⚠️ Not Coupled
                     </span>
@@ -480,7 +492,7 @@
 
                 {#if expense.overrides && expense.overrides.length > 0}
                   <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                               bg-amber-950/60 text-amber-400 border border-amber-800/60"
+                               bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
                         title="Custom split: {expense.overrides.map(o => o.user_name + ' ' + o.pct + '%').join(' / ')}">
                     ✶ custom split
                   </span>
@@ -490,7 +502,7 @@
 
             <!-- Category -->
             <td class="py-3 pr-4">
-              <span class="inline-flex items-center px-2 py-0.5 rounded-md bg-neutral-800 text-xs text-neutral-300 border border-neutral-700 font-medium">
+              <span class="badge-neutral">
                 {expense.category}
               </span>
             </td>
@@ -501,30 +513,30 @@
                 {expense.who_paid}
               </span>
               {#if expense.is_joint}
-                <span class="block text-[10px] text-indigo-400 font-medium">
+                <span class="block text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
                   🏦 {jointAccountMap[expense.joint_account_id]?.name || 'Joint'}
                 </span>
               {/if}
             </td>
 
             <!-- Amount -->
-            <td class="py-3 pr-4 text-right font-semibold text-neutral-100 tabular-nums">
+            <td class="py-3 pr-4 text-right font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
               {formatAmount(expense.cost_cents)}
             </td>
 
             <!-- Actions -->
             <td class="py-3 pr-1 text-right whitespace-nowrap">
               {#if isLocked(expense.expense_date)}
-                <span class="text-[10px] text-amber-600 px-1.5 py-0.5 rounded border border-amber-900/50 bg-amber-950/30">🔒 Locked</span>
+                <span class="text-[10px] text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30">🔒 Locked</span>
               {:else if confirmDeleteId === expense.id}
                 <!-- Confirmation prompt -->
                 <span class="inline-flex items-center gap-1.5">
-                  <span class="text-xs text-neutral-400">Delete?</span>
+                  <span class="text-xs text-neutral-500 dark:text-neutral-400">Delete?</span>
                   <button
                     id="confirm-delete-{expense.id}"
                     on:click={() => confirmDelete(expense.id)}
                     disabled={deletingId === expense.id}
-                    class="px-2 py-0.5 rounded text-xs font-semibold bg-red-600 hover:bg-red-500
+                    class="px-2 py-0.5 rounded text-xs font-semibold bg-rose-600 hover:bg-rose-500 text-white
                            disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     {deletingId === expense.id ? '…' : 'Yes'}
@@ -532,7 +544,7 @@
                   <button
                     id="cancel-delete-{expense.id}"
                     on:click={cancelDelete}
-                    class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-700 hover:bg-neutral-600
+                    class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 dark:hover:bg-neutral-600 text-neutral-800 dark:text-neutral-200
                            transition-colors"
                   >
                     No
@@ -545,7 +557,7 @@
                     id="edit-expense-{expense.id}"
                     on:click={() => openEditModal(expense)}
                     title="Edit expense"
-                    class="p-1 rounded-lg text-neutral-500 hover:text-indigo-300 hover:bg-indigo-950/40 transition-all duration-150"
+                    class="p-1 rounded-lg text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all duration-150"
                   >
                     <!-- Pencil Icon -->
                     <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
@@ -558,7 +570,7 @@
                     id="delete-expense-{expense.id}"
                     on:click={() => requestDelete(expense.id)}
                     title="Delete expense"
-                    class="p-1 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-950/40 transition-all duration-150"
+                    class="p-1 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-all duration-150"
                   >
                     <!-- Trash Icon -->
                     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" class="w-4 h-4">
@@ -577,27 +589,27 @@
   </div>
 
   {#if deleteError}
-    <p class="text-xs text-red-400 mt-3 text-right">{deleteError}</p>
+    <p class="text-xs text-rose-600 dark:text-red-400 mt-3 text-right">{deleteError}</p>
   {/if}
 {/if}
 
 <!-- ── Full-Featured Edit Expense Modal ────────────────────────────────────── -->
 {#if editingExpense}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fadeIn">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto space-y-4 text-left">
-      <div class="flex items-center justify-between border-b border-neutral-800 pb-3">
-        <h3 class="text-base font-bold text-white flex items-center gap-2">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-fadeIn">
+    <div class="card p-5 sm:p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto space-y-4 text-left border-neutral-300 dark:border-neutral-800">
+      <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <h3 class="text-base font-bold text-neutral-900 dark:text-white flex items-center gap-2">
           <span>Edit Expense</span>
-          <span class="text-xs font-normal text-neutral-400">({formatDate(editingExpense.expense_date)})</span>
+          <span class="text-xs font-normal text-neutral-500 dark:text-neutral-400">({formatDate(editingExpense.expense_date)})</span>
         </h3>
         <button
           on:click={closeEditModal}
-          class="text-neutral-500 hover:text-neutral-200 text-lg font-bold p-1 leading-none"
+          class="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 text-lg font-bold p-1 leading-none"
         >✕</button>
       </div>
 
       {#if editError}
-        <div class="p-3 bg-red-950/60 border border-red-800 rounded-xl text-red-300 text-xs">
+        <div class="p-3 bg-rose-50 dark:bg-red-950/60 border border-rose-200 dark:border-red-800 rounded-xl text-rose-700 dark:text-red-300 text-xs">
           {editError}
         </div>
       {/if}
@@ -605,46 +617,46 @@
       <form on:submit|preventDefault={handleSaveEdit} class="space-y-3.5">
         <!-- 1. Description -->
         <div>
-          <label for="edit-expense-name" class="block text-xs font-medium text-neutral-400 mb-1">Description</label>
+          <label for="edit-expense-name" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Description</label>
           <input
             id="edit-expense-name"
             type="text"
             bind:value={editName}
-            class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+            class="input-field"
           />
         </div>
 
         <!-- 2. Amount & Date in Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
-            <label for="edit-expense-cost" class="block text-xs font-medium text-neutral-400 mb-1">Amount ({$currencySymbol})</label>
+            <label for="edit-expense-cost" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Amount ({$currencySymbol})</label>
             <input
               id="edit-expense-cost"
               type="number"
               min="0.01"
               step="0.01"
               bind:value={editCostEuros}
-              class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+              class="input-field"
             />
           </div>
           <div>
-            <label for="edit-expense-date" class="block text-xs font-medium text-neutral-400 mb-1">Date</label>
+            <label for="edit-expense-date" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Date</label>
             <input
               id="edit-expense-date"
               type="date"
               bind:value={editDate}
-              class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500 [color-scheme:dark]"
+              class="input-field"
             />
           </div>
         </div>
 
         <!-- 3. Category -->
         <div>
-          <label for="edit-expense-category" class="block text-xs font-medium text-neutral-400 mb-1">Category</label>
+          <label for="edit-expense-category" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Category</label>
           <select
             id="edit-expense-category"
             bind:value={editCategory}
-            class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+            class="select-field"
           >
             {#each $splits as s}
               <option value={s.category}>{s.category}</option>
@@ -656,11 +668,11 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
           {#if $projects.length > 0}
             <div>
-              <label for="edit-expense-project" class="block text-xs font-medium text-neutral-400 mb-1">Project</label>
+              <label for="edit-expense-project" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Project</label>
               <select
                 id="edit-expense-project"
                 bind:value={editProjectId}
-                class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                class="select-field"
               >
                 <option value={null}>— No Project —</option>
                 {#each $projects as p}
@@ -672,11 +684,11 @@
 
           {#if activeModalTags.length > 0}
             <div>
-              <label for="edit-expense-tag" class="block text-xs font-medium text-neutral-400 mb-1">Tag</label>
+              <label for="edit-expense-tag" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Tag</label>
               <select
                 id="edit-expense-tag"
                 bind:value={editTagId}
-                class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                class="select-field"
               >
                 <option value={null}>— No Tag —</option>
                 {#each activeModalTags as t}
@@ -691,10 +703,10 @@
 
         <!-- 5. Who Paid -->
         <div>
-          <p class="block text-xs font-medium text-neutral-400 mb-2">Paid by</p>
+          <p class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-2">Paid by</p>
           <div class="flex flex-wrap gap-2.5">
             {#each activeUsers as u}
-              <label class="flex items-center gap-2 text-xs text-neutral-200 cursor-pointer bg-neutral-800/80 px-3 py-1.5 rounded-lg border transition-all {editWhoPaid === u.name && !editPaidByJoint ? 'border-indigo-500 bg-indigo-950/40 text-white' : 'border-neutral-700 hover:border-neutral-600'}">
+              <label class="flex items-center gap-2 text-xs text-neutral-800 dark:text-neutral-200 cursor-pointer bg-neutral-100 dark:bg-neutral-800/80 px-3 py-1.5 rounded-lg border transition-all {editWhoPaid === u.name && !editPaidByJoint ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-white font-semibold' : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600'}">
                 <input
                   type="radio"
                   name="edit-who-paid"
@@ -712,7 +724,7 @@
             {/each}
 
             {#if $jointAccountEnabled}
-              <label class="flex items-center gap-2 text-xs text-indigo-300 cursor-pointer bg-indigo-950/60 px-3 py-1.5 rounded-lg border transition-all {editPaidByJoint ? 'border-indigo-400 bg-indigo-900/60 font-semibold' : 'border-indigo-800/60 hover:border-indigo-600'}">
+              <label class="flex items-center gap-2 text-xs text-indigo-700 dark:text-indigo-300 cursor-pointer bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1.5 rounded-lg border transition-all {editPaidByJoint ? 'border-indigo-500 bg-indigo-100 dark:bg-indigo-900/60 font-semibold' : 'border-indigo-300 dark:border-indigo-800/60 hover:border-indigo-400 dark:hover:border-indigo-600'}">
                 <input
                   type="radio"
                   name="edit-who-paid"
@@ -729,14 +741,14 @@
           </div>
 
           {#if editPaidByJoint && ($jointAccounts || []).length > 1}
-            <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1.5 animate-fadeIn">
-              <label for="edit-expense-joint-account" class="block text-xs font-semibold text-indigo-300">
+            <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700/40 space-y-1.5 animate-fadeIn">
+              <label for="edit-expense-joint-account" class="block text-xs font-semibold text-indigo-700 dark:text-indigo-300">
                 Select Joint Account
               </label>
               <select
                 id="edit-expense-joint-account"
                 bind:value={editJointAccountId}
-                class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-100 focus:outline-none focus:border-indigo-500"
+                class="select-field text-xs py-1.5"
               >
                 {#each $jointAccounts as acc}
                   <option value={acc.id}>
@@ -750,19 +762,19 @@
 
         <!-- 6. Custom Split Allocations -->
         {#if !editPaidByJoint}
-          <div class="border-t border-neutral-800 pt-3">
+          <div class="border-t border-neutral-200 dark:border-neutral-800 pt-3">
             <label class="flex items-center gap-2 cursor-pointer select-none">
               <input
                 id="edit-custom-split-toggle"
                 type="checkbox"
                 bind:checked={editCustomSplit}
-                class="rounded bg-neutral-800 border-neutral-700 text-indigo-600 focus:ring-0"
+                class="rounded bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 text-indigo-600 focus:ring-0"
               />
-              <span class="text-xs font-semibold text-neutral-300">Custom Split Allocation</span>
+              <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-300">Custom Split Allocation</span>
             </label>
 
             {#if editCustomSplit}
-              <div class="mt-2.5 p-3 bg-neutral-950/80 border border-neutral-800 rounded-xl space-y-2">
+              <div class="mt-2.5 p-3 bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 rounded-xl space-y-2">
                 {#if activeUsers.length === 2 && editUseSlider}
                   <div class="flex items-center justify-between gap-3 py-1">
                     <span class="text-xs font-semibold" style="color: {activeUsers[0].color}">
@@ -772,14 +784,14 @@
                       type="range" min="0" max="100" step="1"
                       value={editSliderVal}
                       on:input={handleEditSliderInput}
-                      class="flex-1 h-2 bg-neutral-800 rounded-lg cursor-pointer accent-indigo-500"
+                      class="flex-1 h-2 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer accent-indigo-600"
                     />
                     <span class="text-xs font-semibold" style="color: {activeUsers[1].color}">
                       {activeUsers[1].name}: {100 - editSliderVal}%
                     </span>
                   </div>
                   <div class="flex justify-between items-center text-[10px] text-neutral-500 pt-1">
-                    <button type="button" on:click={() => (editUseSlider = false)} class="underline hover:text-neutral-300">
+                    <button type="button" on:click={() => (editUseSlider = false)} class="underline hover:text-neutral-800 dark:hover:text-neutral-300">
                       Manual % Inputs
                     </button>
                     <button
@@ -789,7 +801,7 @@
                         editOverridePcts[activeUsers[0].name] = 50;
                         editOverridePcts[activeUsers[1].name] = 50;
                       }}
-                      class="hover:text-neutral-300"
+                      class="hover:text-neutral-800 dark:hover:text-neutral-300"
                     >
                       Reset 50/50
                     </button>
@@ -802,17 +814,17 @@
                         <input
                           type="number" min="0" max="100" step="1"
                           bind:value={editOverridePcts[u.name]}
-                          class="w-16 bg-neutral-800 border border-neutral-700 rounded px-2 py-1 text-xs text-neutral-100"
+                          class="w-16 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100"
                         />
                         <span class="text-xs text-neutral-500">%</span>
                       </div>
                     {/each}
                     <div class="flex items-center justify-between pt-1">
-                      <span class="text-[10px] {editOverrideOk ? 'text-emerald-400' : 'text-amber-400'} font-semibold">
+                      <span class="text-[10px] {editOverrideOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'} font-semibold">
                         Sum: {editOverrideSum}% (must equal 100%)
                       </span>
                       {#if activeUsers.length === 2}
-                        <button type="button" on:click={() => (editUseSlider = true)} class="text-[10px] underline text-neutral-500 hover:text-neutral-300">
+                        <button type="button" on:click={() => (editUseSlider = true)} class="text-[10px] underline text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300">
                           Use Slider
                         </button>
                       {/if}
@@ -824,11 +836,11 @@
           </div>
         {/if}
 
-        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-neutral-800">
+        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-neutral-200 dark:border-neutral-800">
           <button
             type="button"
             on:click={closeEditModal}
-            class="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors"
+            class="btn-secondary text-xs py-2 px-4"
           >
             Cancel
           </button>
@@ -836,7 +848,7 @@
             id="save-expense-edit-btn"
             type="submit"
             disabled={editSaving}
-            class="px-5 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50 transition-colors shadow-md shadow-indigo-600/30"
+            class="btn-primary text-xs py-2 px-5"
           >
             {editSaving ? 'Saving…' : 'Save Changes'}
           </button>

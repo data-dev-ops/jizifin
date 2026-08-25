@@ -2,13 +2,10 @@
   /**
    * UserManager.svelte
    *
-   * Settings panel for managing household members.
-   * Allows adding new users with a name and colour, toggling active/inactive
-   * status, and editing colours for existing users.
-   *
-   * Active users appear in expense / income / recurring "who paid" dropdowns.
-   * Deactivated users are hidden from those dropdowns but their historical
-   * data is preserved. They are also visible in the Query tab preset.
+   * Settings panel for managing household members with full Light/Dark mode theming:
+   *  - Add new users with a name and colour
+   *  - Toggle active/inactive status
+   *  - Edit avatar colours for existing users
    */
 
   import { users } from './stores.js';
@@ -56,7 +53,6 @@
       await updateUser(user.name, { is_active: !user.is_active });
       await fetchUsers(true);
     } catch (e) {
-      // Surface error gracefully — user sees no change
       console.error(e);
     }
   }
@@ -100,14 +96,14 @@
 
   <!-- ── Active users ─────────────────────────────────────────────────────── -->
   <section>
-    <h2 class="text-sm font-semibold text-neutral-300 mb-4">Active Members</h2>
+    <h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-4">Active Members</h2>
 
     {#if activeUsers.length === 0}
       <p class="text-neutral-500 text-sm">No active users. Add one below.</p>
     {:else}
       <div class="space-y-2">
         {#each activeUsers as user (user.name)}
-          <div class="flex items-center gap-3 bg-neutral-800/50 border border-neutral-700/60 rounded-xl px-4 py-3">
+          <div class="flex items-center gap-3 bg-white dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700/60 rounded-xl px-4 py-3 shadow-sm">
 
             <!-- Avatar -->
             <div
@@ -118,7 +114,7 @@
             </div>
 
             <!-- Name -->
-            <span class="flex-1 text-sm font-semibold text-neutral-100">{user.name}</span>
+            <span class="flex-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{user.name}</span>
 
             <!-- Colour swatch / editor -->
             {#if editingColor[user.name] !== undefined}
@@ -132,25 +128,25 @@
                 <button
                   on:click={() => saveColor(user.name)}
                   disabled={colorSaving[user.name]}
-                  class="text-xs px-2.5 py-1 rounded-lg bg-emerald-700 hover:bg-emerald-600 text-white font-semibold disabled:opacity-40 transition-colors"
+                  class="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-40 transition-colors cursor-pointer"
                 >
                   {colorSaving[user.name] ? '…' : 'Save'}
                 </button>
                 <button
                   on:click={() => cancelEditColor(user.name)}
-                  class="text-xs px-2.5 py-1 rounded-lg bg-neutral-700 hover:bg-neutral-600 text-neutral-300 transition-colors"
+                  class="btn-secondary text-xs px-2.5 py-1"
                 >
                   Cancel
                 </button>
                 {#if colorError[user.name]}
-                  <span class="text-xs text-red-400">{colorError[user.name]}</span>
+                  <span class="text-xs text-rose-600 dark:text-red-400">{colorError[user.name]}</span>
                 {/if}
               </div>
             {:else}
               <button
                 on:click={() => startEditColor(user)}
                 title="Edit colour"
-                class="w-7 h-7 rounded-full border-2 border-neutral-600 hover:border-neutral-400 transition-colors flex-none cursor-pointer"
+                class="w-7 h-7 rounded-full border-2 border-neutral-300 dark:border-neutral-600 hover:border-neutral-500 dark:hover:border-neutral-400 transition-colors flex-none cursor-pointer shadow-sm"
                 style="background-color: {user.color}"
               ></button>
             {/if}
@@ -159,9 +155,9 @@
             <button
               on:click={() => toggleActive(user)}
               title="Deactivate user"
-              class="text-xs px-3 py-1.5 rounded-lg bg-neutral-700 hover:bg-amber-800/60
-                     text-neutral-400 hover:text-amber-300 border border-neutral-600
-                     hover:border-amber-700/60 transition-all font-medium"
+              class="text-xs px-3 py-1.5 rounded-lg bg-neutral-100 dark:bg-neutral-700 hover:bg-amber-100 dark:hover:bg-amber-800/60
+                     text-neutral-600 dark:text-neutral-300 hover:text-amber-800 dark:hover:text-amber-300 border border-neutral-200 dark:border-neutral-600
+                     hover:border-amber-300 dark:hover:border-amber-700/60 transition-all font-medium cursor-pointer"
             >
               Deactivate
             </button>
@@ -173,17 +169,17 @@
 
   <!-- ── Add new user ──────────────────────────────────────────────────────── -->
   <section>
-    <h2 class="text-sm font-semibold text-neutral-300 mb-4">Add New Member</h2>
+    <h2 class="text-sm font-semibold text-neutral-700 dark:text-neutral-300 mb-4">Add New Member</h2>
 
-    <div class="bg-neutral-800/40 border border-neutral-700/60 rounded-xl p-4 space-y-3">
+    <div class="card p-4 space-y-3">
       {#if addError}
-        <p class="text-xs text-red-400 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">{addError}</p>
+        <p class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-900 rounded-lg px-3 py-2">{addError}</p>
       {/if}
 
       <div class="flex flex-wrap gap-3 items-end">
         <!-- Name input -->
         <div class="flex-1 min-w-[160px]">
-          <label for="new-user-name" class="block text-xs font-medium text-neutral-500 mb-1.5">Name</label>
+          <label for="new-user-name" class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">Name</label>
           <input
             id="new-user-name"
             type="text"
@@ -191,27 +187,25 @@
             placeholder="e.g. Alex"
             bind:value={newName}
             on:keydown={(e) => e.key === 'Enter' && handleAdd()}
-            class="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2.5 text-sm
-                   text-neutral-100 placeholder-neutral-600
-                   focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition-colors"
+            class="input-field"
           />
         </div>
 
         <!-- Colour picker -->
         <div>
-          <label for="new-user-color" class="block text-xs font-medium text-neutral-500 mb-1.5">Colour</label>
+          <label for="new-user-color" class="block text-xs font-medium text-neutral-500 dark:text-neutral-400 mb-1.5">Colour</label>
           <div class="flex items-center gap-2">
             <input
               id="new-user-color"
               type="color"
               bind:value={newColor}
-              class="w-10 h-10 rounded-lg cursor-pointer border border-neutral-700 bg-neutral-900 p-1"
+              class="w-10 h-10 rounded-lg cursor-pointer border border-neutral-300 dark:border-neutral-700 bg-neutral-100 dark:bg-neutral-900 p-1"
               title="Pick avatar colour"
             />
             <button
               type="button"
               on:click={() => (newColor = getRandomPastelColor())}
-              class="p-2 rounded-lg bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 text-neutral-300 hover:text-white transition-colors"
+              class="p-2 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-neutral-700 text-neutral-700 dark:text-neutral-300 transition-colors cursor-pointer"
               title="Randomize pastel colour"
               aria-label="Randomize pastel colour"
             >
@@ -234,9 +228,7 @@
           id="add-user-btn"
           on:click={handleAdd}
           disabled={addSaving}
-          class="px-4 py-2.5 rounded-lg text-sm font-semibold
-                 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed
-                 transition-colors shadow-sm"
+          class="btn-primary h-[42px] cursor-pointer"
         >
           {addSaving ? 'Adding…' : '+ Add Member'}
         </button>
@@ -248,29 +240,29 @@
   {#if inactiveUsers.length > 0}
     <section>
       <h2 class="text-sm font-semibold text-neutral-500 mb-4">Deactivated Members</h2>
-      <p class="text-xs text-neutral-600 mb-3">
+      <p class="text-xs text-neutral-500 dark:text-neutral-600 mb-3">
         Deactivated members are hidden from expense/income entry forms but their
         historical data is fully preserved.
       </p>
 
       <div class="space-y-2">
         {#each inactiveUsers as user (user.name)}
-          <div class="flex items-center gap-3 bg-neutral-900/60 border border-neutral-800 rounded-xl px-4 py-3 opacity-60">
+          <div class="flex items-center gap-3 bg-neutral-100/60 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 rounded-xl px-4 py-3 opacity-60">
             <div
               class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white/60 flex-none grayscale"
               style="background-color: {user.color}"
             >
               {initial(user.name)}
             </div>
-            <span class="flex-1 text-sm font-medium text-neutral-500">{user.name}</span>
-            <span class="text-[11px] text-neutral-600 px-2 py-0.5 rounded-full border border-neutral-700">inactive</span>
+            <span class="flex-1 text-sm font-medium text-neutral-600 dark:text-neutral-400">{user.name}</span>
+            <span class="text-[11px] text-neutral-500 px-2 py-0.5 rounded-full border border-neutral-300 dark:border-neutral-700">inactive</span>
 
             <!-- Reactivate button -->
             <button
               on:click={() => toggleActive(user)}
-              class="text-xs px-3 py-1.5 rounded-lg bg-neutral-800 hover:bg-emerald-900/50
-                     text-neutral-400 hover:text-emerald-300 border border-neutral-700
-                     hover:border-emerald-700/60 transition-all font-medium"
+              class="text-xs px-3 py-1.5 rounded-lg bg-neutral-200 dark:bg-neutral-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/50
+                     text-neutral-700 dark:text-neutral-400 hover:text-emerald-800 dark:hover:text-emerald-300 border border-neutral-300 dark:border-neutral-700
+                     hover:border-emerald-300 dark:hover:border-emerald-700/60 transition-all font-medium cursor-pointer"
             >
               Reactivate
             </button>
@@ -279,8 +271,8 @@
             <button
               on:click={() => handleDelete(user.name)}
               title="Permanently delete (only works if no history)"
-              class="text-xs px-2 py-1.5 rounded-lg text-neutral-600 hover:text-red-400
-                     hover:bg-red-950/30 transition-colors"
+              class="text-xs px-2 py-1.5 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400
+                     hover:bg-rose-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
             >
               ✕
             </button>

@@ -2,19 +2,16 @@
   /**
    * RealtimeChart.svelte
    *
-   * Renders a Chart.js line chart on a <canvas> element.
-   * - Rebuilds itself reactively whenever the `expenses` store changes or
-   *   `selectedMonth` changes, filtering to only show the selected month.
+   * Renders a Chart.js line chart on a <canvas> element with full reactive theming.
+   * - Rebuilds itself reactively whenever the `expenses` store changes,
+   *   `selectedMonth` changes, or `theme` changes.
    * - Also opens a WebSocket to /ws/finance and pushes `expense_created`
-   *   ticks directly onto the chart instance when they belong to the current
-   *   selected month.
-   * - On deletion the store update triggers a full reactive rebuild, keeping
-   *   the chart in sync automatically.
+   *   ticks directly onto the chart instance.
    */
 
   import { onMount, onDestroy } from 'svelte';
   import Chart from 'chart.js/auto';
-  import { expenses, selectedMonth, currencySymbol, sessionToken } from './stores.js';
+  import { expenses, selectedMonth, currencySymbol, sessionToken, theme } from './stores.js';
 
   const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const WS_URL = `${wsProtocol}//${window.location.host}/api/ws/finance`;
@@ -24,12 +21,58 @@
   let ws;
   let wsStatus = 'connecting'; // 'connecting' | 'open' | 'closed'
 
+  function getIsDark() {
+    if (typeof document === 'undefined') return true;
+    return document.documentElement.classList.contains('dark');
+  }
+
   // ── Gradient fill factory (called after canvas is mounted) ────────────────
-  function makeGradient(ctx) {
+  function makeGradient(ctx, isDark) {
     const gradient = ctx.createLinearGradient(0, 0, 0, 300);
-    gradient.addColorStop(0, 'rgba(99, 102, 241, 0.25)');
-    gradient.addColorStop(1, 'rgba(99, 102, 241, 0.00)');
+    if (isDark) {
+      gradient.addColorStop(0, 'rgba(99, 102, 241, 0.35)');
+      gradient.addColorStop(1, 'rgba(99, 102, 241, 0.00)');
+    } else {
+      gradient.addColorStop(0, 'rgba(99, 102, 241, 0.25)');
+      gradient.addColorStop(1, 'rgba(99, 102, 241, 0.00)');
+    }
     return gradient;
+  }
+
+  // ── Apply theme colors to chart instance ──────────────────────────────────
+  function applyChartTheme() {
+    if (!chart || !canvas) return;
+    const isDark = getIsDark();
+    const ctx = canvas.getContext('2d');
+    const gradient = makeGradient(ctx, isDark);
+
+    chart.data.datasets[0].backgroundColor = gradient;
+    chart.data.datasets[0].pointBorderColor = isDark ? '#080c14' : '#ffffff';
+    
+    // Legend & tooltips
+    if (chart.options.plugins?.legend?.labels) {
+      chart.options.plugins.legend.labels.color = isDark ? '#9ca3af' : '#64748b';
+    }
+    if (chart.options.plugins?.tooltip) {
+      chart.options.plugins.tooltip.backgroundColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+      chart.options.plugins.tooltip.titleColor = isDark ? '#f1f5f9' : '#0f172a';
+      chart.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#475569';
+      chart.options.plugins.tooltip.borderColor = isDark ? 'rgba(99, 102, 241, 0.4)' : 'rgba(99, 102, 241, 0.25)';
+    }
+
+    // Scales
+    if (chart.options.scales?.x) {
+      chart.options.scales.x.ticks.color = isDark ? '#9ca3af' : '#64748b';
+      chart.options.scales.x.grid.color = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+      chart.options.scales.x.border.color = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    }
+    if (chart.options.scales?.y) {
+      chart.options.scales.y.ticks.color = isDark ? '#9ca3af' : '#64748b';
+      chart.options.scales.y.grid.color = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+      chart.options.scales.y.border.color = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)';
+    }
+
+    chart.update('none');
   }
 
   // ── Rebuild chart from expenses store filtered by selectedMonth ────────────
@@ -41,12 +84,17 @@
 
     chart.data.labels = filtered.map((r) => r.expense_date);
     chart.data.datasets[0].data = filtered.map((r) => r.cost_cents / 100);
-    chart.update('none'); // no animation on bulk rebuild
+    chart.update('none');
   }
 
   // React to store changes (add, delete, month change)
   $: if (chart) {
     rebuildChart($expenses, $selectedMonth);
+  }
+
+  // React to theme store changes
+  $: if (chart && $theme) {
+    applyChartTheme();
   }
 
   // ── WebSocket connection with auto-reconnect ──────────────────────────────
@@ -84,8 +132,9 @@
   }
 
   onMount(() => {
+    const isDark = getIsDark();
     const ctx = canvas.getContext('2d');
-    const gradient = makeGradient(ctx);
+    const gradient = makeGradient(ctx, isDark);
 
     chart = new Chart(ctx, {
       type: 'line',
@@ -100,7 +149,7 @@
             fill:                 true,
             tension:              0.45,
             pointBackgroundColor: '#6366f1',
-            pointBorderColor:     '#030712',
+            pointBorderColor:     isDark ? '#080c14' : '#ffffff',
             pointBorderWidth:     2,
             pointRadius:          4,
             pointHoverRadius:     7,
@@ -115,18 +164,18 @@
         plugins: {
           legend: {
             labels: {
-              color:     '#9ca3af',
-              font:      { family: 'Inter, system-ui, sans-serif', size: 12 },
+              color:     isDark ? '#9ca3af' : '#64748b',
+              font:      { family: 'Plus Jakarta Sans, Inter, system-ui, sans-serif', size: 12 },
               boxWidth:  10,
               boxHeight: 10,
             },
           },
           tooltip: {
-            backgroundColor: 'rgba(15, 15, 25, 0.9)',
-            borderColor:     'rgba(99, 102, 241, 0.4)',
+            backgroundColor: isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)',
+            borderColor:     isDark ? 'rgba(99, 102, 241, 0.4)' : 'rgba(99, 102, 241, 0.25)',
             borderWidth:     1,
-            titleColor:      '#e5e7eb',
-            bodyColor:       '#9ca3af',
+            titleColor:      isDark ? '#f1f5f9' : '#0f172a',
+            bodyColor:       isDark ? '#cbd5e1' : '#475569',
             padding:         10,
             callbacks: {
               label: (ctx) => ` ${$currencySymbol}${Number(ctx.raw).toFixed(2)}`,
@@ -136,28 +185,29 @@
         scales: {
           x: {
             ticks: {
-              color:         '#6b7280',
+              color:         isDark ? '#9ca3af' : '#64748b',
               maxTicksLimit: 12,
               font:          { size: 11 },
             },
-            grid:   { color: 'rgba(255,255,255,0.04)' },
-            border: { color: 'rgba(255,255,255,0.08)' },
+            grid:   { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+            border: { color: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' },
           },
           y: {
             ticks: {
-              color:    '#6b7280',
+              color:    isDark ? '#9ca3af' : '#64748b',
               font:     { size: 11 },
               callback: (v) => `${$currencySymbol}${v}`,
             },
-            grid:   { color: 'rgba(255,255,255,0.04)' },
-            border: { color: 'rgba(255,255,255,0.08)' },
+            grid:   { color: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' },
+            border: { color: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)' },
           },
         },
       },
     });
 
-    // Seed from the store (already loaded by fetchAllData in App.svelte)
+    // Seed from the store
     rebuildChart($expenses, $selectedMonth);
+    applyChartTheme();
     connect();
   });
 

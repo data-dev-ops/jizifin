@@ -222,7 +222,7 @@
 
   <!-- 1. Description (Name) -->
   <div>
-    <label for="expense-name" class="block text-xs font-medium text-neutral-400 mb-1.5">
+    <label for="expense-name" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
       Description
     </label>
     <input
@@ -237,7 +237,7 @@
 
   <!-- 2. Amount -->
   <div>
-    <label for="expense-cost" class="block text-xs font-medium text-neutral-400 mb-1.5">
+    <label for="expense-cost" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
       Amount ({$currencySymbol})
     </label>
     <div class="relative">
@@ -256,7 +256,7 @@
 
   <!-- 3. Date -->
   <div>
-    <label for="expense-date" class="block text-xs font-medium text-neutral-400 mb-1.5">
+    <label for="expense-date" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
       Date
     </label>
     <input
@@ -270,8 +270,8 @@
   <!-- 4. Project (above categories, shown only if projects exist and feature enabled) -->
   {#if $showProjectsInExpense && $projects.length > 0}
     <div>
-      <label for="expense-project" class="block text-xs font-medium text-neutral-400 mb-1.5">
-        Project <span class="text-neutral-600">(optional)</span>
+      <label for="expense-project" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
+        Project <span class="text-neutral-500 dark:text-neutral-600">(optional)</span>
       </label>
       <select
         id="expense-project"
@@ -289,7 +289,7 @@
   <!-- 5. Category (dropdown, hidden if project disables subcategories) -->
   {#if !hideCategory}
     <div>
-      <label for="expense-category" class="block text-xs font-medium text-neutral-400 mb-1.5">
+      <label for="expense-category" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
         Category
       </label>
       <select
@@ -308,8 +308,8 @@
   <!-- 6. Tag (dropdown) — only visible when active tags exist -->
   {#if activeTags.length > 0}
     <div>
-      <label for="expense-tag" class="block text-xs font-medium text-neutral-400 mb-1.5">
-        Tag <span class="text-neutral-600">(optional)</span>
+      <label for="expense-tag" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
+        Tag <span class="text-neutral-500 dark:text-neutral-600">(optional)</span>
       </label>
       <select
         id="expense-tag"
@@ -328,10 +328,10 @@
 
   <!-- 7. Who paid (Final field) -->
   <div>
-    <p id="who-paid-label" class="block text-xs font-medium text-neutral-400 mb-2.5">Who paid?</p>
+    <p id="who-paid-label" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-2.5">Who paid?</p>
     <div class="flex flex-wrap gap-3">
       {#each activeUsers as u (u.name)}
-        <label class="flex items-center gap-2.5 text-sm text-neutral-300 cursor-pointer select-none hover:text-white transition-colors group">
+        <label class="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none hover:text-neutral-900 dark:hover:text-white transition-colors group">
           <div class="relative flex items-center justify-center">
             <input
               type="checkbox"
@@ -345,7 +345,7 @@
             />
             <div
               class="w-5 h-5 rounded border transition-all duration-150 flex items-center justify-center
-                     {whoPaid === u.name && !paidByJoint ? 'text-white shadow-sm' : 'bg-neutral-800 border-neutral-700 group-hover:border-neutral-500'}"
+                     {whoPaid === u.name && !paidByJoint ? 'text-white shadow-sm' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 group-hover:border-neutral-400 dark:group-hover:border-neutral-500'}"
               style={whoPaid === u.name && !paidByJoint ? `background-color:${u.color};border-color:${u.color}` : ''}
             >
               {#if whoPaid === u.name && !paidByJoint}
@@ -361,7 +361,7 @@
 
       {#if $jointAccountEnabled || $jointAccount}
         <!-- Paid by Joint Account option -->
-        <label class="flex items-center gap-2.5 text-sm text-indigo-300 cursor-pointer select-none hover:text-indigo-200 transition-colors group border border-indigo-500/30 bg-indigo-500/10 px-3 py-1.5 rounded-lg">
+        <label class="flex items-center gap-2.5 text-sm text-indigo-700 dark:text-indigo-300 cursor-pointer select-none hover:opacity-90 transition-colors group border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 rounded-lg">
           <div class="relative flex items-center justify-center">
             <input
               type="checkbox"
@@ -377,7 +377,7 @@
             />
             <div
               class="w-5 h-5 rounded border transition-all duration-150 flex items-center justify-center
-                     {paidByJoint ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm' : 'bg-neutral-800 border-neutral-700 group-hover:border-neutral-500'}"
+                     {paidByJoint ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 group-hover:border-neutral-400 dark:group-hover:border-neutral-500'}"
             >
               {#if paidByJoint}
                 <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
@@ -393,8 +393,8 @@
 
     <!-- Joint Account Selector (if multiple exist) -->
     {#if paidByJoint && ($jointAccounts || []).length > 1}
-      <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1.5 animate-fadeIn">
-        <label for="expense-joint-account" class="block text-xs font-semibold text-indigo-300">
+      <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700/40 space-y-1.5 animate-fadeIn">
+        <label for="expense-joint-account" class="block text-xs font-semibold text-indigo-700 dark:text-indigo-300">
           Select Joint Account
         </label>
         <select
@@ -414,8 +414,8 @@
 
   <!-- Warning for uncoupled joint category -->
   {#if isUncoupledJointCategory}
-    <div class="p-2.5 bg-amber-950/40 border border-amber-800/60 text-amber-300 rounded-lg text-xs flex items-center gap-2">
-      <span class="text-amber-400 font-bold">⚠️</span>
+    <div class="p-2.5 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 text-amber-800 dark:text-amber-300 rounded-lg text-xs flex items-center gap-2">
+      <span class="text-amber-500 dark:text-amber-400 font-bold">⚠️</span>
       <span>Category &ldquo;<strong>{category}</strong>&rdquo; is not in the coupled Joint Account categories list. The expense will still be saved to the joint account.</span>
     </div>
   {/if}
@@ -425,13 +425,13 @@
     <label class="flex items-center gap-2.5 cursor-pointer select-none group">
       <div class="relative">
         <input type="checkbox" bind:checked={customSplit} class="sr-only" id="custom-split-toggle" />
-        <div class="w-10 h-5 rounded-full transition-colors duration-200 {customSplit ? 'bg-indigo-600' : 'bg-neutral-700'}"></div>
+        <div class="w-10 h-5 rounded-full transition-colors duration-200 {customSplit ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"></div>
         <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 {customSplit ? 'translate-x-5' : ''}"></div>
       </div>
-      <span class="text-xs font-medium text-neutral-400 group-hover:text-neutral-200 transition-colors">Custom Split</span>
+      <span class="text-xs font-medium text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors">Custom Split</span>
     </label>
     {#if customSplit}
-      <div class="mt-3 p-3 bg-neutral-900 border border-indigo-800/40 rounded-xl space-y-2">
+      <div class="mt-3 p-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-indigo-800/40 rounded-xl space-y-2">
         {#if activeUsers.length === 2 && useSlider}
           <!-- Slider split view -->
           <div class="flex items-center justify-between gap-4 py-2">
@@ -439,7 +439,7 @@
               <span class="text-xs font-semibold block truncate" style="color: {activeUsers[0].color}">
                 {activeUsers[0].name}
               </span>
-              <span class="text-lg font-bold text-neutral-100">{Math.round(overridePcts[activeUsers[0].name] ?? 50)}%</span>
+              <span class="text-lg font-bold text-neutral-900 dark:text-neutral-100">{Math.round(overridePcts[activeUsers[0].name] ?? 50)}%</span>
             </div>
 
             <div class="flex-1 relative flex items-center">
@@ -450,7 +450,7 @@
                 step="1"
                 value={sliderVal}
                 on:input={handleSliderInput}
-                class="w-full h-2 bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                class="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-lg appearance-none cursor-pointer accent-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                 style="background: linear-gradient(to right, {activeUsers[0].color} 0%, {activeUsers[0].color} {sliderVal}%, {activeUsers[1].color} {sliderVal}%, {activeUsers[1].color} 100%);"
               />
             </div>
@@ -459,15 +459,15 @@
               <span class="text-xs font-semibold block truncate" style="color: {activeUsers[1].color}">
                 {activeUsers[1].name}
               </span>
-              <span class="text-lg font-bold text-neutral-100">{Math.round(overridePcts[activeUsers[1].name] ?? 50)}%</span>
+              <span class="text-lg font-bold text-neutral-900 dark:text-neutral-100">{Math.round(overridePcts[activeUsers[1].name] ?? 50)}%</span>
             </div>
           </div>
 
-          <div class="pt-1 flex justify-between items-center text-[10px] text-neutral-500 border-t border-neutral-850 pt-2 mt-1">
+          <div class="pt-1 flex justify-between items-center text-[10px] text-neutral-500 border-t border-neutral-200 dark:border-neutral-800 pt-2 mt-1">
             <button
               type="button"
               on:click={() => useSlider = false}
-              class="hover:text-neutral-300 transition-colors underline"
+              class="hover:text-neutral-800 dark:hover:text-neutral-300 transition-colors underline"
             >
               Switch to manual inputs
             </button>
@@ -478,7 +478,7 @@
                 overridePcts[activeUsers[0].name] = 50;
                 overridePcts[activeUsers[1].name] = 50;
               }}
-              class="hover:text-neutral-300 transition-colors"
+              class="hover:text-neutral-800 dark:hover:text-neutral-300 transition-colors"
             >
               Reset to 50/50
             </button>
@@ -491,33 +491,33 @@
               <input
                 type="number" min="0" max="100" step="1"
                 bind:value={overridePcts[u.name]}
-                class="w-20 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-100
+                class="w-20 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1.5 text-sm text-neutral-900 dark:text-neutral-100
                        focus:outline-none focus:ring-1 transition-colors"
                 style="--tw-ring-color: {u.color}"
               />
               <span class="text-xs text-neutral-500">%</span>
-              <div class="flex-1 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
+              <div class="flex-1 h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
                 <div class="h-full transition-all" style="width:{Math.min(parseFloat(overridePcts[u.name])||0, 100)}%; background-color:{u.color}"></div>
               </div>
             </div>
           {/each}
           
           <div class="pt-1 flex items-center justify-between">
-            <p class="text-[10px] text-neutral-600">Must sum to exactly 100%.</p>
-            <span class="text-[10px] font-semibold {overrideOk ? 'text-emerald-400' : 'text-amber-400'}">
+            <p class="text-[10px] text-neutral-500 dark:text-neutral-600">Must sum to exactly 100%.</p>
+            <span class="text-[10px] font-semibold {overrideOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
               Sum: {overrideSum}%
             </span>
           </div>
 
           {#if activeUsers.length === 2}
-            <div class="pt-1 flex justify-start border-t border-neutral-850 pt-2 mt-1">
+            <div class="pt-1 flex justify-start border-t border-neutral-200 dark:border-neutral-800 pt-2 mt-1">
               <button
                 type="button"
                 on:click={() => {
                   useSlider = true;
                   sliderVal = overridePcts[activeUsers[0].name] || 50;
                 }}
-                class="text-[10px] text-neutral-500 hover:text-neutral-300 transition-colors underline"
+                class="text-[10px] text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300 transition-colors underline"
               >
                 Switch to slider
               </button>
@@ -530,7 +530,7 @@
 
   <!-- Lock warning -->
   {#if isMonthLocked}
-    <div class="flex items-center gap-2 bg-amber-950/40 border border-amber-700/50 text-amber-400 rounded-lg px-3 py-2 text-xs">
+    <div class="flex items-center gap-2 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-700/50 text-amber-800 dark:text-amber-400 rounded-lg px-3 py-2 text-xs">
       <svg class="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
         <path fill-rule="evenodd" d="M10 1a4.5 4.5 0 00-4.5 4.5V9H5a2 2 0 00-2 2v6a2 2 0 002 2h10a2 2 0 002-2v-6a2 2 0 00-2-2h-.5V5.5A4.5 4.5 0 0010 1zm3 8V5.5a3 3 0 10-6 0V9h6z" clip-rule="evenodd"/>
       </svg>
@@ -540,21 +540,21 @@
 
   <!-- Feedback -->
   {#if errorMsg}
-    <p class="text-red-400 text-xs bg-red-950/40 border border-red-900 rounded-lg px-3 py-2" transition:fly={{ y: -6, duration: 250 }}>
+    <p class="text-rose-700 dark:text-red-400 text-xs bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-900 rounded-lg px-3 py-2" transition:fly={{ y: -6, duration: 250 }}>
       {errorMsg}
     </p>
   {/if}
   {#if successName}
-    <!-- svelte-ignore a11y-click-events-have-key-events -->
-    <!-- svelte-ignore a11y-no-static-element-interactions -->
-    <p class="text-emerald-400 text-xs bg-emerald-950/40 border border-emerald-900 rounded-lg px-3 py-2
-              flex items-center justify-between gap-2 cursor-pointer"
-       transition:fly={{ y: -6, duration: 250 }}
-       on:click={dismissSuccess}
-       title="Click to dismiss">
+    <button
+      type="button"
+      class="text-emerald-700 dark:text-emerald-400 text-xs bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900 rounded-lg px-3 py-2
+             flex items-center justify-between gap-2 cursor-pointer w-full text-left"
+      transition:fly={{ y: -6, duration: 250 }}
+      on:click={dismissSuccess}
+      title="Click to dismiss">
       <span>✓ &ldquo;{successName}&rdquo; logged successfully.</span>
-      <span class="text-emerald-700 hover:text-emerald-400 transition-colors text-xs leading-none" aria-hidden="true">✕</span>
-    </p>
+      <span class="text-emerald-600 dark:text-emerald-400 hover:opacity-80 transition-colors text-xs leading-none" aria-hidden="true">✕</span>
+    </button>
   {/if}
 
   <!-- Submit -->
@@ -576,3 +576,4 @@
     {/if}
   </button>
 </form>
+

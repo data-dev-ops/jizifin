@@ -47,9 +47,10 @@ export function hslToHex(h, s, l) {
  * @returns {string} Hex colour string
  */
 export function getRandomPastelColor() {
-  const h = Math.floor(Math.random() * 360);
-  const s = Math.floor(Math.random() * 20) + 65; // 65% - 85%
-  const l = Math.floor(Math.random() * 8) + 68;  // 68% - 75%
+  // Math.random() is intentional here — generates aesthetic UI tag colours, not cryptographic values.
+  const h = Math.floor(Math.random() * 360); // NOSONAR
+  const s = Math.floor(Math.random() * 20) + 65; // NOSONAR (range: 65%–85% saturation)
+  const l = Math.floor(Math.random() * 8) + 68; // NOSONAR (range: 68%–75% lightness)
 
   return hslToHex(h, s, l);
 }

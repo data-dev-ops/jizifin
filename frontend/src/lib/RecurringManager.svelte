@@ -1,4 +1,10 @@
 <script>
+  /**
+   * RecurringManager.svelte
+   *
+   * Manage recurring subscriptions, utilities, and fixed commitments with full Light/Dark mode theming.
+   */
+
   import { recurringExpenses, splits, users, currencySymbol, selectedMonth, jointAccounts, activeJointAccountId } from './stores.js';
   import { createRecurring, updateRecurring, deleteRecurring } from './api.js';
 
@@ -346,18 +352,18 @@
   function getFrequencyBadge(freq) {
     switch (freq) {
       case 'weekly':
-        return { label: 'Weekly', icon: '⚡', color: 'bg-emerald-950/80 text-emerald-300 border-emerald-800/60' };
+        return { label: 'Weekly', icon: '⚡', color: 'badge-emerald' };
       case 'biweekly':
-        return { label: 'Biweekly', icon: '⚡', color: 'bg-teal-950/80 text-teal-300 border-teal-800/60' };
+        return { label: 'Biweekly', icon: '⚡', color: 'badge-indigo' };
       case '4-weekly':
-        return { label: '4-Weekly', icon: '🔄', color: 'bg-cyan-950/80 text-cyan-300 border-cyan-800/60' };
+        return { label: '4-Weekly', icon: '🔄', color: 'badge-indigo' };
       case 'quarterly':
-        return { label: 'Quarterly', icon: '📅', color: 'bg-purple-950/80 text-purple-300 border-purple-800/60' };
+        return { label: 'Quarterly', icon: '📅', color: 'badge-amber' };
       case 'annual':
-        return { label: 'Annual', icon: '🌟', color: 'bg-amber-950/80 text-amber-300 border-amber-800/60' };
+        return { label: 'Annual', icon: '🌟', color: 'badge-amber' };
       case 'monthly':
       default:
-        return { label: 'Monthly', icon: '🗓️', color: 'bg-sky-950/80 text-sky-300 border-sky-800/60' };
+        return { label: 'Monthly', icon: '🗓️', color: 'badge-indigo' };
     }
   }
 </script>
@@ -366,31 +372,31 @@
   <!-- ── Header & Month Context ──────────────────────────────────────── -->
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
     <div>
-      <h2 class="text-lg font-bold text-neutral-100 flex items-center gap-2">
+      <h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
         <span>Recurring Commitments</span>
-        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-neutral-800 text-neutral-300 border border-neutral-700">
+        <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
           {activeCommitmentsCount} Active
         </span>
       </h2>
-      <p class="text-xs text-neutral-400 mt-0.5">
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
         Manage automated subscriptions, fixed bills, and flexible frequency schedules.
       </p>
     </div>
 
     <!-- Month Switcher for projection preview -->
-    <div class="inline-flex items-center gap-2 bg-neutral-900 border border-neutral-800 rounded-xl px-3 py-1.5 self-start sm:self-auto shadow-sm">
-      <span class="text-xs text-neutral-400 font-medium">Viewing for:</span>
+    <div class="inline-flex items-center gap-2 bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-xl px-3 py-1.5 self-start sm:self-auto shadow-sm">
+      <span class="text-xs text-neutral-500 dark:text-neutral-400 font-medium">Viewing for:</span>
       <button
         type="button"
         on:click={() => shiftMonth(-1)}
-        class="w-6 h-6 flex items-center justify-center rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors text-sm cursor-pointer"
+        class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-sm cursor-pointer"
         aria-label="Previous month"
       >‹</button>
-      <span class="text-xs font-bold text-indigo-400 tabular-nums">{monthLabel}</span>
+      <span class="text-xs font-bold text-indigo-600 dark:text-indigo-400 tabular-nums">{monthLabel}</span>
       <button
         type="button"
         on:click={() => shiftMonth(1)}
-        class="w-6 h-6 flex items-center justify-center rounded text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors text-sm cursor-pointer"
+        class="w-6 h-6 flex items-center justify-center rounded text-neutral-500 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-sm cursor-pointer"
         aria-label="Next month"
       >›</button>
     </div>
@@ -399,15 +405,15 @@
   <!-- ── Summary KPI Cards ────────────────────────────────────────────── -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
     <!-- Month Total Commitment -->
-    <div class="card-sub p-4 flex flex-col justify-between relative overflow-hidden group">
+    <div class="card p-4 flex flex-col justify-between relative overflow-hidden group">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-medium text-neutral-400">Total in {monthLabel}</span>
-        <span class="text-xs px-2 py-0.5 rounded bg-indigo-950/80 text-indigo-300 font-semibold border border-indigo-800/50">
+        <span class="text-xs font-medium text-neutral-500 dark:text-neutral-400">Total in {monthLabel}</span>
+        <span class="badge-indigo">
           Committed
         </span>
       </div>
       <div class="flex items-baseline gap-2">
-        <span class="text-2xl font-extrabold text-neutral-100 tabular-nums">
+        <span class="text-2xl font-extrabold text-neutral-900 dark:text-neutral-100 tabular-nums">
           {$currencySymbol}{(totalMonthCommitmentCents / 100).toFixed(2)}
         </span>
       </div>
@@ -417,18 +423,18 @@
     </div>
 
     <!-- Active Schedules Count -->
-    <div class="card-sub p-4 flex flex-col justify-between">
+    <div class="card p-4 flex flex-col justify-between">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-medium text-neutral-400">Active Schedules</span>
-        <span class="text-xs px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 font-semibold border border-emerald-800/50">
+        <span class="text-xs font-medium text-neutral-500 dark:text-neutral-400">Active Schedules</span>
+        <span class="badge-emerald">
           Status
         </span>
       </div>
       <div class="flex items-baseline gap-2">
-        <span class="text-2xl font-extrabold text-neutral-100 tabular-nums">
+        <span class="text-2xl font-extrabold text-neutral-900 dark:text-neutral-100 tabular-nums">
           {activeCommitmentsCount}
         </span>
-        <span class="text-xs text-neutral-400 font-medium">/ {$recurringExpenses.length} templates</span>
+        <span class="text-xs text-neutral-500 dark:text-neutral-400 font-medium">/ {$recurringExpenses.length} templates</span>
       </div>
       <p class="text-[11px] text-neutral-500 mt-2">
         Templates active and participating in automatic generation
@@ -436,18 +442,18 @@
     </div>
 
     <!-- Unique Categories -->
-    <div class="card-sub p-4 flex flex-col justify-between">
+    <div class="card p-4 flex flex-col justify-between">
       <div class="flex items-center justify-between mb-2">
-        <span class="text-xs font-medium text-neutral-400">Categories Impacted</span>
-        <span class="text-xs px-2 py-0.5 rounded bg-amber-950/80 text-amber-300 font-semibold border border-amber-800/50">
+        <span class="text-xs font-medium text-neutral-500 dark:text-neutral-400">Categories Impacted</span>
+        <span class="badge-amber">
           Breakdown
         </span>
       </div>
       <div class="flex items-baseline gap-2">
-        <span class="text-2xl font-extrabold text-neutral-100 tabular-nums">
+        <span class="text-2xl font-extrabold text-neutral-900 dark:text-neutral-100 tabular-nums">
           {categoryBreakdown.length}
         </span>
-        <span class="text-xs text-neutral-400 font-medium">categories this month</span>
+        <span class="text-xs text-neutral-500 dark:text-neutral-400 font-medium">categories this month</span>
       </div>
       <p class="text-[11px] text-neutral-500 mt-2">
         Expense categories with recurring payments in {monthLabel}
@@ -457,9 +463,9 @@
 
   <!-- ── Per-Category Breakdown Chips & Details ────────────────────────── -->
   {#if categoryBreakdown.length > 0}
-    <div class="card-sub p-4">
+    <div class="card p-4">
       <div class="flex items-center justify-between mb-3">
-        <h3 class="text-xs font-bold uppercase tracking-wider text-neutral-400">
+        <h3 class="text-xs font-bold uppercase tracking-wider text-neutral-600 dark:text-neutral-400">
           Category Spending in {monthLabel}
         </h3>
         <span class="text-xs text-neutral-500">
@@ -469,20 +475,20 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
         {#each categoryBreakdown as cat}
           {@const pct = totalMonthCommitmentCents > 0 ? Math.round((cat.totalCents / totalMonthCommitmentCents) * 100) : 0}
-          <div class="p-3 rounded-xl bg-neutral-900/80 border border-neutral-800 flex flex-col justify-between">
+          <div class="p-3 rounded-xl bg-neutral-50 dark:bg-neutral-900/80 border border-neutral-200 dark:border-neutral-800 flex flex-col justify-between">
             <div class="flex items-start justify-between gap-1 mb-1">
-              <span class="text-xs font-semibold text-neutral-200 truncate">{cat.category}</span>
-              <span class="text-[10px] font-bold text-neutral-400 tabular-nums bg-neutral-800 px-1.5 py-0.5 rounded">
+              <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate">{cat.category}</span>
+              <span class="text-[10px] font-bold text-neutral-600 dark:text-neutral-400 tabular-nums bg-neutral-200 dark:bg-neutral-800 px-1.5 py-0.5 rounded">
                 {cat.count}×
               </span>
             </div>
             <div class="flex items-baseline justify-between mt-1">
-              <span class="text-sm font-bold text-sky-400 tabular-nums">
+              <span class="text-sm font-bold text-sky-600 dark:text-sky-400 tabular-nums">
                 {$currencySymbol}{(cat.totalCents / 100).toFixed(2)}
               </span>
               <span class="text-[10px] text-neutral-500 font-medium">{pct}%</span>
             </div>
-            <div class="mt-2 h-1 bg-neutral-800 rounded-full overflow-hidden">
+            <div class="mt-2 h-1 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
               <div class="h-full bg-gradient-to-r from-sky-500 to-indigo-500 rounded-full" style="width: {pct}%"></div>
             </div>
           </div>
@@ -493,38 +499,39 @@
 
   <!-- ── Existing Templates Table ────────────────────────────────────── -->
   {#if $recurringExpenses.length === 0}
-    <div class="text-center text-neutral-500 text-sm py-12 border border-dashed border-neutral-800 rounded-2xl">
-      <p class="text-base font-semibold text-neutral-300 mb-1">No recurring expenses configured yet</p>
+    <div class="card empty-state-box">
+      <div class="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-2xl mb-4">🔁</div>
+      <p class="text-base font-semibold text-neutral-800 dark:text-neutral-300 mb-1">No recurring expenses configured yet</p>
       <p class="text-xs text-neutral-500 max-w-sm mx-auto">
         Add subscriptions, utilities, and fixed commitments below to automate your monthly budget tracking.
       </p>
     </div>
   {:else}
-    <div class="overflow-x-auto rounded-2xl border border-neutral-800 bg-neutral-900/40">
+    <div class="overflow-x-auto rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900/40 shadow-sm">
       <table class="w-full text-sm border-collapse">
         <thead>
-          <tr class="bg-neutral-950/80 border-b border-neutral-800">
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Name</th>
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Amount</th>
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Paid by</th>
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Category</th>
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Frequency & Day</th>
-            <th class="text-left text-xs font-semibold text-neutral-400 uppercase tracking-wider px-4 py-3">Due in {monthLabel}</th>
+          <tr class="bg-neutral-50 dark:bg-neutral-950/80 border-b border-neutral-200 dark:border-neutral-800">
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Name</th>
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Amount</th>
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Paid by</th>
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Category</th>
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Frequency & Day</th>
+            <th class="text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider px-4 py-3">Due in {monthLabel}</th>
             <th class="px-4 py-3 text-right"></th>
           </tr>
         </thead>
-        <tbody class="divide-y divide-neutral-800/60">
+        <tbody class="divide-y divide-neutral-200/60 dark:divide-neutral-800/60">
           {#each enrichedExpenses as rec (rec.id)}
             {@const payerColor = ($users.find((u) => u.name === rec.who_paid)?.color ?? '#6366f1')}
             {@const badge = getFrequencyBadge(rec.frequency)}
             {@const isPaused = rec.is_active === false}
-            <tr class="hover:bg-neutral-800/30 transition-colors group {isPaused ? 'opacity-50' : ''}">
+            <tr class="hover:bg-neutral-50 dark:hover:bg-neutral-800/30 transition-colors group {isPaused ? 'opacity-50' : ''}">
               <!-- Name & Active status -->
               <td class="px-4 py-3.5">
                 <div class="flex items-center gap-2">
-                  <span class="font-medium text-neutral-100">{rec.name}</span>
+                  <span class="font-medium text-neutral-900 dark:text-neutral-100">{rec.name}</span>
                   {#if isPaused}
-                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-800 text-neutral-400 border border-neutral-700">
+                    <span class="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-700">
                       Paused
                     </span>
                   {/if}
@@ -532,14 +539,14 @@
               </td>
 
               <!-- Cost -->
-              <td class="px-4 py-3.5 font-semibold tabular-nums text-sky-400">
+              <td class="px-4 py-3.5 font-semibold tabular-nums text-sky-600 dark:text-sky-400">
                 {$currencySymbol}{(rec.cost_cents / 100).toFixed(2)}
               </td>
 
               <!-- Paid by -->
               <td class="px-4 py-3.5">
                 {#if rec.is_joint}
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-950/80 text-indigo-300 border border-indigo-800/60">
+                  <span class="badge-indigo">
                     🏦 {jointAccountMap[rec.joint_account_id]?.name || 'Joint Account'}
                   </span>
                 {:else}
@@ -553,19 +560,19 @@
               </td>
 
               <!-- Category -->
-              <td class="px-4 py-3.5 text-xs text-neutral-400">
+              <td class="px-4 py-3.5 text-xs text-neutral-600 dark:text-neutral-400">
                 {rec.category}
               </td>
 
               <!-- Frequency & Day (matches old test looking for dayOrdinal) -->
-              <td class="px-4 py-3.5 text-neutral-400 text-xs">
+              <td class="px-4 py-3.5 text-neutral-600 dark:text-neutral-400 text-xs">
                 <div class="flex items-center gap-1.5">
-                  <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border {badge.color} w-fit">
+                  <span class="inline-flex items-center gap-1 {badge.color} w-fit">
                     <span>{badge.icon}</span>
                     <span>{badge.label}</span>
                   </span>
                   {#if rec.frequency === 'monthly' && rec.day_of_month}
-                    <span class="text-neutral-300 font-medium">{ordinal(rec.day_of_month)}</span>
+                    <span class="text-neutral-700 dark:text-neutral-300 font-medium">{ordinal(rec.day_of_month)}</span>
                   {/if}
                 </div>
               </td>
@@ -573,15 +580,15 @@
               <!-- Occurrences and Impact in current month -->
               <td class="px-4 py-3.5">
                 {#if isPaused}
-                  <span class="text-xs text-neutral-500 italic">Paused</span>
+                  <span class="text-xs text-neutral-400 italic">Paused</span>
                 {:else if rec.occurrencesInMonth === 0}
-                  <span class="text-xs text-neutral-500">None in {monthLabel}</span>
+                  <span class="text-xs text-neutral-400">None in {monthLabel}</span>
                 {:else}
                   <div class="flex flex-col gap-0.5">
-                    <span class="text-xs font-bold text-neutral-100 tabular-nums">
+                    <span class="text-xs font-bold text-neutral-900 dark:text-neutral-100 tabular-nums">
                       {rec.occurrencesInMonth}× ({$currencySymbol}{(rec.monthCostCents / 100).toFixed(2)})
                     </span>
-                    <span class="text-[10px] text-neutral-400">
+                    <span class="text-[10px] text-neutral-500 dark:text-neutral-400">
                       {rec.datesInMonth.map(formatShortDate).join(', ')}
                     </span>
                   </div>
@@ -592,19 +599,19 @@
               <td class="px-4 py-3.5 text-right whitespace-nowrap">
                 {#if confirmDeleteId === rec.id}
                   <span class="inline-flex items-center gap-1.5">
-                    <span class="text-xs text-neutral-400">Remove?</span>
+                    <span class="text-xs text-neutral-500 dark:text-neutral-400">Remove?</span>
                     <button
                       type="button"
                       on:click={() => confirmDelete(rec.id)}
                       disabled={deletingId === rec.id}
-                      class="px-2 py-0.5 rounded text-xs font-semibold bg-red-600 hover:bg-red-500 disabled:opacity-40 transition-colors text-white cursor-pointer"
+                      class="px-2 py-0.5 rounded text-xs font-semibold bg-rose-600 hover:bg-rose-500 disabled:opacity-40 transition-colors text-white cursor-pointer"
                     >
                       {deletingId === rec.id ? '…' : 'Yes'}
                     </button>
                     <button
                       type="button"
                       on:click={cancelDelete}
-                      class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-700 hover:bg-neutral-600 transition-colors text-white cursor-pointer"
+                      class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 dark:hover:bg-neutral-600 transition-colors text-neutral-800 dark:text-neutral-200 cursor-pointer"
                     >
                       No
                     </button>
@@ -616,10 +623,10 @@
                       type="button"
                       on:click={() => toggleActive(rec)}
                       title={isPaused ? 'Resume schedule' : 'Pause schedule'}
-                      class="p-1 rounded-lg text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800 transition-colors cursor-pointer"
+                      class="p-1 rounded-lg text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
                     >
                       {#if isPaused}
-                        <svg class="w-3.5 h-3.5 text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                        <svg class="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                           <polygon points="5 3 19 12 5 21 5 3"/>
                         </svg>
                       {:else}
@@ -634,7 +641,7 @@
                       type="button"
                       on:click={() => startEdit(rec)}
                       title="Edit recurring expense"
-                      class="p-1 rounded-lg text-neutral-400 hover:text-sky-400 hover:bg-sky-950/40 transition-colors cursor-pointer"
+                      class="p-1 rounded-lg text-neutral-400 hover:text-sky-600 dark:hover:text-sky-400 hover:bg-sky-50 dark:hover:bg-sky-950/40 transition-colors cursor-pointer"
                     >
                       <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
                         <path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -646,7 +653,7 @@
                       type="button"
                       on:click={() => requestDelete(rec.id)}
                       title="Remove"
-                      class="p-1 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-950/40 transition-colors cursor-pointer"
+                      class="p-1 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                     >
                       <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
                         <polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6M14 11v6"/>
@@ -663,12 +670,12 @@
   {/if}
 
   <!-- ── Add New Template Form ────────────────────────────────────────── -->
-  <div class="card-sub p-5 border border-neutral-800 rounded-2xl bg-neutral-900/60">
-    <h3 class="text-sm font-semibold text-neutral-200 mb-1">Add Recurring Expense</h3>
-    <p class="text-xs text-neutral-400 mb-4">Set up a new recurring commitment with custom interval and timeline bounds.</p>
+  <div class="card p-5">
+    <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-1">Add Recurring Expense</h3>
+    <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-4">Set up a new recurring commitment with custom interval and timeline bounds.</p>
 
     {#if error}
-      <div class="bg-red-950/40 border border-red-800 text-red-400 rounded-xl px-3.5 py-2 text-xs mb-4">
+      <div class="bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 text-rose-700 dark:text-red-400 rounded-xl px-3.5 py-2 text-xs mb-4">
         {error}
       </div>
     {/if}
@@ -677,7 +684,7 @@
       <!-- Name and Amount -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
-          <label for="rec-name" class="block text-xs font-medium text-neutral-400 mb-1.5">Expense Name</label>
+          <label for="rec-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Expense Name</label>
           <input
             id="rec-name"
             class="input-field"
@@ -686,7 +693,7 @@
           />
         </div>
         <div>
-          <label for="rec-amount" class="block text-xs font-medium text-neutral-400 mb-1.5">Amount ({$currencySymbol})</label>
+          <label for="rec-amount" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Amount ({$currencySymbol})</label>
           <input
             id="rec-amount"
             class="input-field tabular-nums"
@@ -702,7 +709,7 @@
       <!-- Frequency, Category & Day of Month / Start date -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div>
-          <label for="rec-frequency" class="block text-xs font-medium text-neutral-400 mb-1.5">Frequency / Interval</label>
+          <label for="rec-frequency" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Frequency / Interval</label>
           <select
             id="rec-frequency"
             class="select-field"
@@ -715,7 +722,7 @@
         </div>
 
         <div>
-          <label for="rec-cat" class="block text-xs font-medium text-neutral-400 mb-1.5">Category</label>
+          <label for="rec-cat" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Category</label>
           <select
             id="rec-cat"
             class="select-field"
@@ -730,7 +737,7 @@
 
         {#if form.frequency === 'monthly'}
           <div>
-            <label for="rec-day" class="block text-xs font-medium text-neutral-400 mb-1.5">Day of Month</label>
+            <label for="rec-day" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Day of Month</label>
             <input
               id="rec-day"
               type="number"
@@ -742,7 +749,7 @@
           </div>
         {:else}
           <div>
-            <label for="rec-start-anchor" class="block text-xs font-medium text-neutral-400 mb-1.5">Anchor Start Date</label>
+            <label for="rec-start-anchor" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Anchor Start Date</label>
             <input
               id="rec-start-anchor"
               type="date"
@@ -757,7 +764,7 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {#if form.frequency === 'monthly'}
           <div>
-            <label for="rec-start-date" class="block text-xs font-medium text-neutral-400 mb-1.5">Start Date</label>
+            <label for="rec-start-date" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Start Date</label>
             <input
               id="rec-start-date"
               type="date"
@@ -768,7 +775,7 @@
         {/if}
 
         <div>
-          <label for="rec-end-date" class="block text-xs font-medium text-neutral-400 mb-1.5">
+          <label for="rec-end-date" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
             End Date <span class="text-neutral-500 font-normal">(optional)</span>
           </label>
           <input
@@ -784,7 +791,7 @@
       <!-- Payer and Joint Source -->
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
         <div>
-          <label for="rec-payer" class="block text-xs font-medium text-neutral-400 mb-1.5">Paid by</label>
+          <label for="rec-payer" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Paid by</label>
           <select
             id="rec-payer"
             class="select-field"
@@ -798,13 +805,13 @@
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <span class="text-xs font-medium text-neutral-400">Payment Source</span>
-          <div class="inline-flex rounded-xl bg-neutral-950 p-1 border border-neutral-800 h-[42px] items-center self-start">
+          <span class="text-xs font-medium text-neutral-600 dark:text-neutral-400">Payment Source</span>
+          <div class="inline-flex rounded-xl bg-neutral-100 dark:bg-neutral-950 p-1 border border-neutral-200 dark:border-neutral-800 h-[42px] items-center self-start">
             <button
               type="button"
               id="rec-source-personal"
               on:click={() => (form.is_joint = false)}
-              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {!form.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}"
+              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {!form.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
             >
               Personal
             </button>
@@ -812,15 +819,15 @@
               type="button"
               id="rec-source-joint"
               on:click={() => (form.is_joint = true)}
-              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {form.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-400 hover:text-neutral-200'}"
+              class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {form.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
             >
               🏦 Joint
             </button>
           </div>
 
           {#if form.is_joint && ($jointAccounts || []).length > 1}
-            <div class="mt-2 p-2 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1 animate-fadeIn">
-              <label for="rec-joint-account" class="block text-[11px] font-semibold text-indigo-300">
+            <div class="mt-2 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700/40 space-y-1 animate-fadeIn">
+              <label for="rec-joint-account" class="block text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
                 Select Joint Account
               </label>
               <select
@@ -852,29 +859,29 @@
 
 <!-- ── Edit Recurring Modal ────────────────────────────────────────────── -->
 {#if editingItem}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-fadeIn">
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
-      class="bg-neutral-900 border border-neutral-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
+      class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl max-w-xl w-full p-6 shadow-2xl space-y-5 max-h-[90vh] overflow-y-auto"
       on:click|stopPropagation
     >
-      <div class="flex items-center justify-between border-b border-neutral-800 pb-4">
+      <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-4">
         <div>
-          <h3 class="text-base font-bold text-neutral-100">Edit Recurring Commitment</h3>
-          <p class="text-xs text-neutral-400 mt-0.5">Update schedule, amount, interval, or timeline bounds.</p>
+          <h3 class="text-base font-bold text-neutral-900 dark:text-neutral-100">Edit Recurring Commitment</h3>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Update schedule, amount, interval, or timeline bounds.</p>
         </div>
         <button
           type="button"
           on:click={cancelEdit}
-          class="p-1.5 rounded-lg text-neutral-400 hover:text-white hover:bg-neutral-800 transition-colors"
+          class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors"
         >
           ✕
         </button>
       </div>
 
       {#if editError}
-        <div class="bg-red-950/40 border border-red-800 text-red-400 rounded-xl px-3.5 py-2.5 text-xs">
+        <div class="bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 text-rose-700 dark:text-red-400 rounded-xl px-3.5 py-2.5 text-xs">
           {editError}
         </div>
       {/if}
@@ -882,7 +889,7 @@
       <form on:submit|preventDefault={handleEditSubmit} class="space-y-4">
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label for="edit-rec-name" class="block text-xs font-medium text-neutral-400 mb-1.5">Expense Name</label>
+            <label for="edit-rec-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Expense Name</label>
             <input
               id="edit-rec-name"
               class="input-field"
@@ -891,7 +898,7 @@
             />
           </div>
           <div>
-            <label for="edit-rec-amount" class="block text-xs font-medium text-neutral-400 mb-1.5">Amount ({$currencySymbol})</label>
+            <label for="edit-rec-amount" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Amount ({$currencySymbol})</label>
             <input
               id="edit-rec-amount"
               class="input-field tabular-nums"
@@ -906,7 +913,7 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div>
-            <label for="edit-rec-frequency" class="block text-xs font-medium text-neutral-400 mb-1.5">Frequency</label>
+            <label for="edit-rec-frequency" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Frequency</label>
             <select
               id="edit-rec-frequency"
               class="select-field"
@@ -919,7 +926,7 @@
           </div>
 
           <div>
-            <label for="edit-rec-cat" class="block text-xs font-medium text-neutral-400 mb-1.5">Category</label>
+            <label for="edit-rec-cat" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Category</label>
             <select
               id="edit-rec-cat"
               class="select-field"
@@ -934,7 +941,7 @@
 
           {#if editForm.frequency === 'monthly'}
             <div>
-              <label for="edit-rec-day" class="block text-xs font-medium text-neutral-400 mb-1.5">Day of Month</label>
+              <label for="edit-rec-day" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Day of Month</label>
               <input
                 id="edit-rec-day"
                 type="number"
@@ -949,7 +956,7 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label for="edit-rec-start" class="block text-xs font-medium text-neutral-400 mb-1.5">Start Date</label>
+            <label for="edit-rec-start" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Start Date</label>
             <input
               id="edit-rec-start"
               type="date"
@@ -959,7 +966,7 @@
             />
           </div>
           <div>
-            <label for="edit-rec-end" class="block text-xs font-medium text-neutral-400 mb-1.5">End Date (optional)</label>
+            <label for="edit-rec-end" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">End Date (optional)</label>
             <input
               id="edit-rec-end"
               type="date"
@@ -972,7 +979,7 @@
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
           <div>
-            <label for="edit-rec-payer" class="block text-xs font-medium text-neutral-400 mb-1.5">Paid by</label>
+            <label for="edit-rec-payer" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Paid by</label>
             <select
               id="edit-rec-payer"
               class="select-field"
@@ -986,27 +993,27 @@
           </div>
 
           <div class="flex flex-col gap-1.5">
-            <span class="text-xs font-medium text-neutral-400">Payment Source</span>
-            <div class="inline-flex rounded-xl bg-neutral-950 p-1 border border-neutral-800 h-[42px] items-center">
+            <span class="text-xs font-medium text-neutral-600 dark:text-neutral-400">Payment Source</span>
+            <div class="inline-flex rounded-xl bg-neutral-100 dark:bg-neutral-950 p-1 border border-neutral-200 dark:border-neutral-800 h-[42px] items-center">
               <button
                 type="button"
                 on:click={() => (editForm.is_joint = false)}
-                class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {!editForm.is_joint ? 'bg-indigo-600 text-white' : 'text-neutral-400'}"
+                class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {!editForm.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
               >
                 Personal
               </button>
               <button
                 type="button"
                 on:click={() => (editForm.is_joint = true)}
-                class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {editForm.is_joint ? 'bg-indigo-600 text-white' : 'text-neutral-400'}"
+                class="px-4 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer {editForm.is_joint ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
               >
                 🏦 Joint
               </button>
             </div>
 
             {#if editForm.is_joint && ($jointAccounts || []).length > 1}
-              <div class="mt-2 p-2 rounded-xl bg-indigo-950/40 border border-indigo-700/40 space-y-1 animate-fadeIn">
-                <label for="edit-rec-joint-account" class="block text-[11px] font-semibold text-indigo-300">
+              <div class="mt-2 p-2 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700/40 space-y-1 animate-fadeIn">
+                <label for="edit-rec-joint-account" class="block text-[11px] font-semibold text-indigo-700 dark:text-indigo-300">
                   Select Joint Account
                 </label>
                 <select
@@ -1031,25 +1038,25 @@
             type="checkbox"
             id="edit-rec-active"
             bind:checked={editForm.is_active}
-            class="w-4 h-4 rounded border-neutral-700 bg-neutral-800 text-indigo-600 focus:ring-indigo-500"
+            class="w-4 h-4 rounded border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-indigo-600 focus:ring-indigo-500"
           />
-          <label for="edit-rec-active" class="text-xs text-neutral-300 font-medium">
+          <label for="edit-rec-active" class="text-xs text-neutral-700 dark:text-neutral-300 font-medium">
             Active schedule (participates in automatic expense generation)
           </label>
         </div>
 
-        <div class="flex justify-end gap-3 pt-3 border-t border-neutral-800">
+        <div class="flex justify-end gap-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
           <button
             type="button"
             on:click={cancelEdit}
-            class="px-4 py-2 rounded-xl text-xs font-semibold text-neutral-400 hover:text-neutral-200 hover:bg-neutral-800 transition-colors cursor-pointer"
+            class="btn-secondary text-xs py-2 px-4"
           >
             Cancel
           </button>
           <button
             type="submit"
             disabled={editSaving}
-            class="btn-primary cursor-pointer"
+            class="btn-primary text-xs py-2 px-4"
           >
             {editSaving ? 'Saving…' : 'Save Changes'}
           </button>

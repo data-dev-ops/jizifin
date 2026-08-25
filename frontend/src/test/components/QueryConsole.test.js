@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, fireEvent, screen } from '@testing-library/svelte';
+import { render, fireEvent, screen, waitFor } from '@testing-library/svelte';
 import QueryConsole from '../../lib/QueryConsole.svelte';
 import { cryptoKey } from '../../lib/stores.js';
 import { deriveKey, encryptText } from '../../lib/crypto.js';
@@ -102,5 +102,45 @@ describe('QueryConsole.svelte — Raw SQL Console', () => {
     await fireEvent.click(runBtn);
 
     expect(await screen.findByText(/no such table/i)).toBeInTheDocument();
+  });
+
+  it('supports multi-query tabs creation and switching', async () => {
+    render(QueryConsole);
+
+    expect(screen.getByText('Query 1')).toBeInTheDocument();
+
+    const addTabBtn = screen.getByText('+ New Tab');
+    await fireEvent.click(addTabBtn);
+
+    expect(screen.getByText('Query 2')).toBeInTheDocument();
+  });
+
+  it('supports executing multiple semicolon-separated statements', async () => {
+    let callCount = 0;
+    vi.stubGlobal('fetch', vi.fn().mockImplementation(async () => {
+      callCount++;
+      return {
+        ok: true,
+        json: async () => ({
+          columns: ['id', 'name'],
+          rows: [[callCount, `Result Row ${callCount}`]],
+          row_count: 1,
+          truncated: false,
+        }),
+      };
+    }));
+
+    render(QueryConsole);
+
+    const textarea = screen.getByPlaceholderText(/SELECT \* FROM expenses/i);
+    await fireEvent.input(textarea, { target: { value: 'SELECT * FROM users; SELECT * FROM splits;' } });
+
+    const runBtn = document.getElementById('query-run');
+    await fireEvent.click(runBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText('Result #1 (1 rows)')).toBeInTheDocument();
+      expect(screen.getByText('Result #2 (1 rows)')).toBeInTheDocument();
+    });
   });
 });

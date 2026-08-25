@@ -2398,12 +2398,26 @@ async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = N
 # ---------------------------------------------------------------------------
 
 @app.get("/analytics/budgets", response_model=list[BudgetStatusRow], tags=["analytics"])
-async def get_budget_status(db: DbDep, month: str | None = None) -> list[BudgetStatusRow]:
+async def get_budget_status(
+    db: DbDep,
+    month: str | None = None,
+    who_paid: str | None = None,
+    is_joint: bool | None = None,
+) -> list[BudgetStatusRow]:
     from datetime import date as _date
     target_month = month or _date.today().strftime("%Y-%m")
+    conditions = ["strftime('%Y-%m', expense_date)=?"]
+    params: list[object] = [target_month]
+    if who_paid:
+        conditions.append("who_paid = ?")
+        params.append(who_paid)
+    if is_joint is not None:
+        conditions.append("is_joint = ?")
+        params.append(1 if is_joint else 0)
+    where = "WHERE " + " AND ".join(conditions)
     async with db.execute(
-        "SELECT category, COALESCE(SUM(cost_cents), 0) AS actual_cents FROM expenses WHERE strftime('%Y-%m', expense_date)=? GROUP BY category",
-        (target_month,),
+        f"SELECT category, COALESCE(SUM(cost_cents), 0) AS actual_cents FROM expenses {where} GROUP BY category",
+        params,
     ) as cur:
         actuals = {r["category"]: r["actual_cents"] for r in await cur.fetchall()}
     # Capture both the winning limit_cents and which budget row won (specific month vs ALL)

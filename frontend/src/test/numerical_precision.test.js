@@ -34,13 +34,16 @@ describe('Numerical Precision Domain Specifications', () => {
       });
 
       const currentExpenses = get(expenses);
-      expect(currentExpenses.length).toBe(2);
+      expect(currentExpenses).toHaveLength(2);
 
       const totalCents = currentExpenses.reduce((acc, e) => acc + e.cost_cents, 0);
       expect(totalCents).toBe(30);
 
-      // Contrast with standard JS raw floating point addition drift (0.1 + 0.2 === 0.30000000000000004)
-      expect(0.10 + 0.20).not.toBe(0.30);
+      // Validate integer-cents model avoids floating-point drift that affects naive float arithmetic.
+      // Raw JS float addition: 0.1 + 0.2 !== 0.30 (IEEE-754 drift) — store as integer cents to avoid
+      const rawFloatSum = 0.10 + 0.20;
+      expect(rawFloatSum).not.toBeCloseTo(0.30, 20); // at 20 decimal precision, drift is visible
+      // But integer cents divided by 100 is exact because the integer math has no drift
       expect(totalCents / 100.0).toBe(0.30);
     });
   });
