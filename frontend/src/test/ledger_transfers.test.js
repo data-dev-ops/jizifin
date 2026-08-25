@@ -36,13 +36,11 @@ describe('Ledger Transfers Domain Specifications', () => {
       { user: 'Jane', amountCents: 50000 },
       { user: 'John', amountCents: 1 }
     ])('[TrfSelf] transfer of $amountCents cents from $user to $user results in 0 net delta', async ({ user, amountCents }) => {
-      await fetchPaybacks();
-      const senderDelta = 0;
-      const recipientDelta = 0;
-      const netChange = 0;
-      expect(senderDelta).toBe(0);
-      expect(recipientDelta).toBe(0);
-      expect(netChange).toBe(0);
+      const result = await fetchPaybacks();
+      // A self-transfer (same user as payer and payee) must produce no net debt
+      const debts = result?.debts ?? [];
+      const selfDebts = debts.filter((d) => d.from_user === user && d.to_user === user);
+      expect(selfDebts).toHaveLength(0);
     });
   });
 
@@ -71,7 +69,7 @@ describe('Ledger Transfers Domain Specifications', () => {
     ])('[TxFuture] filtering expenses for $targetMonth excludes future dates', async ({ targetMonth, expenses: exps, expectedCount, expectedTotalCents }) => {
       await fetchExpenses(targetMonth);
       const filtered = exps.filter(e => e.expenseDate.startsWith(targetMonth));
-      expect(filtered.length).toBe(expectedCount);
+      expect(filtered).toHaveLength(expectedCount);
       const total = filtered.reduce((acc, e) => acc + e.costCents, 0);
       expect(total).toBe(expectedTotalCents);
     });

@@ -2,7 +2,7 @@
   /**
    * IncomeTab.svelte
    *
-   * Complete, unified Income & Employment hub:
+   * Complete, unified Income & Employment hub with full Light/Dark theming:
    *   1. Monthly Income Summary cards (Job Base Salary + One-Off Bonuses = Total Month Income)
    *   2. Jobs & Employment Streams (CRUD, timeline, weekly/monthly frequencies, 1-click raise/leave adjustments)
    *   3. One-off Income & Bonus Ledger for the active month
@@ -145,16 +145,16 @@
   }
 
   function getJobStatusBadge(job, targetMonth) {
-    if (!job.is_active) return { label: "Inactive", cls: "bg-neutral-800 text-neutral-400 border-neutral-700" };
+    if (!job.is_active) return { label: "Inactive", cls: "bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700" };
     const today = new Date().toISOString().slice(0, 10);
-    if (job.start_date > today) return { label: "Upcoming", cls: "bg-sky-950/80 text-sky-300 border-sky-800" };
+    if (job.start_date > today) return { label: "Upcoming", cls: "bg-sky-50 dark:bg-sky-950/80 text-sky-700 dark:text-sky-300 border-sky-200 dark:border-sky-800" };
     if (job.end_date && job.end_date < (targetMonth ? fMonthStart(targetMonth) : today)) {
-      return { label: "Ended", cls: "bg-neutral-800 text-neutral-400 border-neutral-700" };
+      return { label: "Ended", cls: "bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700" };
     }
     if (job.notes && /leave|sick|sabbatical|parental/i.test(job.notes)) {
-      return { label: "On Leave", cls: "bg-amber-950/80 text-amber-300 border-amber-800" };
+      return { label: "On Leave", cls: "bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border-amber-200 dark:border-amber-800" };
     }
-    return { label: "Active", cls: "bg-emerald-950/80 text-emerald-300 border-emerald-800" };
+    return { label: "Active", cls: "bg-emerald-50 dark:bg-emerald-950/80 text-emerald-700 dark:text-emerald-300 border-emerald-200 dark:border-emerald-800" };
   }
 
   // ── Month breakdown calculations ───────────────────────────────────────────
@@ -431,7 +431,7 @@
     {@const sharePct = totalHouseholdIncome > 0 ? ((u.totalCents / totalHouseholdIncome) * 100).toFixed(1) : "0.0"}
     <div
       class="card p-4 sm:p-5 relative overflow-hidden transition-all"
-      style="border-color: {u.color}40"
+      style="border-color: {u.color}50"
     >
       <div class="flex items-center justify-between gap-2 mb-3">
         <div class="flex items-center gap-2">
@@ -441,7 +441,7 @@
           >
             {userInitial(u.name)}
           </div>
-          <span class="text-xs font-semibold text-neutral-200">{u.name}</span>
+          <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">{u.name}</span>
         </div>
         <span
           class="text-[10px] font-bold px-2 py-0.5 rounded-full"
@@ -456,15 +456,15 @@
       </p>
 
       <!-- Sub-breakdown -->
-      <div class="mt-3 pt-3 border-t border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-400">
+      <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
         <div>
           <span class="text-neutral-500">Base Salary:</span>
-          <span class="font-medium text-neutral-300 tabular-nums ml-1">{fmt(u.baseSalaryCents)}</span>
+          <span class="font-medium text-neutral-700 dark:text-neutral-300 tabular-nums ml-1">{fmt(u.baseSalaryCents)}</span>
         </div>
         {#if u.oneOffCents > 0}
           <div>
             <span class="text-neutral-500">Bonuses:</span>
-            <span class="font-medium text-emerald-400 tabular-nums ml-1">+{fmt(u.oneOffCents)}</span>
+            <span class="font-medium text-emerald-600 dark:text-emerald-400 tabular-nums ml-1">+{fmt(u.oneOffCents)}</span>
           </div>
         {/if}
       </div>
@@ -472,15 +472,15 @@
   {/each}
 
   <!-- Total Household Summary Card -->
-  <div class="card bg-gradient-to-br from-neutral-900 to-indigo-950/40 border-indigo-900/40 p-4 sm:p-5 sm:col-span-2 lg:col-span-1">
+  <div class="card p-4 sm:p-5 sm:col-span-2 lg:col-span-1 border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-gradient-to-br dark:from-neutral-900 dark:to-indigo-950/40">
     <div class="flex items-center justify-between gap-2 mb-3">
-      <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wider">Household Total</span>
+      <span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Household Total</span>
       <span class="badge-indigo">{$selectedMonth}</span>
     </div>
-    <p class="text-2xl font-bold tabular-nums text-white">
+    <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-white">
       {fmt(totalHouseholdIncome)}
     </p>
-    <p class="text-[11px] text-neutral-500 mt-3 pt-3 border-t border-neutral-800">
+    <p class="text-[11px] text-neutral-500 mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
       Derived from active contracts & monthly logs
     </p>
   </div>
@@ -490,26 +490,26 @@
 <div class="card p-5 sm:p-6 mb-8">
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6">
     <div>
-      <h3 class="text-base font-semibold text-neutral-200">Employment Streams & Contracts</h3>
-      <p class="text-xs text-neutral-400 mt-0.5">
+      <h3 class="text-base font-semibold text-neutral-800 dark:text-neutral-200">Employment Streams & Contracts</h3>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
         Active jobs automatically supply monthly base salary for the selected period.
       </p>
     </div>
   </div>
 
   {#if $jobs.length === 0}
-    <div class="text-center py-12 px-4 border border-dashed border-neutral-800 rounded-2xl bg-neutral-950/30">
-      <div class="w-12 h-12 rounded-2xl bg-indigo-950/60 border border-indigo-800/60 flex items-center justify-center mx-auto mb-3 text-xl">
+    <div class="text-center py-12 px-4 border border-dashed border-neutral-200 dark:border-neutral-800 rounded-2xl bg-neutral-50/50 dark:bg-neutral-950/30">
+      <div class="w-12 h-12 rounded-2xl bg-indigo-100 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/60 flex items-center justify-center mx-auto mb-3 text-xl">
         💼
       </div>
-      <p class="text-sm font-semibold text-neutral-300">No employment streams configured yet</p>
+      <p class="text-sm font-semibold text-neutral-700 dark:text-neutral-300">No employment streams configured yet</p>
       <p class="text-xs text-neutral-500 max-w-md mx-auto mt-1 mb-5">
         Add your primary job or regular freelance streams with weekly or monthly rates to automate income calculations.
       </p>
       <button
         id="btn-add-first-job"
         on:click={() => openAddJobModal()}
-        class="px-4 py-2 rounded-xl text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors"
+        class="btn-primary"
       >
         + Add First Employment Stream
       </button>
@@ -523,7 +523,7 @@
         {@const monthlyEquiv = toMonthlyEquivalent(job.amount_cents, job.frequency)}
         {@const isFreqNonMonthly = job.frequency !== "monthly"}
 
-        <div class="bg-neutral-950/60 border border-neutral-800 rounded-xl p-4 flex flex-col justify-between hover:border-neutral-700/80 transition-all group">
+        <div class="card-sub p-4 flex flex-col justify-between hover:border-neutral-400 dark:hover:border-neutral-700/80 transition-all group">
           <!-- Card Header -->
           <div>
             <div class="flex items-start justify-between gap-2 mb-2">
@@ -534,7 +534,7 @@
                 >
                   {userInitial(job.who)}
                 </div>
-                <span class="text-xs font-medium text-neutral-400 truncate">{job.who}</span>
+                <span class="text-xs font-medium text-neutral-500 dark:text-neutral-400 truncate">{job.who}</span>
               </div>
               <span class="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border {statusBadge.cls}">
                 {statusBadge.label}
@@ -542,46 +542,46 @@
             </div>
 
             <!-- Job Title -->
-            <h4 class="text-sm font-semibold text-neutral-100 truncate mb-2">{job.name}</h4>
+            <h4 class="text-sm font-semibold text-neutral-900 dark:text-neutral-100 truncate mb-2">{job.name}</h4>
 
             <!-- Rate Display -->
             <div class="mb-3">
               <div class="flex items-baseline gap-1.5">
-                <span class="text-lg font-bold tabular-nums text-white">
+                <span class="text-lg font-bold tabular-nums text-neutral-900 dark:text-white">
                   {fmt(job.amount_cents)}
                 </span>
                 <span class="text-xs text-neutral-500 capitalize">/ {job.frequency}</span>
               </div>
               {#if isFreqNonMonthly}
-                <p class="text-[11px] text-indigo-400 mt-0.5 tabular-nums font-medium">
+                <p class="text-[11px] text-indigo-600 dark:text-indigo-400 mt-0.5 tabular-nums font-medium">
                   ≈ {fmt(monthlyEquiv)} / month
                 </p>
               {/if}
             </div>
 
             <!-- Timeline & Notes -->
-            <div class="space-y-1 text-xs text-neutral-400 border-t border-neutral-800/80 pt-2.5 mb-4">
+            <div class="space-y-1 text-xs text-neutral-500 dark:text-neutral-400 border-t border-neutral-200 dark:border-neutral-800/80 pt-2.5 mb-4">
               <div class="flex items-center justify-between text-[11px]">
                 <span class="text-neutral-500">Timeline:</span>
-                <span class="text-neutral-300 font-mono text-[10px]">
+                <span class="text-neutral-700 dark:text-neutral-300 font-mono text-[10px]">
                   {fmtDate(job.start_date)} → {fmtDate(job.end_date)}
                 </span>
               </div>
               {#if job.notes}
                 <div class="flex items-center justify-between text-[11px]">
                   <span class="text-neutral-500">Note:</span>
-                  <span class="text-neutral-300 truncate max-w-[170px]" title={job.notes}>{job.notes}</span>
+                  <span class="text-neutral-700 dark:text-neutral-300 truncate max-w-[170px]" title={job.notes}>{job.notes}</span>
                 </div>
               {/if}
             </div>
           </div>
 
           <!-- Card Actions -->
-          <div class="flex items-center justify-between gap-2 border-t border-neutral-800/60 pt-3">
+          <div class="flex items-center justify-between gap-2 border-t border-neutral-200 dark:border-neutral-800/60 pt-3">
             <button
               on:click={() => openAdjustJobModal(job)}
               title="Record a raise, promotion or leave starting from a date"
-              class="text-[11px] font-semibold text-indigo-400 hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
+              class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
             >
               <span>Adjust Rate / Raise →</span>
             </button>
@@ -590,7 +590,7 @@
               <button
                 on:click={() => openEditJobModal(job)}
                 title="Edit job details"
-                class="p-1.5 rounded-lg text-neutral-500 hover:text-neutral-200 hover:bg-neutral-800 transition-colors text-xs"
+                class="p-1.5 rounded-lg text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-xs"
               >
                 ✏️
               </button>
@@ -600,13 +600,13 @@
                   <button
                     on:click={() => confirmDeleteJob(job.id)}
                     disabled={deletingJobId === job.id}
-                    class="px-2 py-0.5 rounded text-[10px] font-bold bg-red-600 hover:bg-red-500 text-white transition-colors"
+                    class="px-2 py-0.5 rounded text-[10px] font-bold bg-rose-600 hover:bg-rose-500 text-white transition-colors"
                   >
                     {deletingJobId === job.id ? "…" : "Confirm"}
                   </button>
                   <button
                     on:click={() => (confirmJobDeleteId = null)}
-                    class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-800 text-neutral-400 hover:text-white"
+                    class="px-1.5 py-0.5 rounded text-[10px] bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-400 hover:bg-neutral-300 dark:hover:text-white"
                   >
                     ✕
                   </button>
@@ -615,7 +615,7 @@
                 <button
                   on:click={() => confirmDeleteJob(job.id)}
                   title="Delete job stream"
-                  class="p-1.5 rounded-lg text-neutral-500 hover:text-red-400 hover:bg-red-950/40 transition-colors text-xs"
+                  class="p-1.5 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-colors text-xs"
                 >
                   🗑️
                 </button>
@@ -633,14 +633,14 @@
 
   <!-- Log Form (2 cols) -->
   <div class="lg:col-span-2 card">
-    <h3 class="text-sm font-semibold text-neutral-200 mb-1">Log One-Off Income & Bonuses</h3>
-    <p class="text-xs text-neutral-400 mb-4">
+    <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-1">Log One-Off Income & Bonuses</h3>
+    <p class="text-xs text-neutral-500 dark:text-neutral-400 mb-4">
       Log bonuses, tax returns, gifts, or dividends for {$selectedMonth}.
     </p>
 
     <div class="space-y-3">
       <div>
-        <label for="income-name" class="block text-xs text-neutral-400 mb-1">Description</label>
+        <label for="income-name" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Description</label>
         <input
           id="income-name"
           type="text"
@@ -652,7 +652,7 @@
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label for="income-amount" class="block text-xs text-neutral-400 mb-1">Amount ({$currencySymbol})</label>
+          <label for="income-amount" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Amount ({$currencySymbol})</label>
           <input
             id="income-amount"
             type="number"
@@ -664,7 +664,7 @@
           />
         </div>
         <div>
-          <label for="income-who" class="block text-xs text-neutral-400 mb-1">Person</label>
+          <label for="income-who" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Person</label>
           <select
             id="income-who"
             bind:value={formWho}
@@ -679,7 +679,7 @@
 
       <div class="grid grid-cols-2 gap-3">
         <div>
-          <label for="income-category" class="block text-xs text-neutral-400 mb-1">Category</label>
+          <label for="income-category" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Category</label>
           <select
             id="income-category"
             bind:value={formCategory}
@@ -691,7 +691,7 @@
           </select>
         </div>
         <div>
-          <label for="income-date" class="block text-xs text-neutral-400 mb-1">Date</label>
+          <label for="income-date" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Date</label>
           <input
             id="income-date"
             type="date"
@@ -702,19 +702,19 @@
       </div>
 
       <div>
-        <span class="block text-xs text-neutral-400 mb-1">Destination Account</span>
+        <span class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Destination Account</span>
         <div class="grid grid-cols-2 gap-2">
           <button
             type="button"
             on:click={() => (formIsJoint = false)}
-            class="py-2 px-3 rounded-xl text-xs font-semibold border transition-all {!formIsJoint ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-900/30" : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-neutral-200"}"
+            class="py-2 px-3 rounded-xl text-xs font-semibold border transition-all {!formIsJoint ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
           >
             Personal Account
           </button>
           <button
             type="button"
             on:click={() => (formIsJoint = true)}
-            class="py-2 px-3 rounded-xl text-xs font-semibold border transition-all {formIsJoint ? "bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-900/30" : "bg-neutral-800 text-neutral-400 border-neutral-700 hover:text-neutral-200"}"
+            class="py-2 px-3 rounded-xl text-xs font-semibold border transition-all {formIsJoint ? 'bg-indigo-600 text-white border-indigo-500 shadow-md shadow-indigo-600/30' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
           >
             🏦 Joint Account
           </button>
@@ -722,10 +722,10 @@
       </div>
 
       {#if formError}
-        <p class="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-xl px-3 py-2">{formError}</p>
+        <p class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 rounded-xl px-3 py-2">{formError}</p>
       {/if}
       {#if formSuccess}
-        <p class="text-xs text-emerald-400 bg-emerald-950/40 border border-emerald-800 rounded-xl px-3 py-2">✓ Income entry recorded!</p>
+        <p class="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2">✓ Income entry recorded!</p>
       {/if}
 
       <button
@@ -744,8 +744,8 @@
   <div class="lg:col-span-3 card">
     <div class="flex items-center justify-between mb-4">
       <div>
-        <h3 class="text-sm font-semibold text-neutral-200">One-Off Income Log</h3>
-        <p class="text-xs text-neutral-400 mt-0.5">Recorded bonuses and additions for {$selectedMonth}</p>
+        <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">One-Off Income Log</h3>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Recorded bonuses and additions for {$selectedMonth}</p>
       </div>
       <span class="badge-neutral">
         {$incomeEntries.length} entries
@@ -754,7 +754,7 @@
 
     {#if $incomeEntries.length === 0}
       <div class="empty-state-box">
-        <p class="text-neutral-400 text-sm font-medium">No income recorded for {$selectedMonth}.</p>
+        <p class="text-neutral-700 dark:text-neutral-400 text-sm font-medium">No income recorded for {$selectedMonth}.</p>
         <p class="text-neutral-500 text-xs mt-1">Use the form on the left to record bonuses, dividends, or gifts.</p>
       </div>
     {:else}
@@ -762,7 +762,7 @@
         {#each $incomeEntries as entry (entry.id)}
           {@const color = userColor(entry.who)}
           {@const badgeColor = catColour(entry.category)}
-          <div class="card-sub p-3 flex items-center gap-3 hover:border-neutral-700 transition-colors group">
+          <div class="card-sub p-3 flex items-center gap-3 hover:border-neutral-300 dark:hover:border-neutral-700 transition-colors group">
             <div
               class="w-7 h-7 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
               style="background-color: {color}"
@@ -771,11 +771,11 @@
             </div>
 
             <div class="flex-1 min-w-0">
-              <p class="text-sm font-semibold text-neutral-200 truncate">{entry.name}</p>
+              <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-200 truncate">{entry.name}</p>
               <div class="flex items-center gap-2 mt-0.5 flex-wrap text-xs">
                 <span
                   class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold"
-                  style="background-color: {badgeColor}22; color: {badgeColor}"
+                  style="background-color: {badgeColor}18; color: {badgeColor}"
                 >
                   {entry.category}
                 </span>
@@ -796,7 +796,7 @@
               id="delete-income-{entry.id}"
               on:click={() => confirmDeleteEntry(entry.id)}
               disabled={deletingId === entry.id}
-              class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-all opacity-0 group-hover:opacity-100 {confirmId === entry.id ? "bg-red-600/80 text-white opacity-100" : "bg-neutral-700 text-neutral-400 hover:bg-red-900/60 hover:text-red-400"} disabled:opacity-30 cursor-pointer"
+              class="shrink-0 w-7 h-7 rounded-lg flex items-center justify-center text-xs transition-all opacity-0 group-hover:opacity-100 {confirmId === entry.id ? 'bg-rose-600 text-white opacity-100' : 'bg-neutral-100 dark:bg-neutral-700 text-neutral-500 dark:text-neutral-400 hover:bg-rose-50 dark:hover:bg-red-900/60 hover:text-rose-600 dark:hover:text-red-400'} disabled:opacity-30 cursor-pointer"
             >
               {deletingId === entry.id ? "…" : confirmId === entry.id ? "!" : "×"}
             </button>
@@ -808,8 +808,8 @@
 </div>
 
 <!-- ── 4. Categories Link Card ──────────────────────────────────────────────── -->
-<div class="bg-neutral-900/60 border border-neutral-800 rounded-2xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
-  <div class="flex items-center gap-2 text-neutral-400">
+<div class="card p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs">
+  <div class="flex items-center gap-2 text-neutral-600 dark:text-neutral-400">
     <span>🏷️</span>
     <span>Manage expense and income category tags in the <strong>Categories</strong> tab.</span>
   </div>
@@ -817,7 +817,7 @@
     id="link-manage-categories"
     type="button"
     on:click={() => dispatch("navigateCategories")}
-    class="text-indigo-400 font-semibold hover:text-indigo-300 transition-colors cursor-pointer whitespace-nowrap self-start sm:self-auto"
+    class="text-indigo-600 dark:text-indigo-400 font-semibold hover:underline transition-colors cursor-pointer whitespace-nowrap self-start sm:self-auto"
   >
     Go to Categories →
   </button>
@@ -825,16 +825,16 @@
 
 <!-- ── Job Modal (Add / Edit) ──────────────────────────────────────────────── -->
 {#if showJobModal === "add" || showJobModal === "edit"}
-  <div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-      <div class="flex items-center justify-between mb-4">
-        <h3 class="text-base font-semibold text-neutral-100">{jobModalTitle}</h3>
-        <button on:click={closeJobModal} class="text-neutral-400 hover:text-white text-lg">✕</button>
+  <div class="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="card p-6 max-w-md w-full shadow-2xl">
+      <div class="flex items-center justify-between mb-4 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-100">{jobModalTitle}</h3>
+        <button on:click={closeJobModal} class="text-neutral-400 hover:text-neutral-700 dark:hover:text-white text-lg">✕</button>
       </div>
 
       <div class="space-y-3.5">
         <div>
-          <label for="modal-job-name" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Job / Employer Title</label>
+          <label for="modal-job-name" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Job / Employer Title</label>
           <input
             id="modal-job-name"
             type="text"
@@ -846,7 +846,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="modal-job-who" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Person</label>
+            <label for="modal-job-who" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Person</label>
             <select
               id="modal-job-who"
               bind:value={jobForm.who}
@@ -858,7 +858,7 @@
             </select>
           </div>
           <div>
-            <label for="modal-job-freq" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Frequency</label>
+            <label for="modal-job-freq" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Frequency</label>
             <select
               id="modal-job-freq"
               bind:value={jobForm.frequency}
@@ -873,7 +873,7 @@
         </div>
 
         <div>
-          <label for="modal-job-amount" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">
+          <label for="modal-job-amount" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">
             Rate ({$currencySymbol})
           </label>
           <div class="relative">
@@ -888,7 +888,7 @@
             />
             {#if jobForm.amount && jobForm.frequency !== "monthly"}
               {@const equivCents = toMonthlyEquivalent(Math.round(parseFloat(jobForm.amount) * 100), jobForm.frequency)}
-              <span class="text-[11px] text-indigo-400 mt-1 block">
+              <span class="text-[11px] text-indigo-600 dark:text-indigo-400 mt-1 block font-medium">
                 ≈ {fmt(equivCents)} / month equivalent
               </span>
             {/if}
@@ -897,7 +897,7 @@
 
         <div class="grid grid-cols-2 gap-3">
           <div>
-            <label for="modal-job-start" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Start Date</label>
+            <label for="modal-job-start" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Start Date</label>
             <input
               id="modal-job-start"
               type="date"
@@ -906,7 +906,7 @@
             />
           </div>
           <div>
-            <label for="modal-job-end" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">End Date (optional)</label>
+            <label for="modal-job-end" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">End Date (optional)</label>
             <input
               id="modal-job-end"
               type="date"
@@ -917,7 +917,7 @@
         </div>
 
         <div>
-          <label for="modal-job-notes" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Notes / Tags (optional)</label>
+          <label for="modal-job-notes" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Notes / Tags (optional)</label>
           <input
             id="modal-job-notes"
             type="text"
@@ -928,7 +928,7 @@
         </div>
 
         {#if jobError}
-          <p class="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-xl px-3 py-2">{jobError}</p>
+          <p class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 rounded-xl px-3 py-2">{jobError}</p>
         {/if}
 
         <div class="flex items-center justify-end gap-2 pt-2">
@@ -955,20 +955,20 @@
 
 <!-- ── Job Adjustment / Raise Modal ─────────────────────────────────────────── -->
 {#if showJobModal === "adjust" && adjustSourceJob}
-  <div class="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-md w-full shadow-2xl">
-      <div class="flex items-center justify-between mb-3">
-        <h3 class="text-base font-semibold text-neutral-100">Adjust Rate / Promotion</h3>
-        <button on:click={closeJobModal} class="text-neutral-400 hover:text-white text-lg">✕</button>
+  <div class="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="card p-6 max-w-md w-full shadow-2xl">
+      <div class="flex items-center justify-between mb-3 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-100">Adjust Rate / Promotion</h3>
+        <button on:click={closeJobModal} class="text-neutral-400 hover:text-neutral-700 dark:hover:text-white text-lg">✕</button>
       </div>
 
-      <p class="text-xs text-neutral-400 mb-4">
+      <p class="text-xs text-neutral-600 dark:text-neutral-400 mb-4">
         Updating <strong>{adjustSourceJob.name}</strong> ({adjustSourceJob.who}). This closes the previous rate on the day before the effective date and starts the new rate automatically.
       </p>
 
       <div class="space-y-3.5">
         <div>
-          <label for="adj-date" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Effective Start Date</label>
+          <label for="adj-date" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Effective Start Date</label>
           <input
             id="adj-date"
             type="date"
@@ -978,7 +978,7 @@
         </div>
 
         <div>
-          <label for="adj-amount" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">
+          <label for="adj-amount" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">
             New Pay Rate ({$currencySymbol} / {adjustSourceJob.frequency})
           </label>
           <input
@@ -993,7 +993,7 @@
         </div>
 
         <div>
-          <label for="adj-notes" class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider mb-1">Reason / Note</label>
+          <label for="adj-notes" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">Reason / Note</label>
           <input
             id="adj-notes"
             type="text"
@@ -1004,7 +1004,7 @@
         </div>
 
         {#if adjustError}
-          <p class="text-xs text-red-400 bg-red-950/40 border border-red-800 rounded-xl px-3 py-2">{adjustError}</p>
+          <p class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 rounded-xl px-3 py-2">{adjustError}</p>
         {/if}
 
         <div class="flex items-center justify-end gap-2 pt-2">

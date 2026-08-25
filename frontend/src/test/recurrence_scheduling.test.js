@@ -53,7 +53,7 @@ describe('Recurrence Scheduling Domain Specifications', () => {
 
       // In August 2026: Aug 2 and Aug 30 -> exactly 2 occurrences!
       expect(occurrences).toEqual(['2026-08-02', '2026-08-30']);
-      expect(occurrences.length).toBe(2);
+      expect(occurrences).toHaveLength(2);
     });
 
     it('computes 5 occurrences for weekly expense starting on 1st of 31-day month', () => {
@@ -78,7 +78,7 @@ describe('Recurrence Scheduling Domain Specifications', () => {
       }
 
       expect(occurrences).toEqual(['2026-08-01', '2026-08-08', '2026-08-15', '2026-08-22', '2026-08-29']);
-      expect(occurrences.length).toBe(5);
+      expect(occurrences).toHaveLength(5);
     });
   });
 

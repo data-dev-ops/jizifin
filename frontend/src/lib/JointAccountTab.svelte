@@ -518,17 +518,17 @@
   <!-- Header -->
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
     <div>
-      <h1 class="text-xl sm:text-2xl font-bold text-white flex items-center gap-2.5">
+      <h1 class="page-title flex items-center gap-2.5">
         <span>🏦</span> Joint Accounts
       </h1>
-      <p class="text-neutral-400 text-sm mt-1">Shared household funds, monthly deposit schedules, and settlements</p>
+      <p class="page-subtitle">Shared household funds, monthly deposit schedules, and settlements</p>
     </div>
 
     {#if ja}
       <button
         type="button"
         on:click={() => { showCreateModal = true; createName = ''; createBalance = '0'; createMargin = '10'; createMode = 'even'; createMembers = []; }}
-        class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-md transition-all flex items-center gap-1.5 self-start sm:self-auto flex-none"
+        class="btn-primary self-start sm:self-auto flex items-center gap-1.5"
       >
         <span>+</span>
         <span>New Joint Account</span>
@@ -537,27 +537,27 @@
   </div>
 
   {#if errorMsg}
-    <div class="p-3.5 bg-red-950/60 border border-red-800/80 rounded-xl text-red-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
+    <div class="p-3.5 bg-rose-50 dark:bg-red-950/60 border border-rose-200 dark:border-red-800/80 rounded-xl text-rose-700 dark:text-red-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
       <span>{errorMsg}</span>
-      <button on:click={() => (errorMsg = '')} class="text-red-400 hover:text-red-200 text-sm font-bold flex-none px-1">×</button>
+      <button on:click={() => (errorMsg = '')} class="text-rose-600 dark:text-red-400 hover:text-rose-800 dark:hover:text-red-200 text-sm font-bold flex-none px-1">×</button>
     </div>
   {/if}
   {#if successMsg}
-    <div class="p-3.5 bg-emerald-950/60 border border-emerald-800/80 rounded-xl text-emerald-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
+    <div class="p-3.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
       <span>{successMsg}</span>
-      <button on:click={() => (successMsg = '')} class="text-emerald-400 hover:text-emerald-200 text-sm font-bold flex-none px-1">×</button>
+      <button on:click={() => (successMsg = '')} class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 text-sm font-bold flex-none px-1">×</button>
     </div>
   {/if}
 
   <!-- Multi-Account Account Switcher Pills -->
   {#if allAccounts.length > 0}
-    <div class="card p-3 border-neutral-800 bg-neutral-900/90 flex flex-wrap items-center gap-2">
-      <span class="text-xs font-semibold text-neutral-400 uppercase tracking-wider pl-1">Accounts:</span>
+    <div class="card p-3 flex flex-wrap items-center gap-2">
+      <span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider pl-1">Accounts:</span>
       {#each allAccounts as acc}
         <button
           type="button"
           on:click={() => switchAccount(acc.id)}
-          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer {acc.id === ja?.id ? 'bg-indigo-600 text-white shadow-md' : 'bg-neutral-800 text-neutral-300 hover:bg-neutral-700'}"
+          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer {acc.id === ja?.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-transparent'}"
         >
           <span>🏦</span>
           <span>{acc.name}</span>
@@ -571,16 +571,16 @@
 
   <!-- ── Create / Setup Modal or Fallback Form ────────────────────────────── -->
   {#if !ja || showCreateModal}
-    <div class="card p-6 sm:p-8 text-center max-w-xl mx-auto space-y-5 border-indigo-500/30">
+    <div class="card p-6 sm:p-8 text-center max-w-xl mx-auto space-y-5 border-indigo-300 dark:border-indigo-500/30">
       <div class="flex items-center justify-between">
-        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xl">
+        <div class="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-xl">
           🏦
         </div>
         {#if showCreateModal && ja}
           <button
             type="button"
             on:click={() => (showCreateModal = false)}
-            class="text-neutral-400 hover:text-neutral-200 text-sm font-bold px-2 py-1"
+            class="text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 text-sm font-bold px-2 py-1 cursor-pointer"
           >
             Cancel
           </button>
@@ -588,15 +588,15 @@
       </div>
 
       <div class="text-left">
-        <h3 class="text-lg font-bold text-white">{showCreateModal && ja ? 'Create Joint Account' : 'Set Up Household Joint Account'}</h3>
-        <p class="text-xs text-neutral-400 mt-1">
+        <h3 class="text-lg font-bold text-neutral-900 dark:text-white">{showCreateModal && ja ? 'Create Joint Account' : 'Set Up Household Joint Account'}</h3>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
           A joint account lets a couple or group track shared expenses outside of individual paybacks. Default non-personal categories will be linked automatically.
         </p>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
         <div>
-          <label for="ja-setup-name" class="block text-xs font-medium text-neutral-400 mb-1">Account Name</label>
+          <label for="ja-setup-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Account Name</label>
           <input
             id="ja-setup-name"
             type="text"
@@ -606,7 +606,7 @@
           />
         </div>
         <div>
-          <label for="ja-setup-balance" class="block text-xs font-medium text-neutral-400 mb-1">Initial Balance (€)</label>
+          <label for="ja-setup-balance" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Initial Balance (€)</label>
           <input
             id="ja-setup-balance"
             type="number"
@@ -616,7 +616,7 @@
           />
         </div>
         <div>
-          <label for="ja-setup-margin" class="block text-xs font-medium text-neutral-400 mb-1">Safety Margin %</label>
+          <label for="ja-setup-margin" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Safety Margin %</label>
           <input
             id="ja-setup-margin"
             type="number"
@@ -627,7 +627,7 @@
           />
         </div>
         <div>
-          <label for="ja-setup-mode" class="block text-xs font-medium text-neutral-400 mb-1">Deposit Split Mode</label>
+          <label for="ja-setup-mode" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Deposit Split Mode</label>
           <select
             id="ja-setup-mode"
             bind:value={createMode}
@@ -641,19 +641,19 @@
 
         <!-- Member assignment -->
         <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-neutral-400 mb-1.5">Account Members</label>
+          <label class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Account Members</label>
           <div class="flex flex-wrap gap-2">
             {#each activeUsers as u}
               {@const isChecked = createMembers.includes(u.name)}
               <button
                 type="button"
                 on:click={() => toggleCreateMember(u.name)}
-                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-50 dark:bg-indigo-600/20 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-bold' : 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
               >
                 <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
                 <span>{u.name}</span>
                 {#if isChecked}
-                  <span class="text-[10px] text-indigo-400">✓</span>
+                  <span class="text-[10px] text-indigo-600 dark:text-indigo-400">✓</span>
                 {/if}
               </button>
             {/each}
@@ -674,7 +674,7 @@
 
   {:else}
     <!-- Sub-navigation tabs -->
-    <nav class="flex flex-wrap gap-2 border-b border-neutral-800 pb-3">
+    <nav class="flex flex-wrap gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
       {#each [
         ['overview', '📊 Overview'],
         ['categories', '🏷️ Categories'],
@@ -692,8 +692,8 @@
           }}
           class="px-4 py-2 rounded-xl text-xs font-semibold transition-all duration-200 cursor-pointer
                  {section === id
-                   ? 'bg-indigo-600 text-white shadow-md shadow-indigo-900/40'
-                   : 'bg-neutral-900 text-neutral-400 hover:text-neutral-200 border border-neutral-800'}"
+                   ? 'bg-indigo-600 text-white shadow-sm'
+                   : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 border border-neutral-200 dark:border-neutral-800'}"
         >
           {label}
         </button>
@@ -706,35 +706,35 @@
         <!-- Stat Cards Grid -->
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <!-- Balance -->
-          <div class="card border-indigo-500/30 bg-indigo-500/5 p-4 sm:p-5">
-            <p class="text-xs font-medium text-neutral-400 uppercase tracking-wider">Current Balance</p>
-            <p class="text-2xl sm:text-3xl font-bold text-white mt-1 tabular-nums">{fmt(ja.balance_cents)}</p>
-            <p class="text-xs text-indigo-400 mt-1 font-medium">{ja.name}</p>
+          <div class="card border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/30 dark:bg-indigo-500/5 p-4 sm:p-5">
+            <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Current Balance</p>
+            <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(ja.balance_cents)}</p>
+            <p class="text-xs text-indigo-600 dark:text-indigo-400 mt-1 font-semibold">{ja.name}</p>
           </div>
 
           {#if dash}
             <!-- Spent this month -->
-            <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-400 uppercase tracking-wider">Spent ({dash.month})</p>
-              <p class="text-2xl sm:text-3xl font-bold text-white mt-1 tabular-nums">{fmt(dash.actual_total_cents)}</p>
+            <div class="card p-4 sm:p-5">
+              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Spent ({dash.month})</p>
+              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.actual_total_cents)}</p>
               <p class="text-xs text-neutral-500 mt-1">of {fmt(dash.expected_total_cents)} expected</p>
-              <div class="w-full h-1.5 bg-neutral-800 rounded-full mt-3 overflow-hidden">
+              <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full mt-3 overflow-hidden">
                 <div class="h-full bg-indigo-500 rounded-full transition-all duration-500" style="width: {pct(dash.actual_total_cents, dash.expected_total_cents)}%"></div>
               </div>
             </div>
 
             <!-- Target deposit -->
-            <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-400 uppercase tracking-wider">Target Deposit / Mo</p>
-              <p class="text-2xl sm:text-3xl font-bold text-white mt-1 tabular-nums">{fmt(dash.target_deposit_cents)}</p>
+            <div class="card p-4 sm:p-5">
+              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Target Deposit / Mo</p>
+              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.target_deposit_cents)}</p>
               <p class="text-xs text-neutral-500 mt-1">+{dash.safety_margin_pct}% safety margin</p>
             </div>
 
             <!-- Deposits received -->
-            <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-400 uppercase tracking-wider">Deposits Received</p>
-              <p class="text-2xl sm:text-3xl font-bold text-white mt-1 tabular-nums">{fmt(dash.total_deposits_cents)}</p>
-              <p class="text-xs mt-1 font-semibold {dash.total_deposits_cents >= dash.target_deposit_cents ? 'text-emerald-400' : 'text-amber-400'}">
+            <div class="card p-4 sm:p-5">
+              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Deposits Received</p>
+              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.total_deposits_cents)}</p>
+              <p class="text-xs mt-1 font-semibold {dash.total_deposits_cents >= dash.target_deposit_cents ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
                 {dash.total_deposits_cents >= dash.target_deposit_cents ? '✓ Target met' : '⚠ Below target'}
               </p>
             </div>
@@ -743,19 +743,19 @@
 
         <!-- Category breakdown -->
         {#if dash && dash.categories.length > 0}
-          <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-4">
-            <h3 class="text-sm font-semibold text-neutral-200">Category Spending Progression — {dash.month}</h3>
+          <div class="card p-5 sm:p-6 space-y-4">
+            <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Category Spending Progression — {dash.month}</h3>
             <div class="space-y-3">
               {#each dash.categories as row}
                 {@const used = pct(row.actual_cents, row.expected_cents)}
                 <div class="space-y-1">
                   <div class="flex justify-between text-xs font-medium">
-                    <span class="text-neutral-300">{row.category}</span>
-                    <span class="text-neutral-400 tabular-nums">{fmt(row.actual_cents)} / {row.expected_cents > 0 ? fmt(row.expected_cents) : '—'} ({used}%)</span>
+                    <span class="text-neutral-700 dark:text-neutral-300">{row.category}</span>
+                    <span class="text-neutral-500 dark:text-neutral-400 tabular-nums">{fmt(row.actual_cents)} / {row.expected_cents > 0 ? fmt(row.expected_cents) : '—'} ({used}%)</span>
                   </div>
-                  <div class="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
+                  <div class="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
                     <div
-                      class="h-full rounded-full transition-all duration-500 {used >= 100 ? 'bg-red-500' : 'bg-indigo-500'}"
+                      class="h-full rounded-full transition-all duration-500 {used >= 100 ? 'bg-rose-500' : 'bg-indigo-500'}"
                       style="width: {Math.min(100, used)}%"
                     ></div>
                   </div>
@@ -766,24 +766,24 @@
         {/if}
 
         <!-- Quick settings -->
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-4">
-          <h3 class="text-sm font-semibold text-neutral-200">Joint Account Settings</h3>
+        <div class="card p-5 sm:p-6 space-y-4">
+          <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Joint Account Settings</h3>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
             <div>
-              <label for="ja-edit-name" class="block text-xs font-medium text-neutral-400 mb-1">Account Name</label>
-              <input id="ja-edit-name" type="text" bind:value={editName} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-edit-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Account Name</label>
+              <input id="ja-edit-name" type="text" bind:value={editName} class="input-field" />
             </div>
             <div>
-              <label for="ja-edit-balance" class="block text-xs font-medium text-neutral-400 mb-1">Current Balance (€)</label>
-              <input id="ja-edit-balance" type="number" step="0.01" bind:value={editBalance} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-edit-balance" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Current Balance (€)</label>
+              <input id="ja-edit-balance" type="number" step="0.01" bind:value={editBalance} class="input-field" />
             </div>
             <div>
-              <label for="ja-edit-margin" class="block text-xs font-medium text-neutral-400 mb-1">Safety Margin %</label>
-              <input id="ja-edit-margin" type="number" min="0" max="100" bind:value={editMargin} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-edit-margin" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Safety Margin %</label>
+              <input id="ja-edit-margin" type="number" min="0" max="100" bind:value={editMargin} class="input-field" />
             </div>
             <div>
-              <label for="ja-edit-mode" class="block text-xs font-medium text-neutral-400 mb-1">Deposit Split Mode</label>
-              <select id="ja-edit-mode" bind:value={editMode} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100">
+              <label for="ja-edit-mode" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Deposit Split Mode</label>
+              <select id="ja-edit-mode" bind:value={editMode} class="select-field">
                 <option value="even">Even split</option>
                 <option value="salary">Proportional to salary</option>
                 <option value="manual">Manual</option>
@@ -792,19 +792,19 @@
 
             <!-- Edit Account Members -->
             <div class="sm:col-span-2 md:col-span-4">
-              <label class="block text-xs font-medium text-neutral-400 mb-1.5">Account Members</label>
+              <label class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Account Members</label>
               <div class="flex flex-wrap gap-2">
                 {#each activeUsers as u}
                   {@const isChecked = editMembers.includes(u.name)}
                   <button
                     type="button"
                     on:click={() => toggleEditMember(u.name)}
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-600/20 border-indigo-500 text-indigo-200' : 'bg-neutral-800/80 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-50 dark:bg-indigo-600/20 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-semibold' : 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
                   >
                     <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
                     <span>{u.name}</span>
                     {#if isChecked}
-                      <span class="text-[10px] text-indigo-400">✓</span>
+                      <span class="text-[10px] text-indigo-600 dark:text-indigo-400">✓</span>
                     {/if}
                   </button>
                 {/each}
@@ -812,10 +812,10 @@
             </div>
           </div>
           <div class="flex gap-3 pt-2">
-            <button id="ja-save-settings-btn" on:click={handleUpdateSettings} class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-md transition-colors">
+            <button id="ja-save-settings-btn" on:click={handleUpdateSettings} class="btn-primary text-xs py-2 px-4">
               Save Settings
             </button>
-            <button id="ja-delete-btn" on:click={handleDelete} class="px-4 py-2 bg-red-950/60 hover:bg-red-900/80 text-red-300 border border-red-800/80 font-semibold text-xs rounded-xl transition-colors">
+            <button id="ja-delete-btn" on:click={handleDelete} class="btn-danger text-xs py-2 px-4">
               Delete Account
             </button>
           </div>
@@ -825,17 +825,17 @@
 
     <!-- CATEGORIES SECTION (Multi-column grid layout) -->
     {#if section === 'categories'}
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
+      <div class="card p-5 sm:p-6 space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
           <div>
-            <h3 class="text-base font-bold text-white">Joint Account Categories</h3>
-            <p class="text-xs text-neutral-400 mt-0.5">
+            <h3 class="text-base font-bold text-neutral-900 dark:text-white">Joint Account Categories</h3>
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
               Select categories paid directly from joint funds. Expenses in these categories are excluded from personal paybacks.
             </p>
           </div>
           <button
             on:click={() => enableDefaultCategories()}
-            class="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs rounded-xl border border-neutral-700 transition-colors flex-none"
+            class="btn-secondary text-xs py-2 px-3.5 flex-none"
           >
             ✓ Enable Non-Personal Defaults
           </button>
@@ -850,8 +850,8 @@
               for="ja-cat-{s.category}"
               class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer select-none transition-all duration-150
                      {active
-                       ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm shadow-indigo-900/30'
-                       : 'bg-neutral-950/80 border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'}"
+                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
+                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
             >
               <input
                 id="ja-cat-{s.category}"
@@ -862,7 +862,7 @@
               />
               <div
                 class="w-5 h-5 rounded-md border flex items-center justify-center flex-none transition-colors
-                       {active ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-neutral-800 border-neutral-700'}"
+                       {active ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700'}"
               >
                 {#if active}
                   <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
@@ -882,35 +882,35 @@
 
     <!-- DEPOSITS SECTION -->
     {#if section === 'deposits'}
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-800 pb-4">
+      <div class="card p-5 sm:p-6 space-y-5">
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
           <div>
-            <h3 class="text-base font-bold text-white">Monthly Deposit Schedule</h3>
-            <p class="text-xs text-neutral-400 mt-0.5">Configure monthly contribution amounts and deposit days per member.</p>
+            <h3 class="text-base font-bold text-neutral-900 dark:text-white">Monthly Deposit Schedule</h3>
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Configure monthly contribution amounts and deposit days per member.</p>
           </div>
           <div class="flex flex-wrap items-center gap-2">
             <button
               id="ja-propose-deposits-btn"
               on:click={handleProposeDeposits}
-              class="px-3.5 py-2 bg-indigo-950/60 hover:bg-indigo-900/80 text-indigo-300 font-semibold text-xs rounded-xl border border-indigo-700/60 transition-colors flex items-center gap-1.5 flex-none"
+              class="btn-secondary text-xs py-2 px-3.5 flex items-center gap-1.5 flex-none"
             >
               💡 Propose Amounts
             </button>
-            <div class="flex items-center gap-1.5 bg-neutral-950/80 px-2.5 py-1.5 rounded-xl border border-neutral-800">
-              <label for="ja-round-step" class="text-xs font-medium text-neutral-400">Interval €</label>
+            <div class="flex items-center gap-1.5 bg-neutral-50 dark:bg-neutral-950/80 px-2.5 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800">
+              <label for="ja-round-step" class="text-xs font-medium text-neutral-600 dark:text-neutral-400">Interval €</label>
               <input
                 id="ja-round-step"
                 type="number"
                 min="1"
                 step="1"
                 bind:value={roundInterval}
-                class="w-14 bg-neutral-800 border border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-100 font-bold tabular-nums focus:outline-none focus:border-indigo-500"
+                class="w-14 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100 font-bold tabular-nums focus:outline-none focus:border-indigo-500"
               />
             </div>
             <button
               id="ja-round-deposits-btn"
               on:click={handleRoundOffDeposits}
-              class="px-3.5 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-200 font-semibold text-xs rounded-xl border border-neutral-700 transition-colors flex items-center gap-1.5 flex-none"
+              class="btn-secondary text-xs py-2 px-3.5 flex items-center gap-1.5 flex-none"
             >
               ⬆️ Round Up
             </button>
@@ -919,10 +919,10 @@
 
         <div class="space-y-3 max-w-xl">
           {#each editDeposits as dep, i}
-            <div class="flex items-center gap-4 p-4 rounded-xl bg-neutral-950/80 border border-neutral-800">
-              <span class="w-24 font-bold text-sm text-neutral-200 flex-none">{dep.user_name}</span>
+            <div class="flex items-center gap-4 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800">
+              <span class="w-24 font-bold text-sm text-neutral-800 dark:text-neutral-200 flex-none">{dep.user_name}</span>
               <div class="flex-1">
-                <label for="ja-dep-amount-{i}" class="block text-[11px] font-medium text-neutral-400 mb-1">Monthly Deposit (€)</label>
+                <label for="ja-dep-amount-{i}" class="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Monthly Deposit (€)</label>
                 <input
                   id="ja-dep-amount-{i}"
                   type="number"
@@ -931,18 +931,18 @@
                   value={(dep.amount_cents / 100).toFixed(2)}
                   on:input={(e) => (editDeposits[i].amount_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
                   on:change={(e) => (editDeposits[i].amount_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
-                  class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                  class="input-field"
                 />
               </div>
               <div class="w-28 flex-none">
-                <label for="ja-dep-day-{i}" class="block text-[11px] font-medium text-neutral-400 mb-1">Day of Month</label>
+                <label for="ja-dep-day-{i}" class="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Day of Month</label>
                 <input
                   id="ja-dep-day-{i}"
                   type="number"
                   min="1"
                   max="31"
                   bind:value={editDeposits[i].day_of_month}
-                  class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                  class="input-field"
                 />
               </div>
             </div>
@@ -952,18 +952,18 @@
         <button
           id="ja-save-deposits-btn"
           on:click={handleSaveDeposits}
-          class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all"
+          class="btn-primary py-2.5 px-4"
         >
           Save Deposit Schedule
         </button>
 
         <!-- ── Monthly Deposit Execution Log ── -->
-        <div class="mt-8 pt-6 border-t border-neutral-800 space-y-4">
+        <div class="mt-8 pt-6 border-t border-neutral-200 dark:border-neutral-800 space-y-4">
           <div>
-            <h4 class="text-sm font-bold text-white flex items-center gap-2">
+            <h4 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
               <span>📅</span> Monthly Deposit Execution ({$selectedMonth})
             </h4>
-            <p class="text-xs text-neutral-400 mt-0.5">
+            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
               Track whether members have paid their monthly deposits for {$selectedMonth}. If paid amounts differ from scheduled amounts, customize the exact paid figure below.
             </p>
           </div>
@@ -979,37 +979,37 @@
               {@const dueDay = sched ? sched.day_of_month : 1}
               {@const isEditingThis = editingPaidUser === u.name}
 
-              <div class="p-4 rounded-xl bg-neutral-950 border border-neutral-800 space-y-3">
+              <div class="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 space-y-3">
                 <div class="flex items-center justify-between gap-3 flex-wrap">
                   <div class="flex items-center gap-2">
                     <div
-                      class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0"
+                      class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm"
                       style="background-color: {u.color}"
                     >
                       {u.name.charAt(0).toUpperCase()}
                     </div>
-                    <span class="font-bold text-sm text-neutral-200">{u.name}</span>
+                    <span class="font-bold text-sm text-neutral-800 dark:text-neutral-200">{u.name}</span>
                   </div>
 
                   <!-- Status badge -->
                   <div class="flex items-center gap-2">
                     {#if isPaid}
                       {#if isDiverted}
-                        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-950/60 border border-amber-800/80 text-amber-300">
+                        <span class="badge-amber">
                           ✓ Paid €{(actualCents / 100).toFixed(2)} (Scheduled €{(schedCents / 100).toFixed(2)})
                         </span>
                       {:else}
-                        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-emerald-950/60 border border-emerald-800/80 text-emerald-300">
+                        <span class="badge-emerald">
                           ✓ Paid €{(actualCents / 100).toFixed(2)}
                         </span>
                       {/if}
                     {:else}
                       {#if log && log.status === 'pending'}
-                        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-indigo-950/60 border border-indigo-800/80 text-indigo-300">
+                        <span class="badge-indigo">
                           ⏳ Pending (Due Day {dueDay})
                         </span>
                       {:else}
-                        <span class="px-2.5 py-1 rounded-lg text-xs font-semibold bg-amber-950/60 border border-amber-800/80 text-amber-300">
+                        <span class="badge-amber">
                           ⚠ Unpaid / Due Day {dueDay}
                         </span>
                       {/if}
@@ -1019,30 +1019,30 @@
 
                 <!-- Action buttons / Edit inputs -->
                 {#if isEditingThis}
-                  <div class="flex items-center gap-2 pt-2 border-t border-neutral-900">
+                  <div class="flex items-center gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-900">
                     <div class="flex-1">
-                      <label for="custom-paid-{u.name}" class="block text-[10px] font-medium text-neutral-400 mb-1">Actual Amount Paid (€)</label>
+                      <label for="custom-paid-{u.name}" class="block text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Actual Amount Paid (€)</label>
                       <input
                         id="custom-paid-{u.name}"
                         type="number"
                         step="0.01"
                         bind:value={customPaidAmount}
                         placeholder={(schedCents / 100).toFixed(2)}
-                        class="w-full bg-neutral-900 border border-neutral-700 rounded-lg px-2.5 py-1.5 text-xs text-neutral-100 font-semibold tabular-nums focus:outline-none focus:border-indigo-500"
+                        class="input-field"
                       />
                     </div>
                     <button
                       id="save-custom-paid-{u.name}"
                       type="button"
                       on:click={() => handleToggleDepositPaid(u.name, true, Math.round(parseFloat(customPaidAmount || '0') * 100))}
-                      class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors self-end"
+                      class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors self-end cursor-pointer"
                     >
                       Confirm
                     </button>
                     <button
                       type="button"
                       on:click={() => { editingPaidUser = null; customPaidAmount = ''; }}
-                      class="px-3 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg transition-colors self-end"
+                      class="btn-secondary text-xs py-2 px-3 self-end"
                     >
                       Cancel
                     </button>
@@ -1054,7 +1054,7 @@
                         id="btn-mark-paid-{u.name}"
                         type="button"
                         on:click={() => handleToggleDepositPaid(u.name, true, schedCents)}
-                        class="px-3 py-1.5 bg-emerald-950/80 hover:bg-emerald-900 border border-emerald-700/60 text-emerald-300 font-semibold text-xs rounded-lg transition-colors"
+                        class="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-700/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
                       >
                         ✓ Mark Paid (€{(schedCents / 100).toFixed(2)})
                       </button>
@@ -1062,7 +1062,7 @@
                         id="btn-custom-paid-{u.name}"
                         type="button"
                         on:click={() => { editingPaidUser = u.name; customPaidAmount = (schedCents / 100).toFixed(2); }}
-                        class="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg transition-colors"
+                        class="btn-secondary text-xs py-1.5 px-3"
                       >
                         Enter Custom Amount…
                       </button>
@@ -1071,7 +1071,7 @@
                         id="btn-edit-paid-{u.name}"
                         type="button"
                         on:click={() => { editingPaidUser = u.name; customPaidAmount = (actualCents / 100).toFixed(2); }}
-                        class="px-3 py-1.5 bg-neutral-900 hover:bg-neutral-800 border border-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg transition-colors"
+                        class="btn-secondary text-xs py-1.5 px-3"
                       >
                         Edit Paid Amount
                       </button>
@@ -1079,7 +1079,7 @@
                         id="btn-unmark-paid-{u.name}"
                         type="button"
                         on:click={() => handleToggleDepositPaid(u.name, false, 0)}
-                        class="px-3 py-1.5 bg-neutral-900 hover:bg-red-950/60 border border-neutral-700 hover:border-red-800 text-neutral-400 hover:text-red-300 font-semibold text-xs rounded-lg transition-colors"
+                        class="btn-danger text-xs py-1.5 px-3"
                       >
                         Unmark
                       </button>
@@ -1095,17 +1095,17 @@
 
     <!-- EXPECTED COSTS SECTION -->
     {#if section === 'expected'}
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-6">
+      <div class="card p-5 sm:p-6 space-y-6">
         <div>
-          <h3 class="text-base font-bold text-white">Expected Monthly Costs</h3>
-          <p class="text-xs text-neutral-400 mt-0.5">Configure expected monthly cost targets either as a single gross total or by category.</p>
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Expected Monthly Costs</h3>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Configure expected monthly cost targets either as a single gross total or by category.</p>
         </div>
 
         <!-- Mode Selection Subsections -->
         <div class="space-y-4 max-w-2xl">
           <!-- Gross Cost Estimation Option -->
           <label class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all
-                        {costEstimationMode === 'gross' ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm' : 'bg-neutral-950/80 border-neutral-800 text-neutral-400'}">
+                        {costEstimationMode === 'gross' ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-neutral-900 dark:text-white shadow-sm' : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'}">
             <input
               id="radio-estimation-gross"
               type="radio"
@@ -1116,11 +1116,11 @@
               class="mt-0.5 accent-indigo-600"
             />
             <div class="flex-1 space-y-2">
-              <span class="font-bold text-sm text-neutral-100 block">Expected Gross Cost Estimation</span>
-              <p class="text-xs text-neutral-400">Use a single overall gross estimate for the entire joint account.</p>
+              <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 block">Expected Gross Cost Estimation</span>
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Use a single overall gross estimate for the entire joint account.</p>
               {#if costEstimationMode === 'gross'}
                 <div class="pt-2">
-                  <label for="ja-gross-total" class="block text-xs font-medium text-neutral-300 mb-1">Expected Gross Total (€)</label>
+                  <label for="ja-gross-total" class="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">Expected Gross Total (€)</label>
                   <input
                     id="ja-gross-total"
                     type="number"
@@ -1128,18 +1128,18 @@
                     min="0"
                     bind:value={grossTotalEuros}
                     placeholder="e.g. 3000.00"
-                    class="w-full sm:w-64 bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                    class="input-field w-full sm:w-64"
                   />
                 </div>
               {/if}
             </div>
           </label>
 
-          <hr class="border-neutral-800 my-2" />
+          <hr class="border-neutral-200 dark:border-neutral-800 my-2" />
 
           <!-- Category Specific Estimation Option -->
           <label class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all
-                        {costEstimationMode === 'categories' ? 'bg-indigo-950/60 border-indigo-500/80 text-white shadow-sm' : 'bg-neutral-950/80 border-neutral-800 text-neutral-400'}">
+                        {costEstimationMode === 'categories' ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-neutral-900 dark:text-white shadow-sm' : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'}">
             <input
               id="radio-estimation-categories"
               type="radio"
@@ -1151,14 +1151,14 @@
             />
             <div class="flex-1 space-y-2">
               <div class="flex items-center justify-between flex-wrap gap-2">
-                <span class="font-bold text-sm text-neutral-100 block">Category Specific Cost Estimations</span>
+                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 block">Category Specific Cost Estimations</span>
                 {#if costEstimationMode === 'categories'}
-                  <span class="text-xs font-semibold text-indigo-400 bg-indigo-950/80 px-2.5 py-1 rounded-lg border border-indigo-800/60">
+                  <span class="badge-indigo">
                     Estimated monthly total cost = {fmt(sumCategoryExpectedCents)}
                   </span>
                 {/if}
               </div>
-              <p class="text-xs text-neutral-400">Set individual monthly budget targets per joint category.</p>
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">Set individual monthly budget targets per joint category.</p>
 
               {#if costEstimationMode === 'categories'}
                 <div class="pt-2">
@@ -1167,8 +1167,8 @@
                   {:else}
                     <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
                       {#each editExpected as ex, i}
-                        <div class="p-3 rounded-xl bg-neutral-900 border border-neutral-800 space-y-1">
-                          <span class="block text-xs font-semibold text-neutral-300">{ex.category}</span>
+                        <div class="card-sub p-3 space-y-1">
+                          <span class="block text-xs font-semibold text-neutral-800 dark:text-neutral-300">{ex.category}</span>
                           <label for="ja-exp-{i}" class="block text-[11px] text-neutral-500">Expected Cost (€)</label>
                           <input
                             id="ja-exp-{i}"
@@ -1177,7 +1177,7 @@
                             min="0"
                             value={(ex.expected_cents / 100).toFixed(2)}
                             on:change={(e) => (editExpected[i].expected_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
-                            class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-1.5 text-sm text-neutral-100 focus:outline-none focus:border-indigo-500"
+                            class="input-field py-1.5"
                           />
                         </div>
                       {/each}
@@ -1192,7 +1192,7 @@
         <button
           id="ja-save-expected-btn"
           on:click={handleSaveExpected}
-          class="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all"
+          class="btn-primary py-2.5 px-4"
         >
           Save Expected Costs
         </button>
@@ -1203,19 +1203,19 @@
     {#if section === 'corrections'}
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <!-- Log Correction Card -->
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-4">
-          <h3 class="text-base font-bold text-white">Log Balance Correction</h3>
+        <div class="card p-5 sm:p-6 space-y-4">
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Log Balance Correction</h3>
           
           <div class="space-y-3">
             <div>
-              <span class="block text-xs font-medium text-neutral-400 mb-1.5">Correction Type</span>
+              <span class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Correction Type</span>
               <div class="grid grid-cols-2 gap-2">
                 <button
                   id="ja-corr-topup"
                   type="button"
                   on:click={() => (corrIsNeg = false)}
-                  class="py-2 rounded-xl text-xs font-semibold border transition-all
-                         {!corrIsNeg ? 'bg-emerald-950/80 border-emerald-500 text-emerald-300 shadow-sm' : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                  class="py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer
+                         {!corrIsNeg ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
                 >
                   + Deposit / Top-up
                 </button>
@@ -1223,8 +1223,8 @@
                   id="ja-corr-withdraw"
                   type="button"
                   on:click={() => (corrIsNeg = true)}
-                  class="py-2 rounded-xl text-xs font-semibold border transition-all
-                         {corrIsNeg ? 'bg-red-950/80 border-red-500 text-red-300 shadow-sm' : 'bg-neutral-800 border-neutral-700 text-neutral-400 hover:text-neutral-200'}"
+                  class="py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer
+                         {corrIsNeg ? 'bg-rose-50 dark:bg-red-950/80 border-rose-500 text-rose-700 dark:text-red-300 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
                 >
                   − Withdrawal
                 </button>
@@ -1232,50 +1232,50 @@
             </div>
 
             <div>
-              <label for="ja-corr-amount" class="block text-xs font-medium text-neutral-400 mb-1">Amount (€)</label>
-              <input id="ja-corr-amount" type="number" step="0.01" min="0" bind:value={corrAmount} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-corr-amount" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Amount (€)</label>
+              <input id="ja-corr-amount" type="number" step="0.01" min="0" bind:value={corrAmount} class="input-field" />
             </div>
 
             <div>
-              <label for="ja-corr-date" class="block text-xs font-medium text-neutral-400 mb-1">Date</label>
-              <input id="ja-corr-date" type="date" bind:value={corrDate} class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-corr-date" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Date</label>
+              <input id="ja-corr-date" type="date" bind:value={corrDate} class="input-field" />
             </div>
 
             <div>
-              <label for="ja-corr-note" class="block text-xs font-medium text-neutral-400 mb-1">Note (optional)</label>
-              <input id="ja-corr-note" type="text" bind:value={corrNote} maxlength="512" placeholder="e.g. Monthly top-up" class="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm text-neutral-100" />
+              <label for="ja-corr-note" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Note (optional)</label>
+              <input id="ja-corr-note" type="text" bind:value={corrNote} maxlength="512" placeholder="e.g. Monthly top-up" class="input-field" />
             </div>
           </div>
 
           <button
             id="ja-add-corr-btn"
             on:click={handleAddCorrection}
-            class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all"
+            class="btn-primary w-full py-2.5"
           >
             Log Correction
           </button>
         </div>
 
         <!-- History Log Card -->
-        <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-4">
-          <h3 class="text-base font-bold text-white">Correction Log History</h3>
+        <div class="card p-5 sm:p-6 space-y-4">
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Correction Log History</h3>
 
           {#if corrections.length === 0}
             <p class="text-xs text-neutral-500">No balance corrections logged yet.</p>
           {:else}
             <div class="space-y-2 max-h-96 overflow-y-auto pr-1">
               {#each corrections as c}
-                <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-950/80 border border-neutral-800 text-xs">
+                <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs">
                   <div>
-                    <div class="font-bold tabular-nums {c.amount_cents >= 0 ? 'text-emerald-400' : 'text-red-400'}">
+                    <div class="font-bold tabular-nums {c.amount_cents >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">
                       {c.amount_cents >= 0 ? '+' : ''}{fmt(c.amount_cents)}
                     </div>
-                    <div class="text-neutral-400 mt-0.5">{c.note ?? '—'} ({c.correction_date})</div>
+                    <div class="text-neutral-500 dark:text-neutral-400 mt-0.5">{c.note ?? '—'} ({c.correction_date})</div>
                   </div>
                   <button
                     id="ja-del-corr-{c.id}"
                     on:click={() => handleDeleteCorrection(c.id)}
-                    class="p-1 text-neutral-500 hover:text-red-400 transition-colors"
+                    class="p-1 text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 transition-colors cursor-pointer"
                   >
                     ×
                   </button>
@@ -1289,17 +1289,17 @@
 
     <!-- SETTLE SECTION (Selectable checkmark cards instead of select dropdown) -->
     {#if section === 'settle'}
-      <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-5 sm:p-6 space-y-6 max-w-2xl">
+      <div class="card p-5 sm:p-6 space-y-6 max-w-2xl">
         <div>
-          <h3 class="text-base font-bold text-white">Settle Joint Account ({month})</h3>
-          <p class="text-xs text-neutral-400 mt-0.5">
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Settle Joint Account ({month})</h3>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
             Compare actual spending against deposits collected for the month and choose a settlement method.
           </p>
         </div>
 
         <!-- Selectable Radio Cards for Settlement Modes -->
         <div class="space-y-3">
-          <span class="block text-xs font-semibold text-neutral-400 uppercase tracking-wider">Select Settlement Method</span>
+          <span class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Select Settlement Method</span>
           
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <!-- Direct Pay Card -->
@@ -1309,14 +1309,14 @@
               on:click={() => (settleMode = 'direct_pay')}
               class="text-left p-4 rounded-xl border transition-all relative flex flex-col justify-between space-y-2 cursor-pointer
                      {settleMode === 'direct_pay'
-                       ? 'bg-indigo-950/60 border-indigo-500 text-white shadow-lg shadow-indigo-900/30'
-                       : 'bg-neutral-950/80 border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'}"
+                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
+                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
             >
               <div class="flex items-center justify-between">
-                <span class="font-bold text-sm text-neutral-100 flex items-center gap-2">
+                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
                   💵 Direct Payment
                 </span>
-                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'direct_pay' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-700'}">
+                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'direct_pay' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-300 dark:border-neutral-700'}">
                   {#if settleMode === 'direct_pay'}
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -1324,7 +1324,7 @@
                   {/if}
                 </div>
               </div>
-              <p class="text-xs text-neutral-400 leading-relaxed">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                 Calculate the difference between deposits and actual spending, showing exact amounts for users to transfer directly.
               </p>
             </button>
@@ -1336,14 +1336,14 @@
               on:click={() => (settleMode = 'adjust_deposits')}
               class="text-left p-4 rounded-xl border transition-all relative flex flex-col justify-between space-y-2 cursor-pointer
                      {settleMode === 'adjust_deposits'
-                       ? 'bg-indigo-950/60 border-indigo-500 text-white shadow-lg shadow-indigo-900/30'
-                       : 'bg-neutral-950/80 border-neutral-800 text-neutral-400 hover:border-neutral-700 hover:text-neutral-200'}"
+                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
+                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
             >
               <div class="flex items-center justify-between">
-                <span class="font-bold text-sm text-neutral-100 flex items-center gap-2">
+                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
                   🔄 Adjust Future Deposits
                 </span>
-                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'adjust_deposits' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-700'}">
+                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'adjust_deposits' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-300 dark:border-neutral-700'}">
                   {#if settleMode === 'adjust_deposits'}
                     <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
                       <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
@@ -1351,7 +1351,7 @@
                   {/if}
                 </div>
               </div>
-              <p class="text-xs text-neutral-400 leading-relaxed">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
                 Automatically recalculates per-user monthly deposit amounts to absorb any surplus or deficit over next month.
               </p>
             </button>
@@ -1362,21 +1362,21 @@
           id="ja-settle-btn"
           on:click={handleSettle}
           disabled={settling}
-          class="w-full py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all disabled:opacity-50"
+          class="btn-primary w-full py-2.5 disabled:opacity-50"
         >
           {settling ? 'Settling…' : 'Execute Settlement'}
         </button>
 
         {#if settleResult}
-          <div class="p-4 rounded-xl bg-neutral-950/80 border border-neutral-800 space-y-2 animate-fadeIn">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-neutral-300">{settleResult.message ?? settleResult.mode}</h4>
+          <div class="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 space-y-2 animate-fadeIn">
+            <h4 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">{settleResult.message ?? settleResult.mode}</h4>
             <p class="text-sm">
-              Difference: <strong class={settleResult.difference_cents >= 0 ? 'text-emerald-400' : 'text-red-400'}>
+              Difference: <strong class={settleResult.difference_cents >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}>
                 {settleResult.difference_cents >= 0 ? '+' : ''}{fmt(settleResult.difference_cents)}
               </strong>
             </p>
             {#if settleMode === 'direct_pay'}
-              <p class="text-xs text-neutral-400">
+              <p class="text-xs text-neutral-500 dark:text-neutral-400">
                 {settleResult.difference_cents < 0
                   ? `Deficit: Users need to top up ${fmt(-settleResult.difference_cents)} into the account.`
                   : `Surplus: ${fmt(settleResult.difference_cents)} remains in joint account.`}
@@ -1384,9 +1384,9 @@
             {:else if settleResult.adjustments}
               <div class="space-y-1 pt-2">
                 {#each settleResult.adjustments as adj}
-                  <div class="flex justify-between text-xs py-1 border-b border-neutral-800">
-                    <span class="text-neutral-300">{adj.user_name}</span>
-                    <span class="font-medium">{fmt(adj.old_cents)} → <span class="text-emerald-400">{fmt(adj.new_cents)}</span></span>
+                  <div class="flex justify-between text-xs py-1 border-b border-neutral-200 dark:border-neutral-800">
+                    <span class="text-neutral-700 dark:text-neutral-300">{adj.user_name}</span>
+                    <span class="font-medium">{fmt(adj.old_cents)} → <span class="text-emerald-600 dark:text-emerald-400 font-bold">{fmt(adj.new_cents)}</span></span>
                   </div>
                 {/each}
               </div>

@@ -6,9 +6,22 @@
 
 import { get } from 'svelte/store';
 import { encryptText, decryptText } from './crypto.js';
-import { cryptoKey, sessionToken, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointAccounts, activeJointAccountId, dashboardScope, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
+import { cryptoKey, sessionToken, expenses, splits, analytics, incomeAnalytics, paybacks, projects, budgets, recurringExpenses, settlements, users, tags, incomeEntries, incomeCategories, DEFAULT_INCOME_CATEGORIES, jobs, jointAccount, jointAccounts, activeJointAccountId, jointCategories, jointDeposits, jointMonthlyDeposits, jointExpectedCosts, jointCorrections, jointDashboard } from './stores.js';
 
 const BASE = typeof window !== 'undefined' && window.location?.origin && window.location.origin !== 'null' ? `${window.location.origin}/api` : '/api';
+
+// ---------------------------------------------------------------------------
+// Encrypted constant cache for fixed domain strings used as query params.
+// These are derived from the same passphrase and IV, so they are stable per
+// session. Caching avoids re-encrypting on every fetchPaybacks() call.
+// ---------------------------------------------------------------------------
+const _encCache = {};
+async function encCached(plaintext) {
+  if (!_encCache[plaintext]) {
+    _encCache[plaintext] = await enc(plaintext);
+  }
+  return _encCache[plaintext];
+}
 
 // ---------------------------------------------------------------------------
 // Encryption / Decryption Helpers & Auth Fetch
@@ -35,7 +48,7 @@ export async function dec(txt) {
 export async function authFetch(path, options = {}) {
   const token = get(sessionToken);
   const headers = {
-    ...(options.headers || {}),
+    ...options.headers,
     ...(token ? { Authorization: `Bearer ${token}` } : {})
   };
   return fetch(`${BASE}${path}`, { ...options, headers });
@@ -344,11 +357,17 @@ export async function fetchAnalytics(month, users) {
 }
 
 export async function fetchPaybacks(month, users) {
-  const encPersonal = [await enc('PERSONAL COST'), await enc('LEISURE'), await enc('GIFT')].join(',');
-  const encCombinedFixed = await enc('Combined Fixed');
-  const encApartment = await enc('Apartment');
-  const encJane = await enc('Jane');
-  const encJohn = await enc('John');
+  // Use cached encrypted constants — derived once per session, not per call
+  const [encPersonalCost, encLeisure, encGift, encCombinedFixed, encApartment, encJane, encJohn] = await Promise.all([
+    encCached('PERSONAL COST'),
+    encCached('LEISURE'),
+    encCached('GIFT'),
+    encCached('Combined Fixed'),
+    encCached('Apartment'),
+    encCached('Jane'),
+    encCached('John'),
+  ]);
+  const encPersonal = [encPersonalCost, encLeisure, encGift].join(',');
 
   const params = new URLSearchParams({
     personal_cats: encPersonal,
@@ -749,11 +768,11 @@ async function decryptTag(t) {
     last_date: null,
     start_date: t.start_date || null,
     end_date: t.end_date || null,
-    is_active: true,
     ...t,
     name: await dec(t.name),
     description: t.description ? await dec(t.description) : null,
     is_joint: Boolean(t.is_joint),
+    // Resolve is_active after spread so the server value wins; fall back to true
     is_active: t.is_active !== undefined ? Boolean(t.is_active) : true,
   };
 }
@@ -873,7 +892,7 @@ export async function exportDatabase(saltText) {
   a.download = 'finance_decrypted.db';
   document.body.appendChild(a);
   a.click();
-  document.body.removeChild(a);
+  a.remove();
   URL.revokeObjectURL(url);
 }
 
@@ -1023,8 +1042,12 @@ export async function deleteBudget(category, month) {
   budgets.update((prev) => prev.filter((b) => !(b.category === category && b.month === month)));
 }
 
-export async function fetchBudgetAnalytics(month) {
-  const qs = month ? `?month=${encodeURIComponent(month)}` : '';
+export async function fetchBudgetAnalytics(month, who_paid = null, is_joint = null) {
+  const params = new URLSearchParams();
+  if (month) params.set('month', month);
+  if (who_paid) params.set('who_paid', await enc(who_paid));
+  if (is_joint !== null) params.set('is_joint', String(is_joint));
+  const qs = params.toString() ? `?${params.toString()}` : '';
   const data = await request(`/analytics/budgets${qs}`);
   return Promise.all(
     data.map(async (r) => ({
@@ -1201,12 +1224,12 @@ export async function deleteJointAccount(accountId) {
 }
 
 function resolveAccountId(accountId) {
-  if (typeof accountId === 'number' && !isNaN(accountId)) return accountId;
-  if (typeof accountId === 'string' && accountId.trim() !== '' && !isNaN(Number(accountId))) {
+  if (typeof accountId === 'number' && !Number.isNaN(accountId)) return accountId;
+  if (typeof accountId === 'string' && accountId.trim() !== '' && !Number.isNaN(Number(accountId))) {
     return Number(accountId);
   }
   const storeVal = get(activeJointAccountId);
-  if (typeof storeVal === 'number' && !isNaN(storeVal)) return storeVal;
+  if (typeof storeVal === 'number' && !Number.isNaN(storeVal)) return storeVal;
   return 1;
 }
 

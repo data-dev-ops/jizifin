@@ -33,8 +33,23 @@ export async function deriveKey(saltText) {
 }
 
 /**
+ * Converts a Uint8Array to a Base64 string without using spread operator.
+ * Avoids stack overflow for large buffers and is faster than spread-based approach.
+ * @param {Uint8Array} bytes
+ * @returns {string}
+ */
+function uint8ArrayToBase64(bytes) {
+  let binary = '';
+  const len = bytes.byteLength;
+  for (let i = 0; i < len; i++) {
+    binary += String.fromCodePoint(bytes[i]);
+  }
+  return btoa(binary);
+}
+
+/**
  * Encrypt plaintext using the derived key.
- * Returns Base64URL string.
+ * Returns Base64URL string (no padding).
  * @param {string} plaintext
  * @param {CryptoKey} key
  * @returns {Promise<string>}
@@ -47,9 +62,9 @@ export async function encryptText(plaintext, key) {
     key,
     enc.encode(plaintext)
   );
-  const base64 = btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-  // Convert standard Base64 to Base64URL
-  return base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const base64 = uint8ArrayToBase64(new Uint8Array(encrypted));
+  // Convert standard Base64 to Base64URL — use replaceAll for linear O(n) performance
+  return base64.replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '');
 }
 
 /**
@@ -63,15 +78,16 @@ export async function decryptText(ciphertext, key) {
   if (!ciphertext) return ciphertext;
   try {
     // Convert Base64URL to standard Base64
-    let base64 = ciphertext.replace(/-/g, '+').replace(/_/g, '/');
+    let base64 = ciphertext.replaceAll('-', '+').replaceAll('_', '/');
     while (base64.length % 4) {
       base64 += '=';
     }
-    
+
     const binaryStr = atob(base64);
-    const bytes = new Uint8Array(binaryStr.length);
-    for (let i = 0; i < binaryStr.length; i++) {
-      bytes[i] = binaryStr.charCodeAt(i);
+    const len = binaryStr.length;
+    const bytes = new Uint8Array(len);
+    for (let i = 0; i < len; i++) {
+      bytes[i] = binaryStr.codePointAt(i);
     }
     const decrypted = await window.crypto.subtle.decrypt(
       { name: "AES-GCM", iv: STATIC_IV },
@@ -79,7 +95,7 @@ export async function decryptText(ciphertext, key) {
       bytes
     );
     return new TextDecoder().decode(decrypted);
-  } catch (err) {
+  } catch {
     // If decryption fails, it is garbled/unauthorized access. Return original ciphertext.
     return ciphertext;
   }

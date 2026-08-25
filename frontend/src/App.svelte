@@ -18,7 +18,7 @@
   import JointAccountTab from './lib/JointAccountTab.svelte';
   import SettingsTab from './lib/SettingsTab.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories, fetchRecurring } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme } from './lib/stores.js';
 
   let showJointPromptModal = false;
 
@@ -29,6 +29,16 @@
   // Sidebar collapsed by default (especially for mobile)
   let sidebarOpen = false;
   let isMobile = false;
+
+  function cycleTheme() {
+    if ($theme === 'dark') {
+      theme.set('light');
+    } else if ($theme === 'light') {
+      theme.set('system');
+    } else {
+      theme.set('dark');
+    }
+  }
 
   const tabs = [
     {
@@ -46,6 +56,10 @@
     {
       id: 'splits', label: 'Categories',
       icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v18M3 12h18"/><circle cx="12" cy="12" r="9" stroke-linecap="round"/></svg>`,
+    },
+    {
+      id: 'budgets', label: 'Budgets',
+      icon: `<svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v12m-3-2.818l.879.659c1.171.879 3.07.879 4.242 0 1.172-.879 1.172-2.303 0-3.182C13.536 12.219 12.768 12 12 12c-.725 0-1.45-.22-2.003-.659-1.106-.879-1.106-2.303 0-3.182s2.9-.879 4.006 0l.415.33M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>`,
     },
     {
       id: 'projects', label: 'Projects',
@@ -155,14 +169,14 @@
 {#if !$authSalt}
   <Login />
 {:else}
-  <div class="flex h-screen bg-neutral-950 text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$mobileLargeTouchTargets ? 'large-touch-targets' : ''}">
+  <div class="flex h-screen bg-slate-50 dark:bg-neutral-950 text-neutral-900 dark:text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$mobileLargeTouchTargets ? 'large-touch-targets' : ''}">
 
   <!-- ── Mobile overlay backdrop ──────────────────────────────────────────── -->
   {#if sidebarOpen}
     <!-- svelte-ignore a11y-click-events-have-key-events -->
     <!-- svelte-ignore a11y-no-static-element-interactions -->
     <div
-      class="fixed inset-0 bg-black/60 backdrop-blur-sm z-20 md:hidden"
+      class="fixed inset-0 bg-black/50 dark:bg-black/70 backdrop-blur-sm z-20 md:hidden"
       on:click={() => (sidebarOpen = false)}
     ></div>
   {/if}
@@ -171,20 +185,20 @@
     class="
       fixed md:relative z-30 md:z-auto
       h-full flex-none flex flex-col
-      bg-neutral-900 border-r border-neutral-800
+      bg-white dark:bg-neutral-900 border-r border-neutral-200 dark:border-neutral-800
       transition-all duration-300 ease-in-out
       {sidebarOpen ? 'w-60 translate-x-0' : 'w-0 -translate-x-full'}
-      overflow-hidden
+      overflow-hidden shadow-lg md:shadow-none
     "
   >
     <!-- Logo -->
     <div class="px-5 py-7 flex items-center gap-3 min-w-[240px]">
-      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-base font-bold shadow-lg shadow-indigo-900/40 flex-none text-white">
+      <div class="w-9 h-9 rounded-xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-base font-bold shadow-lg shadow-indigo-600/30 dark:shadow-indigo-900/40 flex-none text-white">
         {$currencySymbol}
       </div>
       <div>
-        <p class="text-sm font-semibold leading-none">FinanceTracker</p>
-        <p class="text-[11px] text-neutral-500 mt-0.5">
+        <p class="text-sm font-semibold leading-none text-neutral-900 dark:text-white">FinanceTracker</p>
+        <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
           {$users.filter(u => u.is_active).map(u => u.name).join(' & ') || 'Household'}
         </p>
       </div>
@@ -192,20 +206,20 @@
 
     <!-- Month selector -->
     <div class="px-3 mb-4 min-w-[240px]">
-      <div class="flex items-center justify-between bg-neutral-800 rounded-xl px-2 py-1.5">
+      <div class="flex items-center justify-between bg-neutral-100 dark:bg-neutral-800 rounded-xl px-2 py-1.5 border border-neutral-200/80 dark:border-neutral-700/50">
         <button
           id="month-prev"
           on:click={() => shiftMonth(-1)}
-          class="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-400
-                 hover:text-white hover:bg-neutral-700 transition-colors text-sm"
+          class="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400
+                 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors text-sm"
           aria-label="Previous month"
         >‹</button>
-        <span class="text-xs font-semibold text-neutral-200 tabular-nums select-none">{monthLabel}</span>
+        <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 tabular-nums select-none">{monthLabel}</span>
         <button
           id="month-next"
           on:click={() => shiftMonth(1)}
-          class="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-400
-                 hover:text-white hover:bg-neutral-700 transition-colors text-sm"
+          class="w-7 h-7 flex items-center justify-center rounded-lg text-neutral-500 dark:text-neutral-400
+                 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors text-sm"
           aria-label="Next month"
         >›</button>
       </div>
@@ -219,8 +233,8 @@
           on:click={() => selectTab(tab.id)}
           class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all duration-150
                  {activeTab === tab.id
-                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-900/50'
-                   : 'text-neutral-400 hover:text-neutral-100 hover:bg-neutral-800'}"
+                   ? 'bg-indigo-600 text-white shadow-sm shadow-indigo-600/30'
+                   : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-100 dark:hover:bg-neutral-800'}"
         >
           <span class="flex-none leading-none">{@html tab.icon}</span>
           <span class="font-medium">{tab.label}</span>
@@ -229,7 +243,7 @@
     </nav>
 
     <!-- Footer: dynamic active-user avatars -->
-    <div class="px-5 py-5 border-t border-neutral-800 min-w-[240px]">
+    <div class="px-5 py-5 border-t border-neutral-200 dark:border-neutral-800 min-w-[240px]">
       <button
         on:click={() => selectTab('settings')}
         class="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
@@ -237,13 +251,13 @@
         <div class="flex -space-x-1.5">
           {#each $users.filter(u => u.is_active).slice(0, 4) as u (u.name)}
             <div
-              class="w-7 h-7 rounded-full border-2 border-neutral-900 flex items-center justify-center text-[10px] font-bold flex-none"
+              class="w-7 h-7 rounded-full border-2 border-white dark:border-neutral-900 flex items-center justify-center text-[10px] font-bold text-white flex-none shadow-sm"
               style="background-color: {u.color}"
             >{u.name.charAt(0).toUpperCase()}</div>
           {/each}
         </div>
         <div>
-          <p class="text-xs font-medium text-neutral-200">
+          <p class="text-xs font-medium text-neutral-800 dark:text-neutral-200">
             {$users.filter(u => u.is_active).map(u => u.name).join(' & ') || 'Household'}
           </p>
           <p class="text-[10px] text-neutral-500">Shared finances · manage →</p>
@@ -253,16 +267,16 @@
   </aside>
 
   <!-- ── Main content ──────────────────────────────────────────────────────── -->
-  <main class="flex-1 overflow-y-auto bg-neutral-950 min-w-0">
+  <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-neutral-950 min-w-0">
 
-    <!-- ── Top bar (always visible, contains hamburger) ───────────────────── -->
-    <div class="sticky top-0 z-10 bg-neutral-950/90 backdrop-blur-sm border-b border-neutral-800/60 px-4 py-3 flex items-center gap-3">
+    <!-- ── Top bar (always visible, contains hamburger & quick theme toggle) ─ -->
+    <div class="sticky top-0 z-10 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm border-b border-neutral-200/80 dark:border-neutral-800/60 px-4 py-3 flex items-center gap-3">
       <button
         id="sidebar-toggle"
         on:click={() => (sidebarOpen = !sidebarOpen)}
         aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
         class="w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-lg
-               text-neutral-400 hover:text-white hover:bg-neutral-800
+               text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800
                transition-all duration-150 flex-none"
       >
         <!-- Animated hamburger / X -->
@@ -280,10 +294,29 @@
         ></span>
       </button>
 
-      <span class="text-sm font-semibold text-neutral-200 capitalize">{activeTab}</span>
+      <span class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 capitalize">{activeTab}</span>
 
-      <span class="ml-auto text-xs text-neutral-500 tabular-nums">{monthLabel}</span>
+      <div class="ml-auto flex items-center gap-2">
+        <button
+          id="quick-theme-toggle"
+          type="button"
+          on:click={cycleTheme}
+          title="Theme: {$theme} (Click to switch)"
+          class="w-8 h-8 flex items-center justify-center rounded-lg text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors border border-neutral-200 dark:border-neutral-700 cursor-pointer"
+          aria-label="Toggle theme"
+        >
+          {#if $theme === 'dark'}
+            🌙
+          {:else if $theme === 'light'}
+            ☀️
+          {:else}
+            💻
+          {/if}
+        </button>
+        <span class="text-xs text-neutral-500 tabular-nums">{monthLabel}</span>
+      </div>
     </div>
+
 
     {#if loading}
       <div class="flex items-center justify-center" style="height: calc(100vh - 57px)">
@@ -313,148 +346,7 @@
           </div>
         </header>
 
-        <AnalyticsSummary />
-
-        <div class="mt-6">
-          <PaybackVisual />
-        </div>
-
-        <!-- Budget Health Widget -->
-        {#if budgetStatus.length > 0}
-          <div class="card">
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <h2 class="text-sm font-semibold text-neutral-200">Budget Health</h2>
-                <p class="text-xs text-neutral-500 mt-0.5">{monthLabel} spending vs category limits</p>
-              </div>
-              <button id="goto-budgets" on:click={() => selectTab('recurring')}
-                class="btn-ghost text-indigo-400 hover:text-indigo-300">Manage →</button>
-            </div>
-            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-              {#each budgetStatus.filter(r => r.limit_cents > 0) as row}
-                {@const color = row.pct_used >= 90 ? 'red' : row.pct_used >= 70 ? 'yellow' : 'green'}
-                {@const barColor = color === 'red' ? 'bg-red-500' : color === 'yellow' ? 'bg-yellow-400' : 'bg-emerald-500'}
-                {@const textColor = color === 'red' ? 'text-red-400' : color === 'yellow' ? 'text-yellow-400' : 'text-emerald-400'}
-                {@const isStanding = !row.budget_month || row.budget_month === 'ALL'}
-                <div class="card-sub p-3">
-                  <div class="flex items-start justify-between gap-1 mb-0.5">
-                    <p class="text-[11px] text-neutral-400 font-medium uppercase truncate">{row.category}</p>
-                    {#if isStanding}
-                      <span class="flex-none text-[9px] font-semibold uppercase tracking-wide text-neutral-400 bg-neutral-800 rounded px-1 py-0.5 leading-none">standing</span>
-                    {:else}
-                      <span class="flex-none text-[9px] font-semibold uppercase tracking-wide text-indigo-400 bg-indigo-950/80 rounded px-1 py-0.5 leading-none">this month</span>
-                    {/if}
-                  </div>
-                  <p class="text-xs font-semibold text-neutral-200 mt-0.5 tabular-nums">
-                    {$currencySymbol}{(row.actual_cents/100).toFixed(0)} <span class="text-neutral-500 font-normal">/ {$currencySymbol}{(row.limit_cents/100).toFixed(0)}</span>
-                  </p>
-                  <div class="mt-2 h-1.5 bg-neutral-800 rounded-full overflow-hidden">
-                    <div class="h-full rounded-full {barColor} transition-all duration-300" style="width:{Math.min(row.pct_used,100)}%"></div>
-                  </div>
-                  <p class="text-[10px] {textColor} font-semibold mt-1 text-right tabular-nums">{row.pct_used.toFixed(0)}%</p>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <div class="card">
-          <div class="flex items-center justify-between mb-5">
-            <div>
-              <h2 class="text-sm font-semibold text-neutral-200">Expense Timeline</h2>
-              <p class="text-xs text-neutral-500 mt-0.5">Live — updates as expenses are logged</p>
-            </div>
-            <span class="flex items-center gap-1.5 text-xs text-emerald-400 font-medium">
-              <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Live
-            </span>
-          </div>
-          <RealtimeChart />
-        </div>
-
-        <div class="card">
-          <div class="flex items-center justify-between mb-5">
-            <div>
-              <h2 class="text-sm font-semibold text-neutral-200">Income by Person</h2>
-              <p class="text-xs text-neutral-500 mt-0.5">{monthLabel} — carry-forwards shown where no income recorded</p>
-            </div>
-          </div>
-          <IncomeChart />
-        </div>
-
-        {#if $projects.length > 0}
-          <div class="card">
-            <div class="flex items-center justify-between mb-5">
-              <div>
-                <h2 class="text-sm font-semibold text-neutral-200">Savings Projects</h2>
-                <p class="text-xs text-neutral-500 mt-0.5">Progress overview — go to Projects tab for full details</p>
-              </div>
-              <button
-                id="goto-projects"
-                on:click={() => selectTab('projects')}
-                class="btn-ghost text-indigo-400 hover:text-indigo-300"
-              >View all →</button>
-            </div>
-            <div class="space-y-4">
-              {#each $projects as project (project.id)}
-                {@const progress = Math.min(100, Math.round((project.total_spent_cents / project.target_cents) * 100))}
-                {@const isComplete = project.total_spent_cents >= project.target_cents}
-                <div class="card-sub p-3.5 flex items-center gap-4">
-                  <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-baseline mb-1">
-                      <span class="text-xs font-semibold text-neutral-200 truncate">{project.name}</span>
-                      <span class="text-xs tabular-nums {isComplete ? 'text-emerald-400' : 'text-neutral-400'} ml-2 flex-none">{progress}%</span>
-                    </div>
-                    <div class="w-full h-2 bg-neutral-800 rounded-full overflow-hidden">
-                      <div
-                        class="h-full rounded-full bg-gradient-to-r {isComplete ? 'from-emerald-500 to-emerald-400' : progress >= 60 ? 'from-indigo-500 to-violet-500' : progress >= 30 ? 'from-sky-600 to-indigo-500' : 'from-sky-700 to-sky-500'}"
-                        style="width: {progress}%"
-                      ></div>
-                    </div>
-                  </div>
-                  <div class="text-right flex-none">
-                    <p class="text-xs font-bold text-neutral-100 tabular-nums">
-                      {$currencySymbol}{(project.total_spent_cents / 100).toFixed(0)}
-                      <span class="text-neutral-500 font-normal">/ {$currencySymbol}{(project.target_cents / 100).toFixed(0)}</span>
-                    </p>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Tags summary widget -->
-        {#if $tags.length > 0}
-          <div class="card">
-            <div class="flex items-center justify-between mb-4">
-              <div>
-                <h2 class="text-sm font-semibold text-neutral-200">Tags</h2>
-                <p class="text-xs text-neutral-500 mt-0.5">All-time accumulation per event tag</p>
-              </div>
-              <button
-                id="goto-tags"
-                on:click={() => selectTab('tags')}
-                class="btn-ghost text-amber-400 hover:text-amber-300"
-              >View all →</button>
-            </div>
-            <div class="flex flex-wrap gap-2">
-              {#each $tags as tag (tag.id)}
-                <button
-                  id="dashboard-tag-chip-{tag.id}"
-                  on:click={() => selectTab('tags')}
-                  class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full border text-xs font-medium
-                         transition-all duration-150 hover:brightness-110 active:scale-[0.97] cursor-pointer"
-                  style="background-color: {tag.color}15; color: {tag.color}; border-color: {tag.color}35;"
-                >
-                  <span class="w-2 h-2 rounded-full flex-none" style="background-color: {tag.color}"></span>
-                  {tag.name}
-                  <span class="text-[10px] opacity-75 tabular-nums">{$currencySymbol}{(tag.total_amount ?? 0).toLocaleString('en-GB', {minimumFractionDigits: 2, maximumFractionDigits: 2})}</span>
-                </button>
-              {/each}
-            </div>
-          </div>
-        {/if}
+        <AnalyticsSummary on:navigateTab={(e) => selectTab(e.detail)} />
       </div>
 
     {:else if activeTab === 'income'}
@@ -542,21 +434,28 @@
         <SettingsTab {tabs} onToggleJointPrompt={() => (showJointPromptModal = true)} />
       </div>
 
+    {:else if activeTab === 'budgets'}
+      <div class="page-container">
+        <header class="page-header">
+          <div>
+            <h1 class="page-title">Budgets</h1>
+            <p class="page-subtitle">Set, monitor, and enforce monthly spending limits across household categories, individual members, and joint accounts</p>
+          </div>
+          <span class="badge-indigo">{monthLabel}</span>
+        </header>
+        <BudgetManager />
+      </div>
+
     {:else if activeTab === 'recurring'}
       <div class="page-container">
         <header class="page-header">
           <div>
-            <h1 class="page-title">Recurring & Budgets</h1>
-            <p class="page-subtitle">Automate monthly expenses and set spending limits</p>
+            <h1 class="page-title">Recurring Expenses</h1>
+            <p class="page-subtitle">Automate recurring monthly and periodic expense streams</p>
           </div>
         </header>
-        <div class="space-y-6">
-          <div class="card">
-            <RecurringManager />
-          </div>
-          <div class="card">
-            <BudgetManager />
-          </div>
+        <div class="card">
+          <RecurringManager />
         </div>
       </div>
     {/if}
@@ -566,19 +465,19 @@
 {/if}
 
 {#if showJointPromptModal}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fadeIn">
-    <div class="bg-neutral-900 border border-neutral-800 rounded-2xl p-6 max-w-md w-full shadow-2xl space-y-4">
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div class="card max-w-md w-full shadow-2xl space-y-4">
       <div class="flex items-center gap-3">
-        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-lg flex-none">
+        <div class="w-10 h-10 rounded-xl bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-lg flex-none">
           🏦
         </div>
         <div>
-          <h3 class="text-base font-bold text-white">Joint Account Activated</h3>
-          <p class="text-xs text-neutral-400 mt-0.5">Configure your household account settings</p>
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Joint Account Activated</h3>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Configure your household account settings</p>
         </div>
       </div>
 
-      <p class="text-sm text-neutral-300">
+      <p class="text-sm text-neutral-600 dark:text-neutral-300">
         Would you like to set up your joint account and connect users & category defaults now, or do it later?
       </p>
 
@@ -589,7 +488,7 @@
             showJointPromptModal = false;
             activeTab = 'joint';
           }}
-          class="flex-1 px-4 py-2.5 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs rounded-xl shadow-lg shadow-indigo-600/30 transition-all text-center"
+          class="btn-primary flex-1 text-center"
         >
           Connect & Set Up Now
         </button>
@@ -598,7 +497,7 @@
           on:click={() => {
             showJointPromptModal = false;
           }}
-          class="flex-1 px-4 py-2.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-xl border border-neutral-700 transition-all text-center"
+          class="btn-secondary flex-1 text-center"
         >
           Do It Later
         </button>
@@ -606,6 +505,7 @@
     </div>
   </div>
 {/if}
+
 
 <style>
   :global(.compact-layout) {

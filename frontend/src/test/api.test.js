@@ -77,7 +77,7 @@ describe('api.js — API Service Layer & Encryption Wrappers', () => {
       }));
 
       const res = await fetchUsers(true);
-      expect(res.length).toBe(1);
+      expect(res).toHaveLength(1);
       expect(res[0].name).toBe(name);
       expect(get(users)).toEqual(res);
     });

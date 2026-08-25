@@ -112,39 +112,42 @@
 
 </script>
 
-<div class="min-h-screen flex items-center justify-center bg-slate-950 p-4">
-  <div class="w-full max-w-md bg-slate-900 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6">
+<div class="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-[#080c14] p-4 transition-colors duration-200">
+  <div class="w-full max-w-md card p-6 sm:p-8 shadow-2xl space-y-6">
     <div class="text-center space-y-2">
-      <h1 class="text-3xl font-bold tracking-tight text-white bg-gradient-to-r from-indigo-400 to-cyan-400 bg-clip-text text-transparent">
+      <div class="w-12 h-12 rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center text-xl font-bold shadow-lg shadow-indigo-600/30 text-white mx-auto mb-3">
+        🔐
+      </div>
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-neutral-900 dark:text-white">
         Jizifin Finance
       </h1>
-      <p class="text-sm text-slate-400">
+      <p class="text-xs sm:text-sm text-neutral-500 dark:text-neutral-400">
         {#if isFirstBoot}
-          Welcome! Create a master password to encrypt your database.
+          Welcome! Create a master passphrase to encrypt your household database.
         {:else}
-          Enter your master password to decrypt the database.
+          Enter your master passphrase to decrypt your household database.
         {/if}
       </p>
     </div>
 
     <form on:submit|preventDefault={handleSubmit} class="space-y-4">
       <div>
-        <label for="salt" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+        <label for="salt" class="block text-xs font-semibold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 mb-2">
           Master Password
         </label>
         <input
           id="salt"
           type="password"
           bind:value={saltText}
-          placeholder={isFirstBoot ? "Create master password..." : "Enter master password..."}
-          class="w-full bg-slate-950 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent placeholder-slate-600 transition"
+          placeholder={isFirstBoot ? "Create master passphrase..." : "Enter master passphrase..."}
+          class="input-field py-3 text-sm"
           disabled={loading}
         />
       </div>
 
       {#if isFirstBoot}
         <div>
-          <label for="dbUpload" class="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+          <label for="dbUpload" class="block text-xs font-semibold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 mb-2">
             Import Existing Database (Optional)
           </label>
           <input
@@ -152,23 +155,23 @@
             type="file"
             accept=".db,.sqlite"
             bind:files={dbFile}
-            class="w-full text-sm text-slate-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-sm file:font-semibold file:bg-indigo-900/50 file:text-indigo-300 hover:file:bg-indigo-900 transition"
+            class="w-full text-xs text-neutral-600 dark:text-neutral-400 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-indigo-100 dark:file:bg-indigo-900/50 file:text-indigo-700 dark:file:text-indigo-300 hover:file:opacity-90 transition cursor-pointer"
             disabled={loading}
           />
-          <p class="text-[10px] text-slate-500 mt-1.5">Provide an unencrypted finance.db to load your data. It will be encrypted upon import.</p>
+          <p class="text-[10px] text-neutral-500 mt-1.5">Provide an unencrypted finance.db to load your data. It will be encrypted upon import.</p>
         </div>
       {/if}
 
       {#if error}
-        <div class="text-red-400 text-xs bg-red-950/30 border border-red-900/50 rounded-xl p-3">
+        <div class="text-rose-700 dark:text-rose-300 text-xs bg-rose-50 dark:bg-rose-950/40 border border-rose-200 dark:border-rose-800/60 rounded-xl p-3">
           {error}
         </div>
       {/if}
 
-      <div class="flex flex-col gap-3">
+      <div class="flex flex-col gap-3 pt-2">
         <button
           type="submit"
-          class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-3 rounded-xl transition flex items-center justify-center text-sm shadow-lg shadow-indigo-600/25 disabled:opacity-50"
+          class="btn-primary w-full py-3 text-sm"
           disabled={loading}
         >
           {#if loading}
@@ -185,3 +188,4 @@
     </form>
   </div>
 </div>
+
