@@ -455,6 +455,7 @@
     } finally {
       salaryLoading = false;
     }
+  });
 </script>
 
 <div class="space-y-6">
