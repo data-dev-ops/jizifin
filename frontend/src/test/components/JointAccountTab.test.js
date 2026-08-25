@@ -342,6 +342,30 @@ describe('JointAccountTab.svelte — account exists', () => {
     });
   });
 
+  it('proposes deposit amounts evenly when deposit_split_mode is even with gross expected total', async () => {
+    const { jointAccount } = await import('../../lib/stores.js');
+    jointAccount.set({
+      id: 1,
+      name: 'Household Vault',
+      balance_cents: 0,
+      safety_margin_pct: 0,
+      deposit_split_mode: 'even',
+      expected_total_cents: 145000,
+      member_names: ['John', 'Jane'],
+    });
+
+    render(JointAccountTab);
+    await fireEvent.click(document.getElementById('ja-nav-deposits'));
+
+    const proposeBtn = document.getElementById('ja-propose-deposits-btn');
+    expect(proposeBtn).toBeInTheDocument();
+    await fireEvent.click(proposeBtn);
+
+    await waitFor(() => {
+      expect(screen.getByText(/Proposed deposit amounts calculated evenly/i)).toBeInTheDocument();
+    });
+  });
+
   it.each([
     { grossVal: '3500.00', expectedCents: 350000 },
   ])('supports gross total cost estimation mode and category specific estimation mode ($grossVal)', async ({ grossVal, expectedCents }) => {

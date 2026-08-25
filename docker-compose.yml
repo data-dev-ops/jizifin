@@ -8,8 +8,7 @@ services:
       PYTHONUNBUFFERED: "1"
       PYTHONDONTWRITEBYTECODE: "1"
     volumes:
-      - ./backend:/app
-      - backend-cache:/app/.venv
+      - ./backend/app:/app/app
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
       interval: 30s
@@ -27,8 +26,12 @@ services:
     depends_on:
       - backend
     volumes:
-      - ./frontend:/app
-      - /app/node_modules
+      - ./frontend/src:/app/src
+      - ./frontend/index.html:/app/index.html
+      - ./frontend/vite.config.js:/app/vite.config.js
+      - ./frontend/tailwind.config.js:/app/tailwind.config.js
+      - ./frontend/postcss.config.js:/app/postcss.config.js
+      - ./frontend/svelte.config.js:/app/svelte.config.js
     healthcheck:
       test: ["CMD", "wget", "-q", "-O-", "http://localhost:5173"]
       interval: 30s
@@ -70,7 +73,6 @@ services:
       - app-network
 
 volumes:
-  backend-cache:
   caddy_data:
   caddy_config:
   sonarqube_data:

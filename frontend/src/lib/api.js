@@ -716,6 +716,27 @@ export async function deleteProject(id) {
   projects.update((prev) => prev.filter((p) => p.id !== id));
 }
 
+export async function fetchProjectSettlement(id) {
+  const data = await request(`/projects/${id}/settlement`);
+  return {
+    ...data,
+    project_name: await dec(data.project_name),
+    participants: await Promise.all(
+      (data.participants || []).map(async (p) => ({
+        ...p,
+        user_name: await dec(p.user_name),
+      }))
+    ),
+    debts: await Promise.all(
+      (data.debts || []).map(async (d) => ({
+        ...d,
+        from_user: await dec(d.from_user),
+        to_user: await dec(d.to_user),
+      }))
+    ),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Tags
 // ---------------------------------------------------------------------------
@@ -726,6 +747,8 @@ async function decryptTag(t) {
     expense_count: 0,
     first_date: null,
     last_date: null,
+    start_date: t.start_date || null,
+    end_date: t.end_date || null,
     is_active: true,
     ...t,
     name: await dec(t.name),

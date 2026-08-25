@@ -2,19 +2,16 @@
 FROM python:3.14-slim AS builder
 
 WORKDIR /app
-RUN --mount=type=cache,target=/var/cache/apt \
-    apt-get update && apt-get install -y --no-install-recommends \
-    curl && rm -rf /var/lib/apt/lists/*
 
-# Install uv
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
-ENV PATH="/root/.local/bin:$PATH"
+# Copy uv binary directly from official image (instant, no apt-get/curl needed)
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
 
-# Copy lock file and pyproject
+# Copy lock file and pyproject for layer caching
 COPY uv.lock pyproject.toml ./
 
-# Sync dependencies with uv
-RUN uv sync --frozen --no-dev --no-editable
+# Sync dependencies with BuildKit cache mount
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev --no-editable
 
 # ─────────────────────────────────────────────────────────────────────────────
 

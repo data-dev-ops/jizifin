@@ -339,7 +339,9 @@
     errorMsg = '';
     try {
       const aid = ja?.id ?? $activeJointAccountId;
-      const totalExpected = expected.reduce((sum, e) => sum + (e.expected_cents || 0), 0);
+      const totalExpected = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined && ja.expected_total_cents > 0)
+        ? ja.expected_total_cents
+        : expected.reduce((sum, e) => sum + (e.expected_cents || 0), 0);
       const targetCents = dash?.target_deposit_cents || (totalExpected > 0
         ? Math.round(totalExpected * (1 + (ja?.safety_margin_pct || 10) / 100))
         : 0);
@@ -349,41 +351,62 @@
         return;
       }
 
-      let salaryRows = [];
-      try {
-        salaryRows = await fetchLatestSalaries();
-      } catch {
-        salaryRows = await fetchIncomeByPerson(month);
-      }
-
-      const salariesDict = {};
-      for (const r of salaryRows || []) {
-        const uName = r.who || r.user_name;
-        const val = r.amount_cents || r.salary_cents || r.total_cents || 0;
-        if (uName) salariesDict[uName] = val;
-      }
-
       const targetUsers = accountMembers;
+      if (!targetUsers || targetUsers.length === 0) {
+        flash(false, 'No account members found.');
+        return;
+      }
 
-      const totalTargetSalary = targetUsers.reduce((s, u) => s + (salariesDict[u.name] || 0), 0);
+      const mode = ja?.deposit_split_mode || 'even';
 
-      editDeposits = targetUsers.map((u) => {
-        const existing = deposits.find((d) => d.user_name === u.name);
-        const userSalary = salariesDict[u.name] || 0;
-        let proposedCents = 0;
-        if (totalTargetSalary > 0) {
-          proposedCents = Math.round(targetCents * (userSalary / totalTargetSalary));
-        } else {
-          proposedCents = Math.round(targetCents / targetUsers.length);
+      if (mode === 'salary') {
+        let salaryRows = [];
+        try {
+          salaryRows = await fetchLatestSalaries();
+        } catch {
+          salaryRows = await fetchIncomeByPerson(month);
         }
-        return {
-          user_name: u.name,
-          amount_cents: proposedCents,
-          day_of_month: existing ? existing.day_of_month : 1,
-        };
-      });
 
-      flash(true, 'Proposed deposit amounts calculated based on expected costs and salary ratios.');
+        const salariesDict = {};
+        for (const r of salaryRows || []) {
+          const uName = r.who || r.user_name;
+          const val = r.amount_cents || r.salary_cents || r.total_cents || 0;
+          if (uName) salariesDict[uName] = val;
+        }
+
+        const totalTargetSalary = targetUsers.reduce((s, u) => s + (salariesDict[u.name] || 0), 0);
+
+        editDeposits = targetUsers.map((u) => {
+          const existing = deposits.find((d) => d.user_name === u.name);
+          const userSalary = salariesDict[u.name] || 0;
+          let proposedCents = 0;
+          if (totalTargetSalary > 0) {
+            proposedCents = Math.round(targetCents * (userSalary / totalTargetSalary));
+          } else {
+            proposedCents = Math.round(targetCents / targetUsers.length);
+          }
+          return {
+            user_name: u.name,
+            amount_cents: proposedCents,
+            day_of_month: existing ? existing.day_of_month : 1,
+          };
+        });
+
+        flash(true, 'Proposed deposit amounts calculated based on expected costs and salary ratios.');
+      } else {
+        // 'even' (or fallback): divide target deposit evenly among members
+        const evenShare = Math.round(targetCents / targetUsers.length);
+        editDeposits = targetUsers.map((u) => {
+          const existing = deposits.find((d) => d.user_name === u.name);
+          return {
+            user_name: u.name,
+            amount_cents: evenShare,
+            day_of_month: existing ? existing.day_of_month : 1,
+          };
+        });
+
+        flash(true, 'Proposed deposit amounts calculated evenly across account members.');
+      }
     } catch (e) {
       errorMsg = e.message;
     }
