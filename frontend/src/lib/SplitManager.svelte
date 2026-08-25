@@ -276,7 +276,7 @@
   /** Sum of the currently-entered percentages for a category. */
   function rowSum(category, values) {
     const vals = values[category] ?? {};
-    return Object.values(vals).reduce((acc, v) => acc + (parseInt(v, 10) || 0), 0);
+    return Number(Object.values(vals).reduce((acc, v) => acc + (parseFloat(v) || 0), 0).toFixed(2));
   }
 
   /** Reset all percentages for a category to the salary-implied ratio. */
@@ -296,12 +296,10 @@
     if (!editValues[cat]) return;
     const n = activeUsers.length;
     if (n === 0) return;
-    const exact = 100 / n;
-    const floor = Math.floor(exact);
-    const extra = 100 - (floor * n);
+    const exact = Number((100 / n).toFixed(2));
     const fresh = {};
-    activeUsers.forEach((u, idx) => {
-      fresh[u.name] = String(floor + (idx < extra ? 1 : 0));
+    activeUsers.forEach((u) => {
+      fresh[u.name] = String(exact);
     });
     editValues[cat] = fresh;
     editValues = { ...editValues };
@@ -314,14 +312,11 @@
     const matched = activeUsers.filter((u) => set.has(u.name));
     if (matched.length === 0) return;
     const n = matched.length;
-    const exact = 100 / n;
-    const floor = Math.floor(exact);
-    const extra = 100 - (floor * n);
+    const exact = Number((100 / n).toFixed(2));
     const fresh = {};
     activeUsers.forEach((u) => {
       if (set.has(u.name)) {
-        const idx = matched.findIndex((m) => m.name === u.name);
-        fresh[u.name] = String(floor + (idx < extra ? 1 : 0));
+        fresh[u.name] = String(exact);
       } else {
         fresh[u.name] = '0';
       }
@@ -335,15 +330,15 @@
     rowSuccess[category] = false;
     const vals = editValues[category] ?? {};
     const allocations = activeUsers.map((u) => {
-      const parsed = Math.round(parseFloat(vals[u.name] ?? '0'));
+      const parsed = parseFloat(vals[u.name] ?? '0');
       return {
         user_name: u.name,
-        pct:       isNaN(parsed) ? 0 : parsed,
+        pct:       isNaN(parsed) ? 0 : Number(parsed.toFixed(4)),
       };
     });
-    const total = allocations.reduce((s, a) => s + a.pct, 0);
-    if (total !== 100) {
-      rowError[category] = `Percentages must sum to 100 (currently ${total}).`;
+    const total = Number(allocations.reduce((s, a) => s + a.pct, 0).toFixed(2));
+    if (Math.abs(total - 100) > 0.05) {
+      rowError[category] = `Percentages must sum to 100% (currently ${total}%).`;
       return;
     }
     saving[category] = true;

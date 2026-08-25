@@ -17,12 +17,17 @@ Standard tooling paths and execution commands for development, testing, and clus
 **Execution Commands:**
 - Backend Dev Server: `uv run --directory backend uvicorn app.main:app --reload --port 8000`
 - Add Python Package: `uv add --directory backend <package>`
-- Backend Test Suite & Coverage: `uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term`
+- Backend Full Test Suite & Coverage: `uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term`
+- Backend Integration Scenarios: `uv run --directory backend pytest tests/test_scenarios_integration.py`
 - Frontend Dev Server: `npm --prefix frontend run dev`
 - Frontend Install: `npm --prefix frontend install <package>`
 - Frontend Test Suite: `npm --prefix frontend test`
 - Frontend Test Coverage: `npm --prefix frontend run test:coverage`
 - Full-Stack Coverage & Sonar: `./scripts/run-tests-and-sonar.sh`
+- **Docker Execution Commands (Clean Host Environment):**
+  - Run Backend Test Suite in Docker: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
+  - Run Integration Scenarios in Docker: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py`
+  - Run Frontend Test Suite in Docker: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test`
 - **Docker Compose Cluster:** Orchestrates `backend`, `frontend`, `caddy`, and local `sonarqube` containers via `docker-compose.yml`. Run `docker compose up --build -d` from the root to start the full stack. Production deployment explicitly starts `backend frontend caddy` only.
 
 ---
@@ -293,6 +298,27 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 
 ### Complex Domain Logic
 
+- **Exact Hare-Niemeyer / Largest Remainder Distribution (`allocate_cents_largest_remainder`)**:
+  Computes exact integer cent allocations for any positive, zero, or negative expense/refund:
+  1. Computes exact floating-point cent shares: `share = total_cents * pct / total_pct`.
+  2. Uses mathematical floor `math.floor(share)` (not integer truncation toward zero) to ensure correct negative quotient floor assignment on credit memos and store refunds.
+  3. Computes remainder: `remainder = share - floor_share`.
+  4. Distributes remaining cents (`total_cents - sum(floor_shares)`) to users ordered by descending remainder.
+  5. **Deterministic Salted Tie-Breaker**: For users with identical fractional remainders, tie-breaking order is determined by SHA-256 hash of `f"{tx_salt}:{user}"` (where `tx_salt` is expense ID, date, or category), eliminating lexicographical alphabetical drift over hundreds of transactions.
+
+- **Tag Active Timeline Window Enforcement (`POST /expenses`, `PUT /expenses`, `PUT /tags/{id}`)**:
+  1. If an expense is associated with a `tag_id`, the system validates that `tag.start_date <= expense.expense_date <= tag.end_date`. If out of bounds, the endpoint returns `HTTP 422 Unprocessable Content`.
+  2. When updating a tag's active timeline (`PUT /tags/{id}`), the backend queries all existing assigned expenses. If any expense would fall outside the proposed `[start_date, end_date]` window, the update is rejected with `HTTP 422` and a descriptive violation message.
+
+- **Project Settlement & Point-in-Time Equity Balance Sheets (`GET /projects/{id}/settlement`)**:
+  Calculates cumulative multi-tenant project equity positions:
+  1. Computes `effective_funding_cents` per participant:
+     - For direct personal payments: `cost_cents` credited to `who_paid`.
+     - For joint account payments (`is_joint = 1`): distributes project payment according to historical monthly deposit proportions (`joint_account_deposits`) of the joint account members for that expense's month.
+  2. Computes `assigned_liability_cents` per participant: splits total project expenses equally (or according to project member configuration) using the Largest Remainder algorithm.
+  3. Calculates `net_balance_cents = effective_funding_cents - assigned_liability_cents`.
+  4. Runs greedy debt simplification to produce minimal participant-to-participant reimbursement transfers (`debts`).
+
 - **Jobs & Income Analytics (`/analytics/income-by-person`, `/income/latest-salary`, `/jobs`)**:
   Calculates effective monthly base salary per active household member for a target month `YYYY-MM`:
   1. Finds all active jobs where `start_date <= '{target_month}-31'` AND (`end_date IS NULL` OR `end_date >= '{target_month}-01'`) AND `is_active = 1`.
@@ -304,14 +330,14 @@ Views are dropped and recreated on startup to reflect any schema modifications:
   3. If a user has no jobs configured in the DB, it falls back to the legacy historical `SALARY` append-only entry carry-forward.
   4. Sums all one-off non-salary income logged for that month (`BONUS`, `GIFT`, etc.) to produce the total income per person and effective salary ratios.
 
-- **Paybacks Calculation (`/analytics/paybacks`)**:
-  Computes payback balances based on individual transactions. For each expense:
+- **Paybacks Calculation & Graph Decomposition (`/analytics/paybacks`)**:
+  Computes payback balances based on individual transactions:
   1. **Joint account exclusion:** Expenses whose category is assigned to the joint account are excluded entirely from payback calculations (loaded from `joint_account_categories`).
   2. It reads the effective split override if present, falling back to split allocations, and finally to an equal split.
   3. Resolves personal-pay categories (`PERSONAL COST`, `LEISURE`, `GIFT`) by renaming them dynamically to include the payer name and assigning them a 100% split share to the payer.
   4. Accumulates the net balance per user in cents (positive represents overpayment, negative represents debt).
   5. **Special Deduction Rule:** Subtracts the smaller of Jane's "Combined Fixed" payment and John's "Apartment" payment from John's net balance, and adds it to Jane's net balance (simulating Jane paying John).
-  6. Runs a greedy debt simplification algorithm that matches creditors against debtors to yield a minimal list of debt transfer objects (`DebtItem`).
+  6. **Connected-Component Graph Isolation**: Partitions household members into disjoint connected subgraphs based on transaction split participation before running greedy debt simplification, ensuring debts within couples or subgroups never cross over into unrelated household tenants.
 
 ---
 
@@ -409,14 +435,31 @@ Whenever developer workflows, directory layouts, database schemas, or architectu
 
 ---
 
-## 🚨 7. LLM CODE GENERATION RULES
+## 🚨 7. LLM CODE GENERATION RULES & ZERO-REGRESSION POLICY
 
-1. **Minimize Context Overhead:** Output ONLY the modified functions or cleanly marked diff blocks.
-2. **Flat Composition:** Avoid deep component trees in Svelte.
-3. **Zero Deprecation:** Use stable, established APIs.
-4. **Data Integrity:** Database receives whole integer cents. UI formats decimal currency units.
-5. **SOLID Principles:** Target single-responsibility functions and classes.
-6. **Mandatory Test Verification:** After making ANY modification or addition to backend or frontend components, you MUST execute `uv run --directory backend pytest` and `npm --prefix frontend test` and verify that all test suites pass 100% with zero regressions.
+1. **MANDATORY INTEGRATION TEST EXECUTION (CRITICAL DIRECTIVE)**:
+   - Financial arithmetic balance and settlement accuracy are the absolute most crucial invariants of this application.
+   - For **ANY** code modification, feature addition, schema migration, bug fix, or refactor, the LLM agent **MUST ALWAYS run the integration test suite** (`tests/test_scenarios_integration.py` and all 327 backend tests) AND the frontend test suite (288 tests).
+   - Never mark a coding task as done without executing these test suites and verifying a 100% pass rate with zero regressions.
+   - **Test Execution Commands**:
+     - *Local CLI*:
+       ```bash
+       uv run --directory backend pytest
+       npm --prefix frontend test
+       ```
+     - *Docker (Clean Host Environment)*:
+       ```bash
+       docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest
+       docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test
+       ```
+2. **Mathematical Precision Invariants**:
+   - Never truncate float basis points or percentages to integers with `int()`, `Math.round()`, or `parseInt()`. Always preserve float precision (`AllocationEntry.pct` float, `toFixed(4)`).
+   - In Largest Remainder distributions (`allocate_cents_largest_remainder`), always use `math.floor()` to preserve zero-sum invariants on signed values (positive transactions, zero, and negative refunds/credit memos).
+3. **Minimize Context Overhead**: Output ONLY the modified functions or cleanly marked diff blocks.
+4. **Flat Component Composition**: Avoid deep component nesting trees in Svelte.
+5. **Zero Deprecation**: Use stable, established APIs.
+6. **Data Layer Integrity**: Currency is stored exclusively as `INTEGER` cents. Decimals are computed and exposed only at the presentation and response layers.
+7. **SOLID Principles**: Target single-responsibility functions and classes.
 
 ---
 

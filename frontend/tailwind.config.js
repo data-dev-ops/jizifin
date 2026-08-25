@@ -7,6 +7,8 @@ export default {
   theme: {
     extend: {
       fontFamily: {
+        sans: ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
         inter: ['Inter', 'system-ui', 'sans-serif'],
       },
     },
