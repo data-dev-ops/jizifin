@@ -30,6 +30,9 @@
     tags,
     projects,
     theme,
+    privacyShield,
+    currencyPrecisionMode,
+    dashboardWidgets,
   } from './stores.js';
   import { fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './api.js';
   import Chart from 'chart.js/auto';
@@ -194,8 +197,12 @@
     createChart(currentChartType);
   }
 
-  function fmt(n) {
-    return `${$currencySymbol}${Number(n || 0).toFixed(2)}`;
+  function fmt(n, isSummary = false) {
+    const val = Number(n || 0);
+    if (isSummary && $currencyPrecisionMode === 'whole_units_on_summaries') {
+      return `${$currencySymbol}${Math.round(val).toLocaleString('en-GB')}`;
+    }
+    return `${$currencySymbol}${val.toFixed(2)}`;
   }
 
   function pct(part, whole) {
@@ -312,9 +319,9 @@
   $: userIncomeList = filteredActiveUsers.map((u) => {
     const userJobs = $jobs.filter((j) => j.who === u.name && isJobActiveInMonth(j, $selectedMonth));
     let baseSalaryCents = userJobs.reduce((sum, j) => sum + toMonthlyEquivalent(j.amount_cents, j.frequency), 0);
-    if (userJobs.length === 0) {
-      const row = $incomeAnalytics.find((r) => r.who === u.name);
-      if (row) baseSalaryCents = row.total_cents;
+    const row = $incomeAnalytics.find((r) => r.who === u.name);
+    if (row && (row.has_override || userJobs.length === 0)) {
+      baseSalaryCents = row.base_salary_cents ?? row.total_cents;
     }
     const oneOffCents = $incomeEntries
       .filter((e) => e.who === u.name && e.category !== 'SALARY')
@@ -558,14 +565,14 @@
               <span class="badge-indigo">Income</span>
             </div>
             <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
-              {hasIncomeData ? fmt(totalIncomeEuros) : '—'}
+              <span class:privacy-masked={$privacyShield}>{hasIncomeData ? fmt(totalIncomeEuros, true) : '—'}</span>
             </p>
           </div>
           <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px]">
             {#if hasIncomeData}
               <div class="flex items-center gap-2 truncate">
                 {#each userIncomeList as u}
-                  <span class="truncate" style="color: {u.color}">{u.name}: {fmt(u.totalCents / 100)}</span>
+                  <span class="truncate" style="color: {u.color}"><span class:privacy-masked={$privacyShield}>{u.name}: {fmt(u.totalCents / 100, true)}</span></span>
                 {/each}
               </div>
             {:else}
@@ -575,80 +582,91 @@
         </div>
 
         <!-- 2. Monthly Total Spend (Matches test expectations) -->
-        <div class="card p-4 sm:p-5 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Monthly Total</p>
-              <span class="badge-amber">Expenses</span>
+        {#if $dashboardWidgets.monthlyTotal !== false}
+          <div class="card p-4 sm:p-5 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Monthly Total</p>
+                <span class="badge-amber">Expenses</span>
+              </div>
+              <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
+                <span class:privacy-masked={$privacyShield}>{fmt(total, true)}</span>
+              </p>
             </div>
-            <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">{fmt(total)}</p>
+            <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
+              <span>This calendar month</span>
+              <span class="text-neutral-700 dark:text-neutral-400 font-medium">{$analytics.monthly_total?.expense_count ?? 0} logged</span>
+            </div>
           </div>
-          <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
-            <span>This calendar month</span>
-            <span class="text-neutral-700 dark:text-neutral-400 font-medium">{$analytics.monthly_total?.expense_count ?? 0} logged</span>
-          </div>
-        </div>
+        {/if}
 
         <!-- 3. Net Savings / Cash Flow -->
-        <div class="card p-4 sm:p-5 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Net Cash Flow</p>
-              {#if hasIncomeData}
-                {#if netCashFlow >= 0}
-                  <span class="badge-emerald">+{savingsRatePct.toFixed(0)}% Saved</span>
+        {#if $dashboardWidgets.cashFlowSavings !== false}
+          <div class="card p-4 sm:p-5 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Net Cash Flow</p>
+                {#if hasIncomeData}
+                  {#if netCashFlow >= 0}
+                    <span class="badge-emerald">+{savingsRatePct.toFixed(0)}% Saved</span>
+                  {:else}
+                    <span class="badge-red">Deficit</span>
+                  {/if}
                 {:else}
-                  <span class="badge-red">Deficit</span>
+                  <span class="badge-neutral">Spend Only</span>
                 {/if}
-              {:else}
-                <span class="badge-neutral">Spend Only</span>
-              {/if}
+              </div>
+              <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)] {hasIncomeData ? (netCashFlow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400') : 'text-neutral-800 dark:text-neutral-300'}">
+                <span class:privacy-masked={$privacyShield}>{hasIncomeData ? (netCashFlow >= 0 ? `+${fmt(netCashFlow, true)}` : fmt(netCashFlow, true)) : (total > 0 ? `-${fmt(total, true)}` : '—')}</span>
+              </p>
             </div>
-            <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)] {hasIncomeData ? (netCashFlow >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400') : 'text-neutral-800 dark:text-neutral-300'}">
-              {hasIncomeData ? (netCashFlow >= 0 ? `+${fmt(netCashFlow)}` : fmt(netCashFlow)) : (total > 0 ? `-${fmt(total)}` : '—')}
-            </p>
+            <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
+              <span>{hasIncomeData ? (netCashFlow >= 0 ? 'Surplus retained' : 'Over monthly income') : 'Income not recorded'}</span>
+            </div>
           </div>
-          <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
-            <span>{hasIncomeData ? (netCashFlow >= 0 ? 'Surplus retained' : 'Over monthly income') : 'Income not recorded'}</span>
-          </div>
-        </div>
 
-        <!-- 4. Household Savings Rate -->
-        <div class="card p-4 sm:p-5 flex flex-col justify-between">
-          <div>
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Savings Rate</p>
-              <span class="badge-emerald">{hasIncomeData ? `${savingsRatePct.toFixed(0)}%` : 'Target 20%+'}</span>
+          <!-- 4. Household Savings Rate -->
+          <div class="card p-4 sm:p-5 flex flex-col justify-between">
+            <div>
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Savings Rate</p>
+                <span class="badge-emerald">{hasIncomeData ? `${savingsRatePct.toFixed(0)}%` : 'Target 20%+'}</span>
+              </div>
+              <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
+                <span class:privacy-masked={$privacyShield}>{hasIncomeData ? `${savingsRatePct.toFixed(1)}%` : '—'}</span>
+              </p>
             </div>
-            <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
-              {hasIncomeData ? `${savingsRatePct.toFixed(1)}%` : '—'}
-            </p>
+            <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
+              <span>{hasIncomeData ? (savingsRatePct >= 20 ? 'Strong savings velocity' : 'Moderate savings rate') : 'Track income to calculate'}</span>
+            </div>
           </div>
-          <div class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500">
-            <span>{hasIncomeData ? (savingsRatePct >= 20 ? 'Strong savings velocity' : 'Moderate savings rate') : 'Track income to calculate'}</span>
-          </div>
-        </div>
+        {/if}
 
       </div>
 
       <!-- Per-Payer Detailed Cards Grid -->
-      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {#each payerRows as row}
-          {@const color = userColor(row.who_paid)}
-          <div class="card p-4 sm:p-5 transition-all hover:border-neutral-300 dark:hover:border-neutral-700" style="border-color:{color}50">
-            <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs font-semibold uppercase tracking-wider" style="color:{color}">{row.who_paid}</p>
-              <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background-color:{color}15; color:{color}; border:1px solid {color}40">
-                {pct(row.total_amount, total)} of total
-              </span>
+      {#if $dashboardWidgets.payerBreakdown !== false}
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {#each payerRows as row}
+            {@const color = userColor(row.who_paid)}
+            <div class="card p-4 sm:p-5 transition-all hover:border-neutral-300 dark:hover:border-neutral-700" style="border-color:{color}50">
+              <div class="flex items-center justify-between gap-2 mb-2">
+                <p class="text-xs font-semibold uppercase tracking-wider" style="color:{color}">{row.who_paid}</p>
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background-color:{color}15; color:{color}; border:1px solid {color}40">
+                  {pct(row.total_amount, total)} of total
+                </span>
+              </div>
+              <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,4vw,1.875rem)]" style="color:{color}">
+                <span class:privacy-masked={$privacyShield}>{fmt(row.total_amount, true)}</span>
+              </p>
+              <p class="text-xs text-neutral-500 mt-1">{pct(row.total_amount, total)} of total spend</p>
             </div>
-            <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,4vw,1.875rem)]" style="color:{color}">{fmt(row.total_amount)}</p>
-            <p class="text-xs text-neutral-500 mt-1">{pct(row.total_amount, total)} of total spend</p>
-          </div>
-        {/each}
-      </div>
+          {/each}
+        </div>
+      {/if}
 
       <!-- ── Flexible Multi-Chart & Category Analytics Area ─────────────────── -->
+      {#if $dashboardWidgets.categoryChart !== false}
       <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
 
         <!-- Left: Interactive Chart Viewer -->
@@ -781,6 +799,7 @@
         </div>
 
       </div>
+      {/if}
     </div>
   {/if}
 

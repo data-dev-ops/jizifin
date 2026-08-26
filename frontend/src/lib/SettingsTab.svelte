@@ -27,7 +27,24 @@
     mobileAutoCloseMenu,
     mobileCompactView,
     mobileLargeTouchTargets,
-    authSalt
+    authSalt,
+    activeDeviceMode,
+    detectedDeviceType,
+    loadDeviceProfile,
+    saveCurrentToProfile,
+    copyProfile,
+    resetProfileToDefaults,
+    experienceTier,
+    privacyShield,
+    currencyPrecisionMode,
+    projectDisplayFilter,
+    expenseRowDensity,
+    formMemoryMode,
+    enabledFormFields,
+    dashboardWidgets,
+    textScale,
+    highContrast,
+    applyExperienceTier
   } from './stores.js';
 
   export let tabs = [];
@@ -36,6 +53,56 @@
   let exporting = false;
   let exportError = '';
   let tabToggleWarning = '';
+  let profileFeedback = '';
+  let profileTimer;
+
+  function showFeedback(msg) {
+    profileFeedback = msg;
+    if (profileTimer) clearTimeout(profileTimer);
+    profileTimer = setTimeout(() => {
+      profileFeedback = '';
+    }, 4000);
+  }
+
+  function handleSwitchProfile(mode) {
+    loadDeviceProfile(mode);
+    showFeedback(`Loaded ${mode === 'mobile' ? '📱 Mobile' : '💻 Desktop'} profile settings.`);
+  }
+
+  function handleSaveDesktop() {
+    saveCurrentToProfile('desktop');
+    showFeedback('💾 Current settings saved to Desktop Mode profile!');
+  }
+
+  function handleSaveMobile() {
+    saveCurrentToProfile('mobile');
+    showFeedback('💾 Current settings saved to Mobile Mode profile!');
+  }
+
+  function handleCopyProfile() {
+    const target = $activeDeviceMode === 'desktop' ? 'mobile' : 'desktop';
+    copyProfile($activeDeviceMode, target);
+    showFeedback(`📋 Copied ${$activeDeviceMode} settings into ${target} profile!`);
+  }
+
+  function handleResetProfile() {
+    resetProfileToDefaults($activeDeviceMode);
+    showFeedback(`↺ Reset ${$activeDeviceMode} profile to standard defaults.`);
+  }
+
+  function handleSelectPreset(tier) {
+    applyExperienceTier(tier);
+    const names = {
+      focused: '⚡ Streamlined / Minimal Preset',
+      teen: '⚡ Streamlined / Minimal Preset',
+      legibility: '👓 High Legibility Preset',
+      senior: '👓 High Legibility Preset',
+      standard: '🏡 Standard / Balanced Preset',
+      detailed: '📊 Detailed / Power User Preset',
+      auditor: '📊 Detailed / Power User Preset',
+    };
+    showFeedback(`Applied preset: ${names[tier] || tier}`);
+  }
 
   const CURRENCY_PRESETS = ['€', '$', '£', 'CHF', '¥', 'kr'];
 
@@ -89,18 +156,179 @@
   <!-- Header -->
   <header>
     <h1 class="page-title">Settings</h1>
-    <p class="page-subtitle">Manage theme appearance, household members, feature modules, form defaults, and display preferences.</p>
+    <p class="page-subtitle">Configure personalized display presets, privacy shields, view filters, rapid logging accelerators, and device display profiles.</p>
   </header>
 
-  <!-- ── 1. Theme & Appearance ──────────────────────────────────────────────── -->
+  <!-- ── 0. Device Display Profiles & Workflow Presets ───────────────────────── -->
+  <div class="card space-y-5 border-2 border-indigo-200/80 dark:border-indigo-900/50 bg-gradient-to-b from-indigo-50/30 to-transparent dark:from-indigo-950/20 dark:to-transparent">
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
+      <div>
+        <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+          <span>💻 📱 Device Display Profiles & Workflow Presets</span>
+        </h2>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
+          Customize separate experiences for desktop and mobile devices, or apply functional workflow presets.
+        </p>
+      </div>
+
+      <!-- Live detected device badge -->
+      <div class="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700 text-xs font-medium text-neutral-700 dark:text-neutral-300 shrink-0 self-start sm:self-auto">
+        <span class="inline-block w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+        <span>Current Device:</span>
+        <strong class="text-neutral-900 dark:text-white capitalize">{$detectedDeviceType === 'mobile' ? '📱 Mobile' : '💻 Desktop'}</strong>
+      </div>
+    </div>
+
+    <!-- Active Profile Mode Switcher -->
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-3.5 rounded-xl bg-neutral-50/90 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800">
+      <div class="space-y-0.5">
+        <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">
+          Currently Editing Profile: <span class="capitalize text-indigo-600 dark:text-indigo-400 font-bold">{$activeDeviceMode} Mode</span>
+        </p>
+        <p class="text-[11px] text-neutral-500 dark:text-neutral-400">
+          Switch to customize preferences for that specific device format.
+        </p>
+      </div>
+
+      <div class="flex bg-white dark:bg-neutral-900 rounded-lg p-1 border border-neutral-200 dark:border-neutral-800 shrink-0">
+        <button
+          id="btn-switch-profile-desktop"
+          type="button"
+          on:click={() => handleSwitchProfile('desktop')}
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$activeDeviceMode === 'desktop' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'}"
+        >
+          <span>💻 Desktop Profile</span>
+        </button>
+        <button
+          id="btn-switch-profile-mobile"
+          type="button"
+          on:click={() => handleSwitchProfile('mobile')}
+          class="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$activeDeviceMode === 'mobile' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'}"
+        >
+          <span>📱 Mobile Profile</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick Display & Workflow Presets -->
+    <div class="space-y-2 pt-1">
+      <p class="text-xs font-bold text-neutral-800 dark:text-neutral-200 flex items-center gap-1.5">
+        <span>⚡ Quick Display & Workflow Presets:</span>
+      </p>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+        <!-- Streamlined / Minimal -->
+        <button
+          type="button"
+          id="preset-focused"
+          on:click={() => handleSelectPreset('focused')}
+          class="p-2.5 rounded-xl border text-left transition-all {$experienceTier === 'focused' || $experienceTier === 'teen' ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 shadow-xs' : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-neutral-300'}"
+        >
+          <span class="text-base block mb-1">⚡</span>
+          <p class="text-xs font-bold text-neutral-900 dark:text-white">Streamlined</p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">Minimal fields, clean single-line rows, fast logging</p>
+        </button>
+
+        <!-- High Legibility -->
+        <button
+          type="button"
+          id="preset-legibility"
+          on:click={() => handleSelectPreset('legibility')}
+          class="p-2.5 rounded-xl border text-left transition-all {$experienceTier === 'legibility' || $experienceTier === 'senior' ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 shadow-xs' : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-neutral-300'}"
+        >
+          <span class="text-base block mb-1">👓</span>
+          <p class="text-xs font-bold text-neutral-900 dark:text-white">High Legibility</p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">115% larger text, high-contrast borders, clean numbers</p>
+        </button>
+
+        <!-- Standard / Balanced -->
+        <button
+          type="button"
+          id="preset-standard"
+          on:click={() => handleSelectPreset('standard')}
+          class="p-2.5 rounded-xl border text-left transition-all {$experienceTier === 'standard' ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 shadow-xs' : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-neutral-300'}"
+        >
+          <span class="text-base block mb-1">🏡</span>
+          <p class="text-xs font-bold text-neutral-900 dark:text-white">Standard</p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">Full household overview, default density, all modules</p>
+        </button>
+
+        <!-- Detailed / Power User -->
+        <button
+          type="button"
+          id="preset-detailed"
+          on:click={() => handleSelectPreset('detailed')}
+          class="p-2.5 rounded-xl border text-left transition-all {$experienceTier === 'detailed' || $experienceTier === 'auditor' ? 'border-indigo-600 bg-indigo-50/70 dark:bg-indigo-950/50 shadow-xs' : 'border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:border-neutral-300'}"
+        >
+          <span class="text-base block mb-1">📊</span>
+          <p class="text-xs font-bold text-neutral-900 dark:text-white">Power User</p>
+          <p class="text-[10px] text-neutral-500 mt-0.5">Exact cents, full metadata chips, SQL console</p>
+        </button>
+      </div>
+    </div>
+
+    {#if profileFeedback}
+      <div class="p-3 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800 rounded-xl text-emerald-800 dark:text-emerald-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
+        <span>{profileFeedback}</span>
+        <button on:click={() => (profileFeedback = '')} class="text-emerald-600 dark:text-emerald-400 hover:opacity-80 text-sm font-bold flex-none px-1">×</button>
+      </div>
+    {/if}
+
+    <!-- Quick Profile Action Buttons -->
+    <div class="flex flex-wrap items-center justify-between gap-2.5 pt-1">
+      <div class="flex items-center gap-2 flex-wrap">
+        <button
+          id="btn-save-desktop-profile"
+          type="button"
+          on:click={handleSaveDesktop}
+          class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+        >
+          <span>💾 Save to Desktop Mode</span>
+        </button>
+
+        <button
+          id="btn-save-mobile-profile"
+          type="button"
+          on:click={handleSaveMobile}
+          class="px-3.5 py-2 rounded-xl text-xs font-semibold bg-white dark:bg-neutral-900 text-neutral-800 dark:text-neutral-200 hover:bg-neutral-50 dark:hover:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 shadow-xs transition-all flex items-center gap-1.5 cursor-pointer"
+        >
+          <span>💾 Save to Mobile Mode</span>
+        </button>
+      </div>
+
+      <div class="flex items-center gap-2 flex-wrap">
+        <button
+          id="btn-copy-profile"
+          type="button"
+          on:click={handleCopyProfile}
+          title="Copy current profile settings to the other device mode"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer"
+        >
+          🔄 Copy to {$activeDeviceMode === 'desktop' ? 'Mobile' : 'Desktop'}
+        </button>
+
+        <button
+          id="btn-reset-profile"
+          type="button"
+          on:click={handleResetProfile}
+          title="Reset this profile to standard defaults"
+          class="px-3 py-1.5 rounded-lg text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+        >
+          ↺ Reset {$activeDeviceMode} Defaults
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 1. Theme, Privacy Shield & Legibility ───────────────────────────────── -->
   <div class="card space-y-5">
     <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
       <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>🎨 Theme & Appearance</span>
+        <span>🎨 Appearance, Privacy Shield & Accessibility</span>
       </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Select your preferred interface color mode or synchronize with your operating system.</p>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Configure interface theme, public screen privacy masks, and legibility scaling.</p>
     </div>
 
+    <!-- Theme Mode Cards -->
     <div class="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
       <!-- Dark Theme Card -->
       <button
@@ -122,7 +350,7 @@
         </div>
         <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Dark Mode</p>
         <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
-          Signature deep luxury navy-slate background, high contrast text, and subtle glass glows.
+          Signature deep luxury navy-slate background and crisp typography.
         </p>
       </button>
 
@@ -146,7 +374,7 @@
         </div>
         <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-100">Light Mode</p>
         <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
-          Clean modern aesthetic with layered surfaces, crisp financial cards, and soft ambient shadows.
+          Clean modern aesthetic with layered surfaces and crisp financial cards.
         </p>
       </button>
 
@@ -170,9 +398,100 @@
         </div>
         <p class="text-sm font-semibold text-neutral-900 dark:text-neutral-100">System Sync</p>
         <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1 leading-relaxed">
-          Automatically adapts between light and dark modes based on your device system settings.
+          Automatically adapts between light and dark modes based on system settings.
         </p>
       </button>
+    </div>
+
+    <!-- Privacy Shield & Legibility Controls -->
+    <div class="space-y-4 pt-2">
+      <!-- Privacy Shield Toggle -->
+      <div class="flex items-center justify-between gap-4 p-3.5 rounded-xl card-sub">
+        <div class="space-y-0.5">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🕶️</span>
+            <p class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Privacy Shield (Stealth Blur)</p>
+            {#if $privacyShield}
+              <span class="badge-indigo">Active</span>
+            {/if}
+          </div>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 max-w-xl">
+            Blurs salary and transaction numbers across the app to prevent shoulder-surfing on public transport or screen-shares. Hover or tap to unmask temporarily.
+          </p>
+        </div>
+        <button
+          id="toggle-privacy-shield"
+          role="switch"
+          aria-checked={$privacyShield}
+          on:click={() => privacyShield.update((v) => !v)}
+          class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500
+                 {$privacyShield ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
+        >
+          <span
+            class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                   transition duration-200 ease-in-out
+                   {$privacyShield ? 'translate-x-5' : 'translate-x-0'}"
+          ></span>
+        </button>
+      </div>
+
+      <!-- Text Scale -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-t border-neutral-200 dark:border-neutral-800/60 pt-3.5">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Typography Scale (Accessibility)</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Enlarge font sizes for effortless legibility across cards and tables.</p>
+        </div>
+        <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            id="btn-scale-100"
+            on:click={() => textScale.set('100')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$textScale === '100' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            100% Standard
+          </button>
+          <button
+            type="button"
+            id="btn-scale-115"
+            on:click={() => textScale.set('115')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$textScale === '115' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            115% Comfortable
+          </button>
+          <button
+            type="button"
+            id="btn-scale-130"
+            on:click={() => textScale.set('130')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$textScale === '130' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            130% Large
+          </button>
+        </div>
+      </div>
+
+      <!-- High Contrast Mode -->
+      <div class="flex items-center justify-between gap-4 border-t border-neutral-200 dark:border-neutral-800/60 pt-3.5">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">High-Contrast Border Mode</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Increases card border weight and button contrast for users with low vision.</p>
+        </div>
+        <button
+          id="toggle-high-contrast"
+          role="switch"
+          aria-checked={$highContrast}
+          on:click={() => highContrast.update((v) => !v)}
+          class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
+                 transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500
+                 {$highContrast ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
+        >
+          <span
+            class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
+                   transition duration-200 ease-in-out
+                   {$highContrast ? 'translate-x-5' : 'translate-x-0'}"
+          ></span>
+        </button>
+      </div>
     </div>
   </div>
 
@@ -210,7 +529,7 @@
             {/if}
           </div>
           <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed max-w-xl">
-            Track shared household balances, automated monthly deposit obligations, expected recurring costs, and balance corrections. Best suited for households with 2+ members.
+            Track shared household balances, automated monthly deposit obligations, expected recurring costs, and balance corrections.
           </p>
         </div>
         <button
@@ -234,11 +553,11 @@
       <div class="flex items-center justify-between gap-4 p-4 rounded-xl card-sub">
         <div class="space-y-1">
           <div class="flex items-center gap-2">
-            <span class="text-base">▰</span>
+            <span class="text-base">🎯</span>
             <p class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Show Project Dropdown in Expense Form</p>
           </div>
           <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed max-w-xl">
-            When enabled and active projects exist, displays the project selector dropdown when logging or editing expenses.
+            Displays the project selector dropdown when logging or editing expenses.
           </p>
         </div>
         <button
@@ -260,79 +579,255 @@
     </div>
   </div>
 
-  <!-- ── 4. Navigation Tabs Visibility ────────────────────────────────────── -->
-  <div class="card space-y-5">
+  <!-- ── 4. View Depth & Clutter Filters ────────────────────────────────────── -->
+  <div class="card space-y-6">
     <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
       <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>📑 Navigation Tabs Customization</span>
+        <span>📑 View Depth & Clutter Filters</span>
       </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Choose which tabs appear in your primary sidebar navigation drawer.</p>
-    </div>
-
-    {#if tabToggleWarning}
-      <div class="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/80 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
-        <div class="flex items-center gap-2">
-          <svg class="w-4 h-4 text-amber-500 dark:text-amber-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
-          </svg>
-          <span>{tabToggleWarning}</span>
-        </div>
-        <button on:click={() => (tabToggleWarning = '')} class="text-amber-500 dark:text-amber-400 hover:opacity-80 text-sm font-bold flex-none px-1">×</button>
-      </div>
-    {/if}
-
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-      {#each tabs as tab (tab.id)}
-        {@const isRequired = tab.id === 'settings' || tab.id === 'dashboard'}
-        {@const isJointTab = tab.id === 'joint'}
-        {@const isActive = isJointTab ? ($jointAccountEnabled && !!$mobileTabVisibility[tab.id]) : !!$mobileTabVisibility[tab.id]}
-        <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 transition-colors {isRequired ? 'opacity-90' : ''}">
-          <div class="flex items-center gap-2.5 min-w-0 pr-2">
-            <span class="text-neutral-500 dark:text-neutral-400 flex-none">{@html tab.icon}</span>
-            <div class="min-w-0">
-              <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate flex items-center gap-1.5">
-                {tab.label}
-                {#if isRequired}
-                  <span class="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">Required</span>
-                {/if}
-              </p>
-              <p class="text-[10px] text-neutral-500 truncate">
-                {isRequired ? 'Always active' : isJointTab && !$jointAccountEnabled ? 'Enable module first' : isActive ? 'Active' : 'Hidden'}
-              </p>
-            </div>
-          </div>
-
-          <button
-            id="toggle-tab-{tab.id}"
-            role="switch"
-            aria-checked={isActive}
-            disabled={isRequired || (isJointTab && !$jointAccountEnabled)}
-            on:click={() => toggleTabVisibility(tab.id)}
-            class="relative inline-flex h-5 w-9 flex-none cursor-pointer rounded-full border-2 border-transparent
-                   transition-colors duration-200 ease-in-out focus:outline-none
-                   {isRequired || (isJointTab && !$jointAccountEnabled) ? 'opacity-50 cursor-not-allowed bg-indigo-300 dark:bg-indigo-900' : isActive ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
-          >
-            <span
-              class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow
-                     transition duration-200 ease-in-out
-                     {isActive ? 'translate-x-4' : 'translate-x-0'}"
-            ></span>
-          </button>
-        </div>
-      {/each}
-    </div>
-  </div>
-
-  <!-- ── 5. Transaction & Form Defaults ────────────────────────────────────── -->
-  <div class="card space-y-5">
-    <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
-      <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>⚡ Form & Entry Defaults</span>
-      </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Speed up logging by pre-selecting default fields for new expense entries.</p>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Control information density, ledger row detail, and navigation tabs.</p>
     </div>
 
     <div class="space-y-4">
+      <!-- Project Lifecycle Display Filter -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Default Project Goals View</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Filter out completed savings milestones from the primary project grid.</p>
+        </div>
+        <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            id="setting-proj-active"
+            on:click={() => projectDisplayFilter.set('active')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$projectDisplayFilter === 'active' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Active Only
+          </button>
+          <button
+            type="button"
+            id="setting-proj-in-progress"
+            on:click={() => projectDisplayFilter.set('in_progress')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$projectDisplayFilter === 'in_progress' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            In Progress
+          </button>
+          <button
+            type="button"
+            id="setting-proj-all"
+            on:click={() => projectDisplayFilter.set('all')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$projectDisplayFilter === 'all' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            All Archive
+          </button>
+        </div>
+      </div>
+
+      <!-- Expense Ledger Density -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Expense Ledger Row Density</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Minimal removes badges for maximum speed; Detailed displays full tags and notes.</p>
+        </div>
+        <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            id="setting-density-minimal"
+            on:click={() => expenseRowDensity.set('minimal')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$expenseRowDensity === 'minimal' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Minimal
+          </button>
+          <button
+            type="button"
+            id="setting-density-compact"
+            on:click={() => expenseRowDensity.set('compact')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$expenseRowDensity === 'compact' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Compact
+          </button>
+          <button
+            type="button"
+            id="setting-density-detailed"
+            on:click={() => expenseRowDensity.set('detailed')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$expenseRowDensity === 'detailed' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Detailed
+          </button>
+        </div>
+      </div>
+
+      <!-- Currency Decimal Precision Mode -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Currency Summary Decimals</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Whole numbers on summary cards creates cleaner visual balance; Always exact shows .00 everywhere.</p>
+        </div>
+        <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            id="setting-precision-whole"
+            on:click={() => currencyPrecisionMode.set('whole_units_on_summaries')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$currencyPrecisionMode === 'whole_units_on_summaries' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Whole Units
+          </button>
+          <button
+            type="button"
+            id="setting-precision-exact"
+            on:click={() => currencyPrecisionMode.set('always_exact')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$currencyPrecisionMode === 'always_exact' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Always Exact (.00)
+          </button>
+        </div>
+      </div>
+
+      <!-- Navigation Drawer Tabs Checklist -->
+      <div class="space-y-3 pt-2">
+        <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">Sidebar Drawer Tab Visibility</p>
+        {#if tabToggleWarning}
+          <div class="p-3 bg-amber-50 dark:bg-amber-950/60 border border-amber-200 dark:border-amber-800/80 rounded-xl text-amber-800 dark:text-amber-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
+            <span>{tabToggleWarning}</span>
+            <button on:click={() => (tabToggleWarning = '')} class="text-amber-500 font-bold">×</button>
+          </div>
+        {/if}
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {#each tabs as tab (tab.id)}
+            {@const isRequired = tab.id === 'settings' || tab.id === 'dashboard'}
+            {@const isJointTab = tab.id === 'joint'}
+            {@const isActive = isJointTab ? ($jointAccountEnabled && !!$mobileTabVisibility[tab.id]) : !!$mobileTabVisibility[tab.id]}
+            <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 transition-colors {isRequired ? 'opacity-90' : ''}">
+              <div class="flex items-center gap-2.5 min-w-0 pr-2">
+                <span class="text-neutral-500 dark:text-neutral-400 flex-none">{@html tab.icon}</span>
+                <div class="min-w-0">
+                  <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate flex items-center gap-1.5">
+                    {tab.label}
+                    {#if isRequired}
+                      <span class="text-[9px] uppercase font-bold tracking-wider px-1.5 py-0.2 rounded bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-800/60">Required</span>
+                    {/if}
+                  </p>
+                </div>
+              </div>
+
+              <button
+                id="toggle-tab-{tab.id}"
+                role="switch"
+                aria-checked={isActive}
+                disabled={isRequired || (isJointTab && !$jointAccountEnabled)}
+                on:click={() => toggleTabVisibility(tab.id)}
+                class="relative inline-flex h-5 w-9 flex-none cursor-pointer rounded-full border-2 border-transparent
+                       transition-colors duration-200 ease-in-out focus:outline-none
+                       {isRequired || (isJointTab && !$jointAccountEnabled) ? 'opacity-50 cursor-not-allowed bg-indigo-300 dark:bg-indigo-900' : isActive ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
+              >
+                <span
+                  class="pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow
+                         transition duration-200 ease-in-out
+                         {isActive ? 'translate-x-4' : 'translate-x-0'}"
+                ></span>
+              </button>
+            </div>
+          {/each}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── 5. Form Accelerators & Rapid Entry ─────────────────────────────────── -->
+  <div class="card space-y-5">
+    <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
+      <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+        <span>⚡ Form Accelerators & Rapid Logging</span>
+      </h2>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Optimize logging speed with smart field memory and customizable optional inputs.</p>
+    </div>
+
+    <div class="space-y-4">
+      <!-- Form Memory Mode -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <div>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Smart Form Memory Mode</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Remember Last automatically remembers your most recently logged payer & category.</p>
+        </div>
+        <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            id="setting-memory-last"
+            on:click={() => formMemoryMode.set('remember_last')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$formMemoryMode === 'remember_last' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Remember Last
+          </button>
+          <button
+            type="button"
+            id="setting-memory-static"
+            on:click={() => formMemoryMode.set('static_preset')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$formMemoryMode === 'static_preset' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Static Defaults
+          </button>
+          <button
+            type="button"
+            id="setting-memory-empty"
+            on:click={() => formMemoryMode.set('empty')}
+            class="px-3 py-1.5 rounded-md text-xs font-semibold transition-all {$formMemoryMode === 'empty' ? 'bg-indigo-600 text-white shadow-sm' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900'}"
+          >
+            Empty
+          </button>
+        </div>
+      </div>
+
+      <!-- Enabled Optional Form Fields -->
+      <div class="space-y-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">Visible Fields on Expense Form</p>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="field-toggle-projects"
+              checked={$enabledFormFields.projects}
+              on:change={(e) => enabledFormFields.update(f => ({ ...f, projects: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>🎯 Projects</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="field-toggle-tags"
+              checked={$enabledFormFields.tags}
+              on:change={(e) => enabledFormFields.update(f => ({ ...f, tags: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>🏷️ Tags</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="field-toggle-joint"
+              checked={$enabledFormFields.joint}
+              on:change={(e) => enabledFormFields.update(f => ({ ...f, joint: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>🏦 Joint Account</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="field-toggle-split-override"
+              checked={$enabledFormFields.splitOverride}
+              on:change={(e) => enabledFormFields.update(f => ({ ...f, splitOverride: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>✶ Custom Split</span>
+          </label>
+        </div>
+      </div>
+
       <!-- Currency Symbol Presets & Input -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
         <div>
@@ -365,7 +860,7 @@
       <!-- Default Payer -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
         <div>
-          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Default Payer</p>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Static Default Payer</p>
           <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Pre-selected household member when adding a new expense.</p>
         </div>
         <select
@@ -386,7 +881,7 @@
       <!-- Default Category -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
         <div>
-          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Default Category</p>
+          <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Static Default Category</p>
           <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Pre-selected category when logging new expenses.</p>
         </div>
         <select
@@ -423,21 +918,71 @@
     </div>
   </div>
 
-  <!-- ── 6. Visualizations & Controls ──────────────────────────────────────── -->
+  <!-- ── 6. Visualizations & Modular Widgets ────────────────────────────────── -->
   <div class="card space-y-5">
     <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
       <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>📊 Visualizations & Controls</span>
+        <span>📊 Visualizations & Modular Dashboard Widgets</span>
       </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Configure chart layouts and split allocation input modes.</p>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Configure chart layouts and toggle individual dashboard KPI widgets.</p>
     </div>
 
     <div class="space-y-4">
+      <!-- Modular Dashboard Widgets -->
+      <div class="space-y-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
+        <p class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">Active Dashboard Widgets</p>
+        <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="widget-toggle-monthly-total"
+              checked={$dashboardWidgets.monthlyTotal !== false}
+              on:change={(e) => dashboardWidgets.update(w => ({ ...w, monthlyTotal: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>💰 Monthly Total Spend</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="widget-toggle-payer-breakdown"
+              checked={$dashboardWidgets.payerBreakdown !== false}
+              on:change={(e) => dashboardWidgets.update(w => ({ ...w, payerBreakdown: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>👥 Payer Breakdown Cards</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="widget-toggle-category-chart"
+              checked={$dashboardWidgets.categoryChart !== false}
+              on:change={(e) => dashboardWidgets.update(w => ({ ...w, categoryChart: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>📊 Category Chart & List</span>
+          </label>
+
+          <label class="flex items-center gap-2 p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs font-medium text-neutral-800 dark:text-neutral-200 cursor-pointer">
+            <input
+              type="checkbox"
+              id="widget-toggle-cash-flow"
+              checked={$dashboardWidgets.cashFlowSavings !== false}
+              on:change={(e) => dashboardWidgets.update(w => ({ ...w, cashFlowSavings: e.target.checked }))}
+              class="rounded text-indigo-600"
+            />
+            <span>📈 Cash Flow & Savings Rate</span>
+          </label>
+        </div>
+      </div>
+
       <!-- Category Chart Style -->
       <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800/60 pb-4">
         <div>
           <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Dashboard Spending Chart</p>
-          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Switch between a doughnut chart and a horizontal bar chart on the dashboard.</p>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Switch between a doughnut chart and a bar chart on the dashboard.</p>
         </div>
         <div class="flex bg-neutral-100 dark:bg-neutral-950 rounded-lg p-0.5 border border-neutral-200 dark:border-neutral-800 flex-none">
           <button
@@ -507,86 +1052,7 @@
     </div>
   </div>
 
-  <!-- ── 7. Mobile & Display Preferences ────────────────────────────────────── -->
-  <div class="card space-y-4">
-    <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
-      <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>📱 Mobile & Display Experience</span>
-      </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Customize viewport density and touch behavior.</p>
-    </div>
-
-    <!-- Auto-close navigation menu -->
-    <div class="flex items-center justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800/60 pb-3.5">
-      <div>
-        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Auto-close Sidebar Menu</p>
-        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Automatically dismiss sidebar drawer after selecting a tab on mobile.</p>
-      </div>
-      <button
-        id="toggle-mobile-autoclose"
-        role="switch"
-        aria-checked={$mobileAutoCloseMenu}
-        on:click={() => mobileAutoCloseMenu.update((v) => !v)}
-        class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
-               transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500
-               {$mobileAutoCloseMenu ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
-      >
-        <span
-          class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
-                 transition duration-200 ease-in-out
-                 {$mobileAutoCloseMenu ? 'translate-x-5' : 'translate-x-0'}"
-        ></span>
-      </button>
-    </div>
-
-    <!-- Compact mobile layout -->
-    <div class="flex items-center justify-between gap-4 border-b border-neutral-200 dark:border-neutral-800/60 pb-3.5">
-      <div>
-        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Compact Density Layout</p>
-        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Use tighter padding and denser margins across all tables and cards.</p>
-      </div>
-      <button
-        id="toggle-mobile-compact"
-        role="switch"
-        aria-checked={$mobileCompactView}
-        on:click={() => mobileCompactView.update((v) => !v)}
-        class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
-               transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500
-               {$mobileCompactView ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
-      >
-        <span
-          class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
-                 transition duration-200 ease-in-out
-                 {$mobileCompactView ? 'translate-x-5' : 'translate-x-0'}"
-        ></span>
-      </button>
-    </div>
-
-    <!-- Touch-friendly large targets -->
-    <div class="flex items-center justify-between gap-4">
-      <div>
-        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Touch-Friendly Large Targets</p>
-        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Enforces 44px minimum tap target height for buttons and form fields on touchscreens.</p>
-      </div>
-      <button
-        id="toggle-mobile-touch-targets"
-        role="switch"
-        aria-checked={$mobileLargeTouchTargets}
-        on:click={() => mobileLargeTouchTargets.update((v) => !v)}
-        class="relative inline-flex h-6 w-11 flex-none cursor-pointer rounded-full border-2 border-transparent
-               transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-indigo-500
-               {$mobileLargeTouchTargets ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"
-      >
-        <span
-          class="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow
-                 transition duration-200 ease-in-out
-                 {$mobileLargeTouchTargets ? 'translate-x-5' : 'translate-x-0'}"
-        ></span>
-      </button>
-    </div>
-  </div>
-
-  <!-- ── 8. Security & Database Backup ─────────────────────────────────────── -->
+  <!-- ── 7. Zero-Knowledge Security Vault ───────────────────────────────────── -->
   <div class="card space-y-5">
     <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
       <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">

@@ -19,7 +19,8 @@
     incomeCategories,
     jobs,
     currencySymbol,
-    incomeAnalytics
+    incomeAnalytics,
+    privacyShield
   } from "./stores.js";
 
   const dispatch = createEventDispatcher();
@@ -34,11 +35,23 @@
     createJob,
     updateJob,
     deleteJob,
-    fetchIncomeByPerson
+    fetchIncomeByPerson,
+    saveSalaryOverride,
+    deleteSalaryOverride
   } from "./api.js";
 
   // ── Derived Users ──────────────────────────────────────────────────────────
   $: activeUsers = $users.filter((u) => u.is_active);
+
+  // ── Salary Override (Period-Specific Adjustment) State ─────────────────────
+  let showSalaryOverrideModal = false;
+  let salaryOverrideUser = null;
+  let salaryOverrideAmount = "";
+  let salaryOverrideNote = "";
+  let salaryOverrideContractCents = 0;
+  let salaryOverrideHasExisting = false;
+  let salaryOverrideError = "";
+  let salaryOverrideSaving = false;
 
   // ── Job Manager State ──────────────────────────────────────────────────────
   let showJobModal = false; // false | "add" | "edit" | "adjust"
@@ -159,15 +172,21 @@
 
   // ── Month breakdown calculations ───────────────────────────────────────────
   $: userSummaryList = activeUsers.map((u) => {
-    // 1. Base salary from active jobs in $selectedMonth
+    // 1. Contract base salary from active jobs in $selectedMonth
     const userJobs = $jobs.filter((j) => j.who === u.name && isJobActiveInMonth(j, $selectedMonth));
-    let baseSalaryCents = userJobs.reduce((sum, j) => sum + toMonthlyEquivalent(j.amount_cents, j.frequency), 0);
+    const contractSalaryCents = userJobs.reduce((sum, j) => sum + toMonthlyEquivalent(j.amount_cents, j.frequency), 0);
 
-    // If no jobs in DB, fallback to incomeAnalytics row if available
-    const hasAnyJobs = $jobs.some((j) => j.who === u.name);
-    if (!hasAnyJobs) {
-      const row = $incomeAnalytics.find((r) => r.who === u.name);
-      if (row) baseSalaryCents = row.total_cents;
+    const row = $incomeAnalytics.find((r) => r.who === u.name);
+    let baseSalaryCents = contractSalaryCents;
+    let hasOverride = false;
+    let overrideNote = "";
+
+    if (row) {
+      baseSalaryCents = row.base_salary_cents;
+      hasOverride = Boolean(row.has_override);
+      overrideNote = row.override_note || "";
+    } else if (userJobs.length === 0) {
+      baseSalaryCents = 0;
     }
 
     // 2. One-off income this month
@@ -181,6 +200,9 @@
       color: u.color,
       activeJobs: userJobs,
       baseSalaryCents,
+      contractSalaryCents: row?.contract_salary_cents ?? contractSalaryCents,
+      hasOverride,
+      overrideNote,
       oneOffCents,
       totalCents,
     };
@@ -200,6 +222,62 @@
   $: if ($selectedMonth) {
     fetchIncome($selectedMonth);
     fetchIncomeByPerson($selectedMonth);
+  }
+
+  // ── Salary Override Actions ────────────────────────────────────────────────
+  function openSalaryOverrideModal(u) {
+    salaryOverrideUser = u;
+    salaryOverrideContractCents = u.contractSalaryCents;
+    salaryOverrideHasExisting = u.hasOverride;
+    salaryOverrideAmount = (u.baseSalaryCents / 100).toFixed(2);
+    salaryOverrideNote = u.overrideNote || "";
+    salaryOverrideError = "";
+    showSalaryOverrideModal = true;
+  }
+
+  function closeSalaryOverrideModal() {
+    showSalaryOverrideModal = false;
+    salaryOverrideError = "";
+    salaryOverrideSaving = false;
+  }
+
+  async function handleSaveSalaryOverride() {
+    salaryOverrideError = "";
+    const amountCents = Math.round(parseFloat(salaryOverrideAmount) * 100);
+    if (isNaN(amountCents) || amountCents < 0) {
+      salaryOverrideError = "Please enter a valid salary amount (0 or greater).";
+      return;
+    }
+
+    salaryOverrideSaving = true;
+    try {
+      await saveSalaryOverride({
+        user_name: salaryOverrideUser.name,
+        month: $selectedMonth,
+        amount_cents: amountCents,
+        note: salaryOverrideNote.trim() || null,
+      });
+      await fetchIncomeByPerson($selectedMonth);
+      closeSalaryOverrideModal();
+    } catch (err) {
+      salaryOverrideError = err.message;
+    } finally {
+      salaryOverrideSaving = false;
+    }
+  }
+
+  async function handleResetSalaryOverride() {
+    salaryOverrideError = "";
+    salaryOverrideSaving = true;
+    try {
+      await deleteSalaryOverride(salaryOverrideUser.name, $selectedMonth);
+      await fetchIncomeByPerson($selectedMonth);
+      closeSalaryOverrideModal();
+    } catch (err) {
+      salaryOverrideError = err.message;
+    } finally {
+      salaryOverrideSaving = false;
+    }
   }
 
   // ── Job Actions ────────────────────────────────────────────────────────────
@@ -452,20 +530,45 @@
       </div>
 
       <p class="text-2xl font-bold tabular-nums" style="color: {u.color}">
-        {fmt(u.totalCents)}
+        <span class:privacy-masked={$privacyShield}>{fmt(u.totalCents)}</span>
       </p>
 
       <!-- Sub-breakdown -->
       <div class="mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800/80 flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
-        <div>
+        <div class="flex items-center gap-1.5 flex-wrap">
           <span class="text-neutral-500">Base Salary:</span>
-          <span class="font-medium text-neutral-700 dark:text-neutral-300 tabular-nums ml-1">{fmt(u.baseSalaryCents)}</span>
+          <span class="font-medium text-neutral-700 dark:text-neutral-300 tabular-nums"><span class:privacy-masked={$privacyShield}>{fmt(u.baseSalaryCents)}</span></span>
+          {#if u.hasOverride}
+            <span
+              class="inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-semibold bg-amber-50 dark:bg-amber-950/80 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800"
+              title={u.overrideNote ? `Adjusted: ${u.overrideNote}` : 'Adjusted for this period'}
+            >
+              ⚡ Adjusted
+            </span>
+          {/if}
         </div>
         {#if u.oneOffCents > 0}
           <div>
             <span class="text-neutral-500">Bonuses:</span>
-            <span class="font-medium text-emerald-600 dark:text-emerald-400 tabular-nums ml-1">+{fmt(u.oneOffCents)}</span>
+            <span class="font-medium text-emerald-600 dark:text-emerald-400 tabular-nums ml-1"><span class:privacy-masked={$privacyShield}>+{fmt(u.oneOffCents)}</span></span>
           </div>
+        {/if}
+      </div>
+
+      <!-- Action to adjust salary for this specific month -->
+      <div class="mt-2.5 pt-2 border-t border-dashed border-neutral-200 dark:border-neutral-800/60 flex items-center justify-between">
+        <button
+          id="btn-adjust-salary-{u.name}"
+          type="button"
+          on:click={() => openSalaryOverrideModal(u)}
+          class="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 transition-colors flex items-center gap-1 cursor-pointer"
+        >
+          <span>✏️ {u.hasOverride ? `Edit ${$selectedMonth} Salary` : `Adjust for ${$selectedMonth}`}</span>
+        </button>
+        {#if u.hasOverride}
+          <span class="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">
+            Contract: <span class:privacy-masked={$privacyShield}>{fmt(u.contractSalaryCents)}</span>
+          </span>
         {/if}
       </div>
     </div>
@@ -478,7 +581,7 @@
       <span class="badge-indigo">{$selectedMonth}</span>
     </div>
     <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-white">
-      {fmt(totalHouseholdIncome)}
+      <span class:privacy-masked={$privacyShield}>{fmt(totalHouseholdIncome)}</span>
     </p>
     <p class="text-[11px] text-neutral-500 mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">
       Derived from active contracts & monthly logs
@@ -1028,3 +1131,113 @@
     </div>
   </div>
 {/if}
+
+<!-- ── Salary Override Modal (Period-Specific Adjustment) ────────────────────────── -->
+{#if showSalaryOverrideModal && salaryOverrideUser}
+  <div class="fixed inset-0 bg-black/60 dark:bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+    <div class="card p-6 max-w-md w-full shadow-2xl">
+      <div class="flex items-center justify-between mb-3 border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <div class="flex items-center gap-2">
+          <div
+            class="w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold text-white shrink-0"
+            style="background-color: {salaryOverrideUser.color}"
+          >
+            {userInitial(salaryOverrideUser.name)}
+          </div>
+          <h3 class="text-base font-semibold text-neutral-900 dark:text-neutral-100">
+            Adjust Salary for {$selectedMonth}
+          </h3>
+        </div>
+        <button on:click={closeSalaryOverrideModal} class="text-neutral-400 hover:text-neutral-700 dark:hover:text-white text-lg">✕</button>
+      </div>
+
+      <div class="mb-4 p-3 rounded-xl bg-neutral-50 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 text-xs">
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-neutral-500">Person:</span>
+          <span class="font-semibold text-neutral-800 dark:text-neutral-200">{salaryOverrideUser.name}</span>
+        </div>
+        <div class="flex items-center justify-between mb-1">
+          <span class="text-neutral-500">Contract Base Rate:</span>
+          <span class="font-mono font-medium text-neutral-700 dark:text-neutral-300">{fmt(salaryOverrideContractCents)} / month</span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-neutral-500">Target Month:</span>
+          <span class="badge-indigo">{$selectedMonth}</span>
+        </div>
+        <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-2 border-t border-neutral-200 dark:border-neutral-800 pt-1.5 leading-relaxed">
+          This adjustment applies <strong>only to {$selectedMonth}</strong> (e.g. for sickness, overtime, parental leave). Other months continue using the contract rate.
+        </p>
+      </div>
+
+      <div class="space-y-3.5">
+        <div>
+          <label for="override-amount" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">
+            Actual Pay for {$selectedMonth} ({$currencySymbol})
+          </label>
+          <input
+            id="override-amount"
+            type="number"
+            min="0"
+            step="0.01"
+            bind:value={salaryOverrideAmount}
+            placeholder="0.00"
+            class="input-field tabular-nums"
+          />
+        </div>
+
+        <div>
+          <label for="override-note" class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider mb-1">
+            Reason / Note (optional)
+          </label>
+          <input
+            id="override-note"
+            type="text"
+            bind:value={salaryOverrideNote}
+            placeholder="e.g. 10 days unpaid leave, overtime, sickness"
+            class="input-field"
+          />
+        </div>
+
+        {#if salaryOverrideError}
+          <p class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 rounded-xl px-3 py-2">{salaryOverrideError}</p>
+        {/if}
+
+        <div class="flex items-center justify-between gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+          <div>
+            {#if salaryOverrideHasExisting}
+              <button
+                id="btn-reset-salary-override"
+                type="button"
+                on:click={handleResetSalaryOverride}
+                disabled={salaryOverrideSaving}
+                class="px-3 py-1.5 rounded-xl text-xs font-medium text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border border-rose-200 dark:border-rose-900/50 transition-colors cursor-pointer"
+              >
+                Reset to Base
+              </button>
+            {/if}
+          </div>
+
+          <div class="flex items-center gap-2">
+            <button
+              type="button"
+              on:click={closeSalaryOverrideModal}
+              class="btn-secondary"
+            >
+              Cancel
+            </button>
+            <button
+              id="btn-save-salary-override"
+              type="button"
+              on:click={handleSaveSalaryOverride}
+              disabled={salaryOverrideSaving}
+              class="btn-primary"
+            >
+              {salaryOverrideSaving ? "Saving…" : "Save Adjustment"}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{/if}
+

@@ -230,3 +230,102 @@ async def test_latest_salary_endpoint(client: AsyncClient):
     assert rows[0]["who"] == user_enc
     assert rows[0]["amount_cents"] == 600000
     assert decrypt_text(rows[0]["name"], key) == "Staff Architect"
+
+
+@pytest.mark.asyncio
+async def test_period_specific_salary_override_and_proportional_isolation(client: AsyncClient):
+    """
+    Verify that an override in a specific month:
+    1. Updates base_salary_cents and total_cents ONLY for that month.
+    2. Leaves other months using the contract base from jobs.
+    3. Correctly reflects in /income/latest-salary?month=...
+    4. Can be deleted to restore the baseline contract rate.
+    """
+    key = derive_key()
+    john_enc = encrypt_text("John", key)
+    jane_enc = encrypt_text("Jane", key)
+    salary_cat_enc = encrypt_text("SALARY", key)
+
+    await client.post("/users", json={"name": john_enc, "color": "#6366f1"})
+    await client.post("/users", json={"name": jane_enc, "color": "#ec4899"})
+
+    # John earns 3000 EUR/mo contract, Jane earns 2000 EUR/mo contract
+    await client.post("/jobs", json={
+        "name": encrypt_text("John Engineer", key),
+        "who": john_enc,
+        "amount_cents": 300000,
+        "frequency": "monthly",
+        "start_date": "2026-01-01",
+    })
+    await client.post("/jobs", json={
+        "name": encrypt_text("Jane Designer", key),
+        "who": jane_enc,
+        "amount_cents": 200000,
+        "frequency": "monthly",
+        "start_date": "2026-01-01",
+    })
+
+    # Baseline check for 2026-07 and 2026-08
+    res_jul_base = await client.get(f"/analytics/income-by-person?salary_cat={salary_cat_enc}&month=2026-07")
+    assert res_jul_base.status_code == 200
+    jul_dict = {r["who"]: r for r in res_jul_base.json()}
+    assert jul_dict[john_enc]["base_salary_cents"] == 300000
+    assert jul_dict[john_enc]["has_override"] is False
+    assert jul_dict[john_enc]["contract_salary_cents"] == 300000
+    assert jul_dict[jane_enc]["base_salary_cents"] == 200000
+
+    # Apply month-specific override for John in 2026-08 (e.g. sick leave -> 2400 EUR)
+    put_res = await client.put("/income/salary-overrides", json={
+        "user_name": john_enc,
+        "month": "2026-08",
+        "amount_cents": 240000,
+        "note": encrypt_text("10d unpaid sick leave", key),
+    })
+    assert put_res.status_code == 200
+    override_data = put_res.json()
+    assert override_data["amount_cents"] == 240000
+    assert override_data["month"] == "2026-08"
+
+    # Query 2026-08: John should be 240000, Jane should remain 200000
+    res_aug = await client.get(f"/analytics/income-by-person?salary_cat={salary_cat_enc}&month=2026-08")
+    assert res_aug.status_code == 200
+    aug_dict = {r["who"]: r for r in res_aug.json()}
+    assert aug_dict[john_enc]["base_salary_cents"] == 240000
+    assert aug_dict[john_enc]["total_cents"] == 240000
+    assert aug_dict[john_enc]["has_override"] is True
+    assert decrypt_text(aug_dict[john_enc]["override_note"], key) == "10d unpaid sick leave"
+    assert aug_dict[john_enc]["contract_salary_cents"] == 300000
+    assert aug_dict[jane_enc]["base_salary_cents"] == 200000
+    assert aug_dict[jane_enc]["has_override"] is False
+
+    # Check 2026-07 and 2026-09 (must NOT be affected by 2026-08 override)
+    res_jul = await client.get(f"/analytics/income-by-person?salary_cat={salary_cat_enc}&month=2026-07")
+    jul_dict2 = {r["who"]: r for r in res_jul.json()}
+    assert jul_dict2[john_enc]["base_salary_cents"] == 300000
+    assert jul_dict2[john_enc]["has_override"] is False
+
+    res_sep = await client.get(f"/analytics/income-by-person?salary_cat={salary_cat_enc}&month=2026-09")
+    sep_dict = {r["who"]: r for r in res_sep.json()}
+    assert sep_dict[john_enc]["base_salary_cents"] == 300000
+    assert sep_dict[john_enc]["has_override"] is False
+
+    # Check latest salary endpoint for 2026-08 with month param
+    latest_aug = await client.get(f"/income/latest-salary?salary_cat={salary_cat_enc}&month=2026-08")
+    assert latest_aug.status_code == 200
+    latest_aug_dict = {r["who"]: r for r in latest_aug.json()}
+    assert latest_aug_dict[john_enc]["amount_cents"] == 240000
+
+    # List overrides
+    list_res = await client.get(f"/income/salary-overrides?month=2026-08")
+    assert list_res.status_code == 200
+    assert len(list_res.json()) == 1
+
+    # Delete override (reset to contract rate)
+    del_res = await client.delete(f"/income/salary-overrides/{john_enc}/2026-08")
+    assert del_res.status_code == 204
+
+    # Verify 2026-08 is now back to 300000 contract baseline
+    res_aug_reset = await client.get(f"/analytics/income-by-person?salary_cat={salary_cat_enc}&month=2026-08")
+    aug_reset_dict = {r["who"]: r for r in res_aug_reset.json()}
+    assert aug_reset_dict[john_enc]["base_salary_cents"] == 300000
+    assert aug_reset_dict[john_enc]["has_override"] is False

@@ -29,6 +29,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 # ---------------------------------------------------------------------------
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+_MONTH_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
 def generate_random_pastel_color() -> str:
@@ -411,12 +412,15 @@ class IncomeCategoryResponse(BaseModel):
 
 
 class IncomeByPersonRow(BaseModel):
-    """Income total per person for an analytics query (with carry-forward & jobs)."""
-    who:               str
-    total_cents:       int
-    is_carried:        bool = False
-    base_salary_cents: int = 0
-    one_off_cents:     int = 0
+    """Income total per person for an analytics query (with carry-forward, jobs & salary overrides)."""
+    who:                   str
+    total_cents:           int
+    is_carried:            bool = False
+    base_salary_cents:     int = 0
+    one_off_cents:         int = 0
+    has_override:          bool = False
+    override_note:         Optional[str] = None
+    contract_salary_cents: Optional[int] = None
 
 
 # ---------------------------------------------------------------------------
@@ -490,6 +494,29 @@ class JobResponse(BaseModel):
     notes:                    Optional[str] = None
     is_active:                bool = True
     monthly_equivalent_cents: int
+
+    model_config = {"from_attributes": True}
+
+
+class SalaryOverrideIn(BaseModel):
+    user_name:    Annotated[str, Field(min_length=1, max_length=256)]
+    month:        str = Field(..., description="Target month in YYYY-MM format")
+    amount_cents: Annotated[int, Field(ge=0, description="Override salary amount in cents (>=0)")]
+    note:         Optional[Annotated[str, Field(max_length=512)]] = None
+
+    @field_validator("month")
+    @classmethod
+    def validate_month(cls, v: str) -> str:
+        if not _MONTH_RE.fullmatch(v):
+            raise ValueError("month must be in YYYY-MM format")
+        return v
+
+
+class SalaryOverrideResponse(BaseModel):
+    user_name:    str
+    month:        str
+    amount_cents: int
+    note:         Optional[str] = None
 
     model_config = {"from_attributes": True}
 

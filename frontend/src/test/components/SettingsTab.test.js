@@ -72,9 +72,9 @@ describe('SettingsTab.svelte — Central Settings & Preferences', () => {
 
     expect(screen.getAllByText(/Household Members/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Feature Modules/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Navigation Tabs Customization/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Form & Entry Defaults/i).length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/Visualizations & Controls/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/View Depth & Clutter Filters/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Form Accelerators & Rapid Logging/i).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Visualizations & Modular Dashboard Widgets/i).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Zero-Knowledge Security/i).length).toBeGreaterThan(0);
   });
 
@@ -89,6 +89,37 @@ describe('SettingsTab.svelte — Central Settings & Preferences', () => {
     let currentVal = '';
     currencySymbol.subscribe((v) => { currentVal = v; })();
     expect(currentVal).toBe(preset);
+  });
+
+  it('applies workflow presets when quick preset buttons are clicked', async () => {
+    render(SettingsTab, { props: { tabs: dummyTabs } });
+
+    const focusedBtn = document.getElementById('preset-focused');
+    expect(focusedBtn).toBeInTheDocument();
+    await fireEvent.click(focusedBtn);
+    expect(screen.getByText(/Applied preset: ⚡ Streamlined/i)).toBeInTheDocument();
+
+    const legibilityBtn = document.getElementById('preset-legibility');
+    expect(legibilityBtn).toBeInTheDocument();
+    await fireEvent.click(legibilityBtn);
+    expect(screen.getByText(/Applied preset: 👓 High Legibility/i)).toBeInTheDocument();
+
+    const standardBtn = document.getElementById('preset-standard');
+    expect(standardBtn).toBeInTheDocument();
+    await fireEvent.click(standardBtn);
+    expect(screen.getByText(/Applied preset: 🏡 Standard/i)).toBeInTheDocument();
+  });
+
+  it('toggles privacy shield and text scaling', async () => {
+    render(SettingsTab, { props: { tabs: dummyTabs } });
+
+    const privacyToggle = document.getElementById('toggle-privacy-shield');
+    expect(privacyToggle).toBeInTheDocument();
+    await fireEvent.click(privacyToggle);
+
+    const scaleBtn = document.getElementById('btn-scale-115');
+    expect(scaleBtn).toBeInTheDocument();
+    await fireEvent.click(scaleBtn);
   });
 
   it.each([
@@ -141,5 +172,41 @@ describe('SettingsTab.svelte — Central Settings & Preferences', () => {
     await fireEvent.click(exportBtn);
 
     expect(exportSpy).toHaveBeenCalledWith('test-salt');
+  });
+
+  it('allows switching between desktop and mobile profiles and saving them', async () => {
+    render(SettingsTab, { props: { tabs: dummyTabs } });
+
+    expect(screen.getAllByText(/Device Display Profiles/i).length).toBeGreaterThan(0);
+
+    const switchMobileBtn = document.getElementById('btn-switch-profile-mobile');
+    expect(switchMobileBtn).toBeInTheDocument();
+    await fireEvent.click(switchMobileBtn);
+
+    expect(screen.getByText(/Loaded 📱 Mobile profile settings/i)).toBeInTheDocument();
+
+    const saveMobileBtn = document.getElementById('btn-save-mobile-profile');
+    expect(saveMobileBtn).toBeInTheDocument();
+    await fireEvent.click(saveMobileBtn);
+
+    expect(screen.getByText(/Current settings saved to Mobile Mode profile!/i)).toBeInTheDocument();
+
+    const saveDesktopBtn = document.getElementById('btn-save-desktop-profile');
+    expect(saveDesktopBtn).toBeInTheDocument();
+    await fireEvent.click(saveDesktopBtn);
+
+    expect(screen.getByText(/Current settings saved to Desktop Mode profile!/i)).toBeInTheDocument();
+
+    const copyBtn = document.getElementById('btn-copy-profile');
+    expect(copyBtn).toBeInTheDocument();
+    await fireEvent.click(copyBtn);
+
+    expect(screen.getByText(/Copied/i)).toBeInTheDocument();
+
+    const resetBtn = document.getElementById('btn-reset-profile');
+    expect(resetBtn).toBeInTheDocument();
+    await fireEvent.click(resetBtn);
+
+    expect(screen.getByText(/Reset desktop profile to standard defaults/i)).toBeInTheDocument();
   });
 });

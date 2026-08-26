@@ -48,7 +48,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import date as _date, datetime as _datetime, timezone as _timezone
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import aiosqlite
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -96,6 +96,8 @@ from .models import (
     JobResponse,
     JobUpdate,
     LatestSalaryRow,
+    SalaryOverrideIn,
+    SalaryOverrideResponse,
     MonthlyCategoryRow,
     MonthlyPayerRow,
     MonthlyTotal,
@@ -2264,23 +2266,112 @@ async def delete_job(job_id: int, db: DbDep) -> None:
     await db.execute("DELETE FROM jobs WHERE id = ?", (job_id,))
     await db.commit()
 
+# ---------------------------------------------------------------------------
+# Salary Overrides (Month-Specific Adjustments)
+# ---------------------------------------------------------------------------
+
+@app.get("/income/salary-overrides", response_model=list[SalaryOverrideResponse], tags=["income"])
+async def list_salary_overrides(
+    db: DbDep,
+    month: str | None = None,
+    user_name: str | None = None,
+) -> list[SalaryOverrideResponse]:
+    """List month-specific salary overrides, optionally filtered by month or user."""
+    query = "SELECT user_name, month, amount_cents, note FROM salary_overrides WHERE 1=1"
+    params: list[Any] = []
+    if month:
+        query += " AND month = ?"
+        params.append(month)
+    if user_name:
+        query += " AND user_name = ?"
+        params.append(user_name)
+    query += " ORDER BY month DESC, user_name ASC"
+
+    async with db.execute(query, params) as cur:
+        rows = await cur.fetchall()
+    return [SalaryOverrideResponse(**dict(r)) for r in rows]
+
+
+@app.put("/income/salary-overrides", response_model=SalaryOverrideResponse, tags=["income"])
+async def upsert_salary_override(
+    payload: SalaryOverrideIn,
+    db: DbDep,
+) -> SalaryOverrideResponse:
+    """Create or update a month-specific salary override for a user."""
+    # Verify user exists and is active
+    async with db.execute("SELECT name FROM users WHERE name = ? AND is_active = 1", (payload.user_name,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Active user {payload.user_name} not found.")
+
+    await db.execute(
+        """
+        INSERT INTO salary_overrides (user_name, month, amount_cents, note)
+        VALUES (?, ?, ?, ?)
+        ON CONFLICT(user_name, month) DO UPDATE SET
+            amount_cents = excluded.amount_cents,
+            note         = excluded.note
+        """,
+        (payload.user_name, payload.month, payload.amount_cents, payload.note),
+    )
+    await db.commit()
+    return SalaryOverrideResponse(
+        user_name=payload.user_name,
+        month=payload.month,
+        amount_cents=payload.amount_cents,
+        note=payload.note,
+    )
+
+
+@app.delete("/income/salary-overrides/{user_name}/{month}", status_code=status.HTTP_204_NO_CONTENT, tags=["income"])
+async def delete_salary_override(
+    user_name: str,
+    month: str,
+    db: DbDep,
+) -> None:
+    """Delete a month-specific salary override (resets user's salary to contract baseline)."""
+    async with db.execute("SELECT user_name FROM salary_overrides WHERE user_name = ? AND month = ?", (user_name, month)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Salary override for {user_name} in {month} not found.")
+
+    await db.execute("DELETE FROM salary_overrides WHERE user_name = ? AND month = ?", (user_name, month))
+    await db.commit()
+
+
 @app.get("/income/latest-salary", response_model=list[LatestSalaryRow], tags=["income"])
-async def get_latest_salary(salary_cat: str, db: DbDep) -> list[LatestSalaryRow]:
+async def get_latest_salary(salary_cat: str, db: DbDep, month: str | None = None) -> list[LatestSalaryRow]:
     """
     Return effective monthly salary per person.
-    Prioritizes active jobs; falls back to legacy SALARY income rows.
+    Prioritizes month-specific salary override, then active jobs, then legacy SALARY income rows.
     """
     from datetime import date as _date
-    current_month = _date.today().strftime("%Y-%m")
-    month_start = f"{current_month}-01"
-    month_end = f"{current_month}-31"
+    target_month = month or _date.today().strftime("%Y-%m")
+    month_start = f"{target_month}-01"
+    month_end = f"{target_month}-31"
 
     async with db.execute("SELECT name FROM users WHERE is_active = 1 ORDER BY name") as cur:
         active_users = [r["name"] async for r in cur]
 
     rows: list[LatestSalaryRow] = []
     for person in active_users:
-        # Check active jobs first
+        # 1. Check if there's a salary override for this target month
+        async with db.execute(
+            "SELECT amount_cents, note FROM salary_overrides WHERE user_name = ? AND month = ?",
+            (person, target_month),
+        ) as cur:
+            override_row = await cur.fetchone()
+
+        if override_row is not None:
+            rows.append(
+                LatestSalaryRow(
+                    who=person,
+                    amount_cents=override_row["amount_cents"],
+                    income_date=f"{target_month}-01",
+                    name=override_row["note"] or "Salary Override",
+                )
+            )
+            continue
+
+        # 2. Check active jobs
         async with db.execute(
             "SELECT amount_cents, frequency, name, start_date FROM jobs WHERE who = ? AND is_active = 1 AND start_date <= ? AND (end_date IS NULL OR end_date >= ?)",
             (person, month_end, month_start),
@@ -2293,7 +2384,7 @@ async def get_latest_salary(salary_cat: str, db: DbDep) -> list[LatestSalaryRow]
             latest_date = max(j["start_date"] for j in user_jobs)
             rows.append(LatestSalaryRow(who=person, amount_cents=total_monthly, income_date=latest_date, name=primary_name))
         else:
-            # Fallback to legacy income table
+            # 3. Fallback to legacy income table
             async with db.execute(
                 """
                 SELECT who, amount_cents, income_date, name
@@ -2315,8 +2406,8 @@ async def get_latest_salary(salary_cat: str, db: DbDep) -> list[LatestSalaryRow]
 async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = None, users: str | None = None) -> list[IncomeByPersonRow]:
     """
     Return total income per active user for the requested month.
-    Combines effective base salary from active jobs (or legacy salary carry-forward)
-    with one-off income entries for that target month.
+    Combines effective base salary (from month-specific salary override, active jobs,
+    or legacy salary carry-forward) with one-off income entries for that target month.
     """
     from datetime import date as _date
     target = month or _date.today().strftime("%Y-%m")
@@ -2352,12 +2443,12 @@ async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = N
         async with db.execute("SELECT 1 FROM jobs WHERE who = ? LIMIT 1", (person,)) as cur:
             has_any_jobs = (await cur.fetchone()) is not None
 
-        salary_this_month = 0
+        contract_salary_this_month = 0
         is_carried = False
 
         if has_any_jobs:
             # User uses the jobs system
-            salary_this_month = sum(to_monthly_cents(j["amount_cents"], j["frequency"]) for j in active_jobs)
+            contract_salary_this_month = sum(to_monthly_cents(j["amount_cents"], j["frequency"]) for j in active_jobs)
             is_carried = False
         else:
             # Legacy fallback: check income table for SALARY
@@ -2366,27 +2457,41 @@ async def get_income_by_person(salary_cat: str, db: DbDep, month: str | None = N
                 (person, salary_cat, target),
             ) as cur:
                 sal_month_row = await cur.fetchone()
-            salary_this_month = sal_month_row["amount_cents"] if sal_month_row else 0
+            contract_salary_this_month = sal_month_row["amount_cents"] if sal_month_row else 0
 
-            if salary_this_month == 0:
+            if contract_salary_this_month == 0:
                 async with db.execute(
                     "SELECT amount_cents FROM income WHERE who=? AND category=? AND income_date <= ? || '-31' ORDER BY income_date DESC, id DESC LIMIT 1",
                     (person, salary_cat, target),
                 ) as cur:
                     carry_row = await cur.fetchone()
                 if carry_row:
-                    salary_this_month = carry_row["amount_cents"]
+                    contract_salary_this_month = carry_row["amount_cents"]
                     is_carried = True
 
-        total = other_cents + salary_this_month
-        if total > 0 or has_any_jobs:
+        # 3. Check for month-specific salary override
+        async with db.execute(
+            "SELECT amount_cents, note FROM salary_overrides WHERE user_name = ? AND month = ?",
+            (person, target),
+        ) as cur:
+            override_row = await cur.fetchone()
+
+        has_override = override_row is not None
+        override_note = override_row["note"] if has_override else None
+        effective_salary_this_month = override_row["amount_cents"] if has_override else contract_salary_this_month
+
+        total = other_cents + effective_salary_this_month
+        if total > 0 or has_any_jobs or has_override:
             result.append(
                 IncomeByPersonRow(
                     who=person,
                     total_cents=total,
                     is_carried=is_carried,
-                    base_salary_cents=salary_this_month,
+                    base_salary_cents=effective_salary_this_month,
                     one_off_cents=other_cents,
+                    has_override=has_override,
+                    override_note=override_note,
+                    contract_salary_cents=contract_salary_this_month,
                 )
             )
 

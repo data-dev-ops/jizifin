@@ -281,5 +281,423 @@ if (typeof sessionStorage !== 'undefined') {
   });
 }
 
+/**
+ * ── Multi-Generational Household Customization & Persona Tiers ───────────────
+ */
+
+export const experienceTier = persistedString('experienceTier', 'standard'); // 'standard' | 'teen' | 'senior' | 'auditor'
+export const privacyShield = persistedBoolean('privacyShield', false);
+export const currencyPrecisionMode = persistedString('currencyPrecisionMode', 'whole_units_on_summaries');
+export const projectDisplayFilter = persistedString('projectDisplayFilter', 'active'); // 'active' | 'in_progress' | 'all'
+export const expenseRowDensity = persistedString('expenseRowDensity', 'compact'); // 'minimal' | 'compact' | 'detailed'
+export const formMemoryMode = persistedString('formMemoryMode', 'remember_last'); // 'remember_last' | 'static_preset' | 'empty'
+export const lastLoggedPayer = persistedString('lastLoggedPayer', '');
+export const lastLoggedCategory = persistedString('lastLoggedCategory', '');
+
+export const enabledFormFields = persistedObject('enabledFormFields', {
+  projects: true,
+  tags: true,
+  joint: true,
+  splitOverride: true,
+});
+
+export const dashboardWidgets = persistedObject('dashboardWidgets', {
+  monthlyTotal: true,
+  payerBreakdown: true,
+  categoryChart: true,
+  cashFlowSavings: true,
+  tagBreakdown: false,
+  recentExpenses: true,
+});
+
+export const textScale = persistedString('textScale', '100'); // '100' | '115' | '130'
+export const highContrast = persistedBoolean('highContrast', false);
+
+/**
+ * ── Device-Aware Profiles Engine ─────────────────────────────────────────────
+ * Provides distinct configurations for Desktop Mode vs. Mobile Mode,
+ * loaded automatically based on client device and manually configurable.
+ */
+
+export const DEFAULT_DESKTOP_PROFILE = {
+  tabVisibility: {
+    dashboard: true,
+    expenses: true,
+    income: true,
+    splits: true,
+    budgets: true,
+    projects: true,
+    tags: true,
+    recurring: true,
+    query: true,
+    settings: true,
+    joint: true,
+  },
+  compactView: false,
+  largeTouchTargets: false,
+  autoCloseMenu: false,
+  chartStyle: 'doughnut',
+  splitInputMode: 'inputs',
+  paybackDisplayMode: 'cards',
+  theme: 'dark',
+  showProjectsInExpense: true,
+  defaultPayer: '',
+  defaultCategory: '',
+  defaultProject: '',
+  currencySymbol: '€',
+  experienceTier: 'standard',
+  privacyShield: false,
+  currencyPrecisionMode: 'whole_units_on_summaries',
+  projectDisplayFilter: 'active',
+  expenseRowDensity: 'compact',
+  formMemoryMode: 'remember_last',
+  enabledFormFields: { projects: true, tags: true, joint: true, splitOverride: true },
+  dashboardWidgets: { monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: true, tagBreakdown: false, recentExpenses: true },
+  textScale: '100',
+  highContrast: false,
+};
+
+export const DEFAULT_MOBILE_PROFILE = {
+  tabVisibility: {
+    dashboard: true,
+    expenses: true,
+    income: true,
+    splits: true,
+    budgets: false,
+    projects: false,
+    tags: false,
+    recurring: false,
+    query: false,
+    settings: true,
+    joint: true,
+  },
+  compactView: true,
+  largeTouchTargets: true,
+  autoCloseMenu: true,
+  chartStyle: 'doughnut',
+  splitInputMode: 'slider',
+  paybackDisplayMode: 'cards',
+  theme: 'dark',
+  showProjectsInExpense: true,
+  defaultPayer: '',
+  defaultCategory: '',
+  defaultProject: '',
+  currencySymbol: '€',
+  experienceTier: 'standard',
+  privacyShield: false,
+  currencyPrecisionMode: 'whole_units_on_summaries',
+  projectDisplayFilter: 'active',
+  expenseRowDensity: 'compact',
+  formMemoryMode: 'remember_last',
+  enabledFormFields: { projects: true, tags: false, joint: true, splitOverride: true },
+  dashboardWidgets: { monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: true, tagBreakdown: false, recentExpenses: true },
+  textScale: '100',
+  highContrast: false,
+};
+
+export const detectedDeviceType = writable('desktop');
+export const activeDeviceMode = persistedString('activeDeviceMode', 'desktop');
+
+export function detectDeviceType() {
+  if (typeof window === 'undefined') return 'desktop';
+  const isSmallScreen = window.innerWidth < 768;
+  const isTouch = window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
+  return (isSmallScreen || isTouch) ? 'mobile' : 'desktop';
+}
+
+export function getDeviceProfile(mode) {
+  const defaultProfile = mode === 'mobile' ? DEFAULT_MOBILE_PROFILE : DEFAULT_DESKTOP_PROFILE;
+  if (typeof localStorage === 'undefined') return { ...defaultProfile };
+  const raw = localStorage.getItem(`jizifin_profile_${mode}`);
+  if (!raw) return { ...defaultProfile };
+  try {
+    const parsed = JSON.parse(raw);
+    return {
+      ...defaultProfile,
+      ...parsed,
+      tabVisibility: {
+        ...defaultProfile.tabVisibility,
+        ...(parsed.tabVisibility || {}),
+        settings: true,
+        dashboard: true,
+      },
+      enabledFormFields: {
+        ...defaultProfile.enabledFormFields,
+        ...(parsed.enabledFormFields || {}),
+      },
+      dashboardWidgets: {
+        ...defaultProfile.dashboardWidgets,
+        ...(parsed.dashboardWidgets || {}),
+      },
+    };
+  } catch {
+    return { ...defaultProfile };
+  }
+}
+
+export function saveDeviceProfile(mode, profile) {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(`jizifin_profile_${mode}`, JSON.stringify(profile));
+}
+
+export function getSnapshotCurrentSettings() {
+  let currentTabs = {};
+  mobileTabVisibility.subscribe((v) => { currentTabs = v; })();
+  let currentCompact = false;
+  mobileCompactView.subscribe((v) => { currentCompact = v; })();
+  let currentTouch = false;
+  mobileLargeTouchTargets.subscribe((v) => { currentTouch = v; })();
+  let currentAutoClose = true;
+  mobileAutoCloseMenu.subscribe((v) => { currentAutoClose = v; })();
+  let currentChart = 'doughnut';
+  chartStyle.subscribe((v) => { currentChart = v; })();
+  let currentSplit = 'inputs';
+  splitInputMode.subscribe((v) => { currentSplit = v; })();
+  let currentPayback = 'cards';
+  paybackDisplayMode.subscribe((v) => { currentPayback = v; })();
+  let currentTheme = 'dark';
+  theme.subscribe((v) => { currentTheme = v; })();
+  let currentProjExp = true;
+  showProjectsInExpense.subscribe((v) => { currentProjExp = v; })();
+  let currentPayer = '';
+  defaultPayer.subscribe((v) => { currentPayer = v; })();
+  let currentCat = '';
+  defaultCategory.subscribe((v) => { currentCat = v; })();
+  let currentProj = '';
+  defaultProject.subscribe((v) => { currentProj = v; })();
+  let currentCurr = '€';
+  currencySymbol.subscribe((v) => { currentCurr = v; })();
+
+  let currentTier = 'standard';
+  experienceTier.subscribe((v) => { currentTier = v; })();
+  let currentPrivacy = false;
+  privacyShield.subscribe((v) => { currentPrivacy = v; })();
+  let currentPrecision = 'whole_units_on_summaries';
+  currencyPrecisionMode.subscribe((v) => { currentPrecision = v; })();
+  let currentProjFilter = 'active';
+  projectDisplayFilter.subscribe((v) => { currentProjFilter = v; })();
+  let currentDensity = 'compact';
+  expenseRowDensity.subscribe((v) => { currentDensity = v; })();
+  let currentFormMem = 'remember_last';
+  formMemoryMode.subscribe((v) => { currentFormMem = v; })();
+  let currentFormFields = { projects: true, tags: true, joint: true, splitOverride: true };
+  enabledFormFields.subscribe((v) => { currentFormFields = v; })();
+  let currentWidgets = { monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: true, tagBreakdown: false, recentExpenses: true };
+  dashboardWidgets.subscribe((v) => { currentWidgets = v; })();
+  let currentTextScale = '100';
+  textScale.subscribe((v) => { currentTextScale = v; })();
+  let currentHighContrast = false;
+  highContrast.subscribe((v) => { currentHighContrast = v; })();
+
+  return {
+    tabVisibility: { ...currentTabs },
+    compactView: currentCompact,
+    largeTouchTargets: currentTouch,
+    autoCloseMenu: currentAutoClose,
+    chartStyle: currentChart,
+    splitInputMode: currentSplit,
+    paybackDisplayMode: currentPayback,
+    theme: currentTheme,
+    showProjectsInExpense: currentProjExp,
+    defaultPayer: currentPayer,
+    defaultCategory: currentCat,
+    defaultProject: currentProj,
+    currencySymbol: currentCurr,
+    experienceTier: currentTier,
+    privacyShield: currentPrivacy,
+    currencyPrecisionMode: currentPrecision,
+    projectDisplayFilter: currentProjFilter,
+    expenseRowDensity: currentDensity,
+    formMemoryMode: currentFormMem,
+    enabledFormFields: { ...currentFormFields },
+    dashboardWidgets: { ...currentWidgets },
+    textScale: currentTextScale,
+    highContrast: currentHighContrast,
+  };
+}
+
+export function applySettingsSnapshot(snapshot) {
+  if (!snapshot) return;
+  if (snapshot.tabVisibility) {
+    mobileTabVisibility.set({
+      ...snapshot.tabVisibility,
+      settings: true,
+      dashboard: true,
+    });
+  }
+  if (typeof snapshot.compactView === 'boolean') mobileCompactView.set(snapshot.compactView);
+  if (typeof snapshot.largeTouchTargets === 'boolean') mobileLargeTouchTargets.set(snapshot.largeTouchTargets);
+  if (typeof snapshot.autoCloseMenu === 'boolean') mobileAutoCloseMenu.set(snapshot.autoCloseMenu);
+  if (snapshot.chartStyle) chartStyle.set(snapshot.chartStyle);
+  if (snapshot.splitInputMode) splitInputMode.set(snapshot.splitInputMode);
+  if (snapshot.paybackDisplayMode) paybackDisplayMode.set(snapshot.paybackDisplayMode);
+  if (snapshot.theme) theme.set(snapshot.theme);
+  if (typeof snapshot.showProjectsInExpense === 'boolean') showProjectsInExpense.set(snapshot.showProjectsInExpense);
+  if (typeof snapshot.defaultPayer === 'string') defaultPayer.set(snapshot.defaultPayer);
+  if (typeof snapshot.defaultCategory === 'string') defaultCategory.set(snapshot.defaultCategory);
+  if (typeof snapshot.defaultProject === 'string') defaultProject.set(snapshot.defaultProject);
+  if (typeof snapshot.currencySymbol === 'string') currencySymbol.set(snapshot.currencySymbol);
+
+  if (snapshot.experienceTier) experienceTier.set(snapshot.experienceTier);
+  if (typeof snapshot.privacyShield === 'boolean') privacyShield.set(snapshot.privacyShield);
+  if (snapshot.currencyPrecisionMode) currencyPrecisionMode.set(snapshot.currencyPrecisionMode);
+  if (snapshot.projectDisplayFilter) projectDisplayFilter.set(snapshot.projectDisplayFilter);
+  if (snapshot.expenseRowDensity) expenseRowDensity.set(snapshot.expenseRowDensity);
+  if (snapshot.formMemoryMode) formMemoryMode.set(snapshot.formMemoryMode);
+  if (snapshot.enabledFormFields) enabledFormFields.set({ ...snapshot.enabledFormFields });
+  if (snapshot.dashboardWidgets) dashboardWidgets.set({ ...snapshot.dashboardWidgets });
+  if (snapshot.textScale) textScale.set(snapshot.textScale);
+  if (typeof snapshot.highContrast === 'boolean') highContrast.set(snapshot.highContrast);
+}
+
+export function applyExperienceTier(tier) {
+  let normalized = tier;
+  if (tier === 'teen') normalized = 'focused';
+  if (tier === 'senior') normalized = 'legibility';
+  if (tier === 'auditor') normalized = 'detailed';
+
+  experienceTier.set(normalized);
+
+  if (normalized === 'focused') {
+    textScale.set('100');
+    highContrast.set(false);
+    currencyPrecisionMode.set('whole_units_on_summaries');
+    expenseRowDensity.set('minimal');
+    formMemoryMode.set('remember_last');
+    projectDisplayFilter.set('active');
+    enabledFormFields.set({ projects: false, tags: false, joint: false, splitOverride: false });
+    dashboardWidgets.set({ monthlyTotal: true, payerBreakdown: false, categoryChart: true, cashFlowSavings: false, tagBreakdown: false, recentExpenses: true });
+    mobileTabVisibility.set({
+      dashboard: true,
+      expenses: true,
+      income: false,
+      splits: false,
+      budgets: false,
+      projects: false,
+      tags: false,
+      recurring: false,
+      query: false,
+      settings: true,
+      joint: false,
+    });
+  } else if (normalized === 'legibility') {
+    textScale.set('115');
+    highContrast.set(true);
+    currencyPrecisionMode.set('whole_units_on_summaries');
+    expenseRowDensity.set('compact');
+    formMemoryMode.set('remember_last');
+    projectDisplayFilter.set('active');
+    enabledFormFields.set({ projects: false, tags: false, joint: true, splitOverride: false });
+    dashboardWidgets.set({ monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: false, tagBreakdown: false, recentExpenses: true });
+    mobileTabVisibility.set({
+      dashboard: true,
+      expenses: true,
+      income: false,
+      splits: false,
+      budgets: false,
+      projects: false,
+      tags: false,
+      recurring: false,
+      query: false,
+      settings: true,
+      joint: true,
+    });
+  } else if (normalized === 'detailed') {
+    textScale.set('100');
+    highContrast.set(false);
+    currencyPrecisionMode.set('always_exact');
+    expenseRowDensity.set('detailed');
+    formMemoryMode.set('static_preset');
+    projectDisplayFilter.set('all');
+    enabledFormFields.set({ projects: true, tags: true, joint: true, splitOverride: true });
+    dashboardWidgets.set({ monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: true, tagBreakdown: true, recentExpenses: true });
+    mobileTabVisibility.set({
+      dashboard: true,
+      expenses: true,
+      income: true,
+      splits: true,
+      budgets: true,
+      projects: true,
+      tags: true,
+      recurring: true,
+      query: true,
+      settings: true,
+      joint: true,
+    });
+  } else {
+    // standard / balanced default
+    textScale.set('100');
+    highContrast.set(false);
+    currencyPrecisionMode.set('whole_units_on_summaries');
+    expenseRowDensity.set('compact');
+    formMemoryMode.set('remember_last');
+    projectDisplayFilter.set('active');
+    enabledFormFields.set({ projects: true, tags: true, joint: true, splitOverride: true });
+    dashboardWidgets.set({ monthlyTotal: true, payerBreakdown: true, categoryChart: true, cashFlowSavings: true, tagBreakdown: false, recentExpenses: true });
+    mobileTabVisibility.set({
+      dashboard: true,
+      expenses: true,
+      income: true,
+      splits: true,
+      budgets: true,
+      projects: true,
+      tags: true,
+      recurring: true,
+      query: false,
+      settings: true,
+      joint: true,
+    });
+  }
+}
+
+export function loadDeviceProfile(mode) {
+  const profile = getDeviceProfile(mode);
+  applySettingsSnapshot(profile);
+  activeDeviceMode.set(mode);
+  return profile;
+}
+
+export function saveCurrentToProfile(mode) {
+  const snapshot = getSnapshotCurrentSettings();
+  saveDeviceProfile(mode, snapshot);
+  activeDeviceMode.set(mode);
+  return snapshot;
+}
+
+export function copyProfile(fromMode, toMode) {
+  const source = getDeviceProfile(fromMode);
+  saveDeviceProfile(toMode, source);
+  return source;
+}
+
+export function resetProfileToDefaults(mode) {
+  const defaultProfile = mode === 'mobile' ? DEFAULT_MOBILE_PROFILE : DEFAULT_DESKTOP_PROFILE;
+  saveDeviceProfile(mode, defaultProfile);
+  let currentActive = 'desktop';
+  activeDeviceMode.subscribe((v) => { currentActive = v; })();
+  if (currentActive === mode) {
+    applySettingsSnapshot(defaultProfile);
+  }
+  return defaultProfile;
+}
+
+export function initDeviceProfiles() {
+  const detected = detectDeviceType();
+  detectedDeviceType.set(detected);
+  
+  // If no saved profiles exist yet, initialize them with defaults
+  if (typeof localStorage !== 'undefined') {
+    if (!localStorage.getItem('jizifin_profile_desktop')) {
+      saveDeviceProfile('desktop', DEFAULT_DESKTOP_PROFILE);
+    }
+    if (!localStorage.getItem('jizifin_profile_mobile')) {
+      saveDeviceProfile('mobile', DEFAULT_MOBILE_PROFILE);
+    }
+  }
+  
+  loadDeviceProfile(detected);
+}
+
+
 
 

@@ -45,7 +45,7 @@ describe('App.svelte — Shell & Tab Navigation', () => {
   });
 
   it.each([
-    { tabId: 'nav-settings', expectedText: /Navigation Tabs Customization/i },
+    { tabId: 'nav-settings', expectedText: /Configure personalized display presets/i },
   ])('switches active tab when navigation item is clicked ($tabId)', async ({ tabId, expectedText }) => {
     const key = await deriveKey('test-pass');
     authSalt.set('test-pass');

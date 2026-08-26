@@ -45,7 +45,7 @@ describe('ExpenseForm.svelte — Expense Creation Form', () => {
   });
 
   it.each([
-    { desc: 'Supermarket', expectedError: 'Amount is required.' },
+    { desc: 'Supermarket', expectedError: 'Cost is required.' },
   ])('validates invalid/zero expense amount ($desc)', async ({ desc, expectedError }) => {
     render(ExpenseForm);
 

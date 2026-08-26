@@ -9,8 +9,20 @@
    *  - Inline edit mode and delete with confirmation
    */
 
-  import { projects, users, currencySymbol, showProjectsInExpense, jointAccounts } from './stores.js';
+  import { projects, users, currencySymbol, showProjectsInExpense, jointAccounts, projectDisplayFilter } from './stores.js';
   import { createProject, updateProject, deleteProject, fetchProjectSettlement } from './api.js';
+
+  $: filteredProjects = $projects.filter((p) => {
+    const isCompleted = p.target_cents > 0 && (p.total_spent_cents || 0) >= p.target_cents;
+    const hasStarted = (p.total_spent_cents || 0) > 0;
+    if ($projectDisplayFilter === 'active') {
+      return !isCompleted;
+    }
+    if ($projectDisplayFilter === 'in_progress') {
+      return hasStarted && !isCompleted;
+    }
+    return true; // 'all'
+  });
 
   // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -591,6 +603,36 @@
       </button>
     </div>
 
+    <!-- ── Project Lifecycle Filters ── -->
+    {#if $projects.length > 0}
+      <div class="flex items-center gap-1.5 p-1 bg-neutral-100 dark:bg-neutral-900/80 rounded-xl border border-neutral-200 dark:border-neutral-800 text-xs self-start">
+        <button
+          id="filter-proj-active"
+          type="button"
+          on:click={() => projectDisplayFilter.set('active')}
+          class="px-3 py-1.5 rounded-lg font-medium transition-all {$projectDisplayFilter === 'active' ? 'bg-white dark:bg-neutral-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'}"
+        >
+          Active ({$projects.filter(p => (p.total_spent_cents || 0) < p.target_cents).length})
+        </button>
+        <button
+          id="filter-proj-in-progress"
+          type="button"
+          on:click={() => projectDisplayFilter.set('in_progress')}
+          class="px-3 py-1.5 rounded-lg font-medium transition-all {$projectDisplayFilter === 'in_progress' ? 'bg-white dark:bg-neutral-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'}"
+        >
+          In Progress ({$projects.filter(p => (p.total_spent_cents || 0) > 0 && (p.total_spent_cents || 0) < p.target_cents).length})
+        </button>
+        <button
+          id="filter-proj-all"
+          type="button"
+          on:click={() => projectDisplayFilter.set('all')}
+          class="px-3 py-1.5 rounded-lg font-medium transition-all {$projectDisplayFilter === 'all' ? 'bg-white dark:bg-neutral-800 text-indigo-600 dark:text-indigo-400 shadow-xs font-semibold' : 'text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white'}"
+        >
+          All ({$projects.length})
+        </button>
+      </div>
+    {/if}
+
     {#if $projects.length === 0}
       <div class="card empty-state-box">
         <div class="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800 flex items-center justify-center text-2xl mb-4">🎯</div>
@@ -598,8 +640,20 @@
         <p class="text-neutral-500 text-xs mt-1">Use the form on the left to create your first savings goal or project.</p>
       </div>
 
+    {:else if filteredProjects.length === 0}
+      <div class="card p-6 text-center rounded-2xl border border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/40">
+        <p class="text-sm font-medium text-neutral-700 dark:text-neutral-300">No projects matching filter "{$projectDisplayFilter}".</p>
+        <button
+          type="button"
+          on:click={() => projectDisplayFilter.set('all')}
+          class="mt-2 text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
+        >
+          Show all {$projects.length} projects →
+        </button>
+      </div>
+
     {:else}
-      {#each $projects as project (project.id)}
+      {#each filteredProjects as project (project.id)}
         {@const progress = pct(project.total_spent_cents, project.target_cents)}
         <div
           id="project-card-{project.id}"

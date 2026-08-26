@@ -55,6 +55,7 @@ def process_database_connection(conn: sqlite3.Connection, key: bytes, encrypt: b
         "expense_overrides": ["user_name"],
         "income": ["name", "who", "category"],
         "jobs": ["name", "who", "notes"],
+        "salary_overrides": ["user_name", "note"],
         "recurring_expenses": ["name", "who_paid", "category"],
         "budgets": ["category"],
         "split_allocations": ["category", "user_name"],

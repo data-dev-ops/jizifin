@@ -7,7 +7,15 @@ A monorepo personal finance tracking application designed for managing shared ho
 ## 🚀 Key Features
 
 - **Dashboard & Analytics:** Comprehensive overview of balances, monthly totals, category breakdowns, and dynamic real-time spending charts with multi-select household scope filtering (Everyone, individual members, and joint accounts).
-- **Jobs & Employment Streams:** Define employment contracts and regular income streams per person with customizable frequency (monthly, weekly, bi-weekly, annual), timeline start/end dates, and 1-click raise/promotion/leave adjustments. Effective monthly base salaries and household split ratios are computed automatically for any active or historical month.
+- **Jobs & Period-Specific Salary Adjustments:** Define employment contracts and regular income streams per person with customizable frequency (monthly, weekly, bi-weekly, annual), timeline start/end dates, and 1-click raise/promotion/leave adjustments. Supports month-specific salary overrides (`salary_overrides`) for temporary overtime, unpaid leave, or sickness—dynamically recalculating proportional salary ratios strictly for that period without modifying base contracts.
+- **Device Display Profiles (Desktop vs. Mobile):** Distinct persistent profiles stored independently in `localStorage` (`jizifin_profile_desktop` and `jizifin_profile_mobile`). Automatically detects client device hardware with live status badge, supporting profile switching, explicit saving, profile cloning, and default resetting.
+- **Public Privacy Shield (Stealth Blur):** Frosted-glass CSS blur with hover/tap peek unmasking. Toggleable via a top header action button (`👁️` / `🕶️`) or Settings, protecting account balances, salary details, and transaction amounts in public environments.
+- **Quick Display & Workflow Presets:** 1-Click functional interface presets:
+  - `⚡ Streamlined`: Minimal form inputs and compact single-line ledger rows for rapid day-to-day logging.
+  - `👓 High Legibility`: 115% larger typography, high-contrast borders, and whole-unit summary rounding.
+  - `🏡 Standard / Balanced`: Default comprehensive layout with compact density and core household modules.
+  - `📊 Detailed / Power User`: Exact `.00` precision everywhere, detailed metadata chips, and advanced tabs (Query Console, Budgets).
+- **View Depth & Rapid Logging Accelerators:** Configurable project lifecycle filters (`Active Only`, `In Progress`, `All Archive`), ledger row density (`Minimal`, `Compact`, `Detailed`), currency precision mode, smart form memory (`Remember Last Used`, `Static Defaults`, `Empty`), and granular form field toggles.
 - **Exact Basis-Point & Float Percentage Splits:** Configure category split allocations with full basis-point float precision (`0.01%`), supporting proportional income splits (e.g. $26.6667\% / 13.3333\% / 25.9259\% / 11.1111\% / 18.5185\%$) without forced integer coercion.
 - **Signed Hare-Niemeyer / Largest Remainder Math:** Integer-cent split distribution supporting positive transactions, zero, and negative refunds/credit memos using mathematical `math.floor`, paired with a deterministic transaction-salted SHA-256 tie-breaker to prevent alphabetical bias.
 - **Multi-Tenant Joint Accounts:** Isolated joint accounts owned by specific household sub-groups (e.g., Couple AB, Couple CD) with custom safety margins, expected monthly costs, per-user monthly deposit schedules, and signed balance corrections.
@@ -15,7 +23,7 @@ A monorepo personal finance tracking application designed for managing shared ho
 - **Dynamic Tag Timelines & Boundary Enforcement:** Open-ended color-coded tag labeling system with `start_date` and `end_date` active windows. Validates that expenses fall strictly within active tag milestones and prevents retrospective tag window shrinkage.
 - **Projects & Settlement Equity Balance Sheets:** Long-term project budget targets with estimated completion dates and dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), tracking effective funding vs assigned liability.
 - **Expense Tracking & Full Management:** Log and manage shared/personal expenses with split percentage overrides, project allocations, and tag associations. Features a live search/filter toolbar, quick inline tag popover assignment, a full-featured Edit Expense modal, and date-locking for settled historical months.
-- **Centralized Settings & Personalization:** Comprehensive 7-domain settings panel managing household members and color palettes, feature modules, navigation tab visibility, entry defaults with 1-click currency presets (€, $, £, CHF, ¥, kr), chart & split visualization styles, mobile layout density, and zero-knowledge encrypted database backups.
+- **Centralized Settings & Personalization:** Comprehensive settings panel managing household members and color palettes, feature modules, navigation tab visibility, entry defaults with 1-click currency presets (€, $, £, CHF, ¥, kr), chart & split visualization styles, mobile layout density, and zero-knowledge encrypted database backups.
 - **Zero-Knowledge Privacy:** Client-side AES-GCM 256-bit encryption (via Web Crypto API) ensures all names, descriptions, notes, and category labels are stored encrypted at rest on the server, with secure in-place server-side database export/import utilities.
 - **Modern UI & Design System:** Modern typography powered by Plus Jakarta Sans and JetBrains Mono, `tabular-nums` formatting on all currency and financial amounts, and glassmorphic depth.
 
@@ -107,7 +115,7 @@ The application features full-stack automated test suites ensuring zero regressi
 
 ### 1. Backend Test Suite & Integration Scenarios (Pytest)
 - **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** **327 passed tests** across 17 test modules, including:
+- **Coverage:** **328 passed tests** across 17 test modules, including:
   - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, and graph-decomposed couple debt isolation.
   - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_multi_household_couples.py`, etc.
 
@@ -124,7 +132,7 @@ docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/test
 
 ### 2. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Coverage:** **288 passed tests** across 34 test files covering encryption/decryption, stores, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
+- **Coverage:** **312 passed tests** across 36 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:

@@ -61,7 +61,7 @@ To maintain zero-knowledge privacy for the household financial history, data is 
 3. **Deterministic AES-GCM Implications**:
    - **Queryability & Referential Integrity:** Because the encryption is deterministic (static IV), the exact same plaintext string always encrypts to the exact same ciphertext Base64URL string. This allows the backend to perform exact matches (`who_paid = ?`), enforce `PRIMARY KEY` uniqueness (e.g. `splits.category`), group records (`GROUP BY category`), and validate foreign keys (e.g. `expenses.who_paid` matching `users.name`).
    - **Security Weakness:** The use of a static IV breaks the semantic security of AES-GCM. It exposes the ciphertexts to frequency analysis and XOR pattern/replay leakages if an attacker obtains the database file.
-   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`, `joint_account.name`, `joint_account_deposits.user_name`, `joint_account_corrections.note`, `jobs.name`, `jobs.who`, `jobs.notes`.
+   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`, `joint_account.name`, `joint_account_deposits.user_name`, `joint_account_corrections.note`, `jobs.name`, `jobs.who`, `jobs.notes`, `salary_overrides.user_name`, `salary_overrides.note`.
    - **Plaintext Columns:** Numeric amounts (cents), dates, integer primary/foreign keys, and the `settlements` table.
 
 ### 🚨 Coding Style Conventions & Deviations
@@ -198,6 +198,13 @@ All database interactions are defined in `backend/app/database.py`. The tables a
     - `notes` (TEXT CHECK(notes IS NULL OR length(notes) <= 512)) — Encrypted.
     - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
     - *Indexes*: `idx_jobs_who_dates` on `(who, start_date DESC)`
+
+20. **`salary_overrides`** (Month-specific salary overrides for sickness, leave, overtime)
+    - `user_name` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
+    - `month` (TEXT NOT NULL CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'))
+    - `amount_cents` (INTEGER NOT NULL CHECK(amount_cents >= 0))
+    - `note` (TEXT CHECK(note IS NULL OR length(note) <= 512)) — Encrypted.
+    - *Primary Key*: `(user_name, month)`
 
 ### Database Views (Read-Only)
 Views are dropped and recreated on startup to reflect any schema modifications:
@@ -366,7 +373,7 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`backend/app/models.py`**: Pydantic v2 schemas representing input/output models for all endpoints.
 - **`backend/app/database.py`**: Database pool configuration, WAL mode, foreign keys, table and view initializations.
 - **`backend/app/crypto_utils.py`**: Server-side cryptography routines executing PBKDF2 key derivation and AES-GCM bulk encryption/decryption for database backups.
-- **`backend/tests/`**: Pytest test suite containing 309+ tests (`test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, etc.).
+- **`backend/tests/`**: Pytest test suite containing 328 tests (`test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, etc.).
 
 #### Frontend Application (`frontend/`)
 - **`frontend/Dockerfile`**: Configures Node.js container and exposes Vite port 5173.
@@ -374,29 +381,29 @@ Views are dropped and recreated on startup to reflect any schema modifications:
 - **`frontend/tailwind.config.js`**: Utility-first Tailwind styling tokens.
 - **`frontend/vite.config.js`**: Vite configuration defining dev proxying and build parameters.
 - **`frontend/src/main.js`**: Hooks the Svelte application into the DOM.
-- **`frontend/src/App.svelte`**: Main application shell, tab routing, sidebar, and selected month switcher.
-- **`frontend/src/lib/api.js`**: Central API integration with transparent AES-GCM encryption/decryption on all transaction and job requests.
+- **`frontend/src/App.svelte`**: Main application shell, tab routing, sidebar, selected month switcher, top-bar privacy shield toggle, and dynamic accessibility classes.
+- **`frontend/src/lib/api.js`**: Central API integration with transparent AES-GCM encryption/decryption on all transaction, salary override, and job requests.
 - **`frontend/src/lib/crypto.js`**: Client-side WebCrypto PBKDF2 and AES-GCM encryption routines with static IV.
-- **`frontend/src/lib/stores.js`**: Reactive Svelte writable stores (`jobs`, `incomeEntries`, `expenses`, `users`, `splits`, `projects`, `tags`, `jointAccount`, etc.).
-- **`frontend/src/lib/AnalyticsSummary.svelte`**: Monthly totals summary and category spending doughnut chart.
+- **`frontend/src/lib/stores.js`**: Reactive Svelte writable stores (`jobs`, `incomeEntries`, `expenses`, `users`, `splits`, `projects`, `tags`, `jointAccount`, `deviceProfile`, `experienceTier`, `privacyShield`, etc.).
+- **`frontend/src/lib/AnalyticsSummary.svelte`**: Monthly totals summary, category spending doughnut chart, whole-unit rounding, and privacy-shielded balances.
 - **`frontend/src/lib/BudgetManager.svelte`**: Monthly category budget limit configuration.
-- **`frontend/src/lib/ExpenseForm.svelte`**: Forms for logging/editing expenses with split allocations, tag selection, and conditional project dropdown.
-- **`frontend/src/lib/ExpenseList.svelte`**: List of the month's expenses with search & filtering, inline quick tag assignment popover, comprehensive Edit Expense modal, and inline deletion confirmations.
+- **`frontend/src/lib/ExpenseForm.svelte`**: Forms for logging/editing expenses with split allocations, tag selection, smart form memory, and conditional project/joint fields.
+- **`frontend/src/lib/ExpenseList.svelte`**: List of the month's expenses with search & filtering, configurable row density (`minimal`, `compact`, `detailed`), inline quick tag assignment popover, comprehensive Edit Expense modal, and inline deletion confirmations.
 - **`frontend/src/lib/IncomeChart.svelte`**: Monthly income visualization with base salary vs one-off breakdown.
-- **`frontend/src/lib/IncomeTab.svelte`**: Unified Income & Employment panel — monthly summary cards, employment streams list with rate/frequency badges, 1-click raise/promotion/leave adjustments, one-off income ledger, and category manager navigation.
+- **`frontend/src/lib/IncomeTab.svelte`**: Unified Income & Employment panel — monthly summary cards with period-specific salary override adjustments, employment streams list with rate/frequency badges, 1-click raise/promotion/leave adjustments, one-off income ledger, and category manager navigation.
 - **`frontend/src/lib/JointAccountTab.svelte`**: Joint account management panel — balance overview, category assignment, deposit schedules, expected costs, balance corrections, and settlement.
 - **`frontend/src/lib/Login.svelte`**: Master passphrase authentication and database backup import/export.
 - **`frontend/src/lib/PaybackVisual.svelte`**: Payback debt visualizer and settlement month locking.
-- **`frontend/src/lib/ProjectsTab.svelte`**: Target budget goals, estimated completion timelines, and expense form project selector toggle.
+- **`frontend/src/lib/ProjectsTab.svelte`**: Target budget goals with lifecycle filter (`active`, `in_progress`, `all`), estimated completion timelines, and expense form project selector toggle.
 - **`frontend/src/lib/QueryConsole.svelte`**: SQL query console with client-side output decryption.
 - **`frontend/src/lib/RealtimeChart.svelte`**: WebSocket live expense ticker chart.
 - **`frontend/src/lib/RecurringManager.svelte`**: Automated recurring expense templates.
-- **`frontend/src/lib/SettingsTab.svelte`**: Central Settings & Personalization panel — household members, feature modules (opt-in Joint Account, show projects toggle), tab navigation visibility, entry defaults with 1-click currency presets, chart & split visualization styles, mobile display preferences, and decrypted SQLite database export.
+- **`frontend/src/lib/SettingsTab.svelte`**: Central 7-domain Settings & Personalization panel — device display profiles (desktop vs mobile), 1-click workflow presets, appearance & stealth privacy shield, accessibility scaling, household members, feature modules, view depth filters, rapid logging accelerators, modular dashboard widgets, and decrypted SQLite database export.
 - **`frontend/src/lib/SplitManager.svelte`**: Percentage split allocation manager with dynamic salary ratio resets.
 - **`frontend/src/lib/TagsTab.svelte`**: Open-ended event tag manager with spending charts.
 - **`frontend/src/lib/UserManager.svelte`**: Household member configuration and color palette management.
 - **`frontend/vitest.config.js`**: Vitest test configuration with JSDOM and Svelte testing plugins.
-- **`frontend/src/test/`**: Vitest test suite with 33 test files and 268+ tests.
+- **`frontend/src/test/`**: Vitest test suite with 36 test files and 312+ tests.
 
 ---
 
@@ -439,7 +446,7 @@ Whenever developer workflows, directory layouts, database schemas, or architectu
 
 1. **MANDATORY INTEGRATION TEST EXECUTION (CRITICAL DIRECTIVE)**:
    - Financial arithmetic balance and settlement accuracy are the absolute most crucial invariants of this application.
-   - For **ANY** code modification, feature addition, schema migration, bug fix, or refactor, the LLM agent **MUST ALWAYS run the integration test suite** (`tests/test_scenarios_integration.py` and all 327 backend tests) AND the frontend test suite (288 tests).
+   - For **ANY** code modification, feature addition, schema migration, bug fix, or refactor, the LLM agent **MUST ALWAYS run the integration test suite** (`tests/test_scenarios_integration.py` and all 328 backend tests) AND the frontend test suite (312 tests).
    - Never mark a coding task as done without executing these test suites and verifying a 100% pass rate with zero regressions.
    - **Test Execution Commands**:
      - *Local CLI*:

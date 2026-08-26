@@ -156,4 +156,38 @@ html.dark {
     font-variant-numeric: tabular-nums;
     font-feature-settings: "tnum";
   }
+
+  /* ── Privacy Shield & Stealth Masks ── */
+  .privacy-masked {
+    filter: blur(6px);
+    user-select: none;
+    transition: filter 0.15s cubic-bezier(0.23, 1, 0.32, 1);
+  }
+  .privacy-masked:hover,
+  .privacy-masked:focus,
+  .privacy-masked:focus-within {
+    filter: blur(0px) !important;
+    user-select: auto;
+  }
+
+  /* ── Accessibility Text Scaling ── */
+  .text-scale-115 {
+    font-size: 108%;
+  }
+  .text-scale-130 {
+    font-size: 118%;
+  }
+
+  /* ── High Contrast Mode ── */
+  .high-contrast-mode .card {
+    border-width: 2px !important;
+    border-color: #334155 !important;
+  }
+  html.dark .high-contrast-mode .card {
+    border-color: #cbd5e1 !important;
+  }
+  .high-contrast-mode button {
+    font-weight: 700 !important;
+  }
 }
+

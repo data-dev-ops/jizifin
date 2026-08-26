@@ -18,7 +18,7 @@
   import JointAccountTab from './lib/JointAccountTab.svelte';
   import SettingsTab from './lib/SettingsTab.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories, fetchRecurring } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme } from './lib/stores.js';
+  import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
 
   let showJointPromptModal = false;
 
@@ -102,6 +102,7 @@
   let initialLoaded = false;
 
   onMount(async () => {
+    initDeviceProfiles();
     const checkMobile = () => {
       isMobile = window.innerWidth < 768;
     };
@@ -169,7 +170,7 @@
 {#if !$authSalt}
   <Login />
 {:else}
-  <div class="flex h-screen bg-slate-50 dark:bg-neutral-950 text-neutral-900 dark:text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$mobileLargeTouchTargets ? 'large-touch-targets' : ''}">
+  <div class="flex h-screen bg-slate-50 dark:bg-neutral-950 text-neutral-900 dark:text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$textScale !== '100' ? 'text-scale-' + $textScale : ''} {$highContrast ? 'high-contrast-mode' : ''}">
 
   <!-- ── Mobile overlay backdrop ──────────────────────────────────────────── -->
   {#if sidebarOpen}
@@ -269,34 +270,56 @@
   <!-- ── Main content ──────────────────────────────────────────────────────── -->
   <main class="flex-1 overflow-y-auto bg-slate-50 dark:bg-neutral-950 min-w-0">
 
-    <!-- ── Top bar (always visible, contains hamburger & quick theme toggle) ─ -->
-    <div class="sticky top-0 z-10 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm border-b border-neutral-200/80 dark:border-neutral-800/60 px-4 py-3 flex items-center gap-3">
-      <button
-        id="sidebar-toggle"
-        on:click={() => (sidebarOpen = !sidebarOpen)}
-        aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
-        class="w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-lg
-               text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800
-               transition-all duration-150 flex-none"
-      >
-        <!-- Animated hamburger / X -->
-        <span
-          class="block h-0.5 bg-current rounded-full transition-all duration-200 origin-center"
-          style="width: {sidebarOpen ? '18px' : '18px'}; transform: {sidebarOpen ? 'translateY(4px) rotate(45deg)' : 'none'}"
-        ></span>
-        <span
-          class="block h-0.5 bg-current rounded-full transition-all duration-200"
-          style="width: 14px; opacity: {sidebarOpen ? 0 : 1}"
-        ></span>
-        <span
-          class="block h-0.5 bg-current rounded-full transition-all duration-200 origin-center"
-          style="width: {sidebarOpen ? '18px' : '18px'}; transform: {sidebarOpen ? 'translateY(-4px) rotate(-45deg)' : 'none'}"
-        ></span>
-      </button>
+    <!-- ── Top bar (always visible, contains hamburger, centered time period, & quick theme toggle on right) ─ -->
+    <div class="sticky top-0 z-10 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm border-b border-neutral-200/80 dark:border-neutral-800/60 px-4 py-3 flex items-center justify-between gap-3 relative">
+      <!-- Left side: Hamburger + Active Tab Title -->
+      <div class="flex items-center gap-3 min-w-0">
+        <button
+          id="sidebar-toggle"
+          on:click={() => (sidebarOpen = !sidebarOpen)}
+          aria-label={sidebarOpen ? 'Close menu' : 'Open menu'}
+          class="w-9 h-9 flex flex-col items-center justify-center gap-1.5 rounded-lg
+                 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-100 dark:hover:bg-neutral-800
+                 transition-all duration-150 flex-none"
+        >
+          <!-- Animated hamburger / X -->
+          <span
+            class="block h-0.5 bg-current rounded-full transition-all duration-200 origin-center"
+            style="width: {sidebarOpen ? '18px' : '18px'}; transform: {sidebarOpen ? 'translateY(4px) rotate(45deg)' : 'none'}"
+          ></span>
+          <span
+            class="block h-0.5 bg-current rounded-full transition-all duration-200"
+            style="width: 14px; opacity: {sidebarOpen ? 0 : 1}"
+          ></span>
+          <span
+            class="block h-0.5 bg-current rounded-full transition-all duration-200 origin-center"
+            style="width: {sidebarOpen ? '18px' : '18px'}; transform: {sidebarOpen ? 'translateY(-4px) rotate(-45deg)' : 'none'}"
+          ></span>
+        </button>
 
-      <span class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 capitalize">{activeTab}</span>
+        <span class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 capitalize truncate">{activeTab}</span>
+      </div>
 
-      <div class="ml-auto flex items-center gap-2">
+      <!-- Center: Name of timeperiod -->
+      <div class="absolute left-1/2 -translate-x-1/2 flex items-center pointer-events-none sm:pointer-events-auto">
+        <span class="text-xs sm:text-sm font-semibold text-neutral-700 dark:text-neutral-200 tabular-nums px-3 py-1 rounded-full bg-neutral-100/80 dark:bg-neutral-900/80 border border-neutral-200/80 dark:border-neutral-800/80 shadow-xs">
+          {monthLabel}
+        </span>
+      </div>
+
+      <!-- Right side: Quick Privacy Shield + Quick theme toggle -->
+      <div class="flex items-center gap-2">
+        <button
+          id="quick-privacy-toggle"
+          type="button"
+          on:click={() => privacyShield.update((v) => !v)}
+          title="Privacy Shield: {$privacyShield ? 'Active (Balances Masked)' : 'Inactive'} (Click to toggle)"
+          class="w-8 h-8 flex items-center justify-center rounded-lg text-xs transition-colors border cursor-pointer {$privacyShield ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 border-neutral-200 dark:border-neutral-700'}"
+          aria-label="Toggle Privacy Shield"
+        >
+          {$privacyShield ? '🕶️' : '👁️'}
+        </button>
+
         <button
           id="quick-theme-toggle"
           type="button"
@@ -313,7 +336,6 @@
             💻
           {/if}
         </button>
-        <span class="text-xs text-neutral-500 tabular-nums">{monthLabel}</span>
       </div>
     </div>
 

@@ -9,7 +9,28 @@
 
   import { fly } from 'svelte/transition';
   import { createExpense } from './api.js';
-  import { splits, selectedMonth, projects, tags, settlements, users, defaultPayer, defaultCategory, defaultProject, currencySymbol, jointAccountEnabled, jointAccount, jointAccounts, activeJointAccountId, jointCategories, showProjectsInExpense } from './stores.js';
+  import {
+    splits,
+    selectedMonth,
+    projects,
+    tags,
+    settlements,
+    users,
+    defaultPayer,
+    defaultCategory,
+    defaultProject,
+    currencySymbol,
+    jointAccountEnabled,
+    jointAccount,
+    jointAccounts,
+    activeJointAccountId,
+    jointCategories,
+    showProjectsInExpense,
+    formMemoryMode,
+    lastLoggedPayer,
+    lastLoggedCategory,
+    enabledFormFields
+  } from './stores.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
   $: activeTags  = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
@@ -75,8 +96,8 @@
   let expenseDate    = today();
   let paidByJoint    = $defaultPayer === 'Joint Account';
   let jointAccountId = null;
-  let whoPaid        = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
-  let category       = $defaultCategory;
+  let whoPaid        = $formMemoryMode === 'remember_last' && $lastLoggedPayer ? $lastLoggedPayer : ($defaultPayer === 'Joint Account' ? '' : $defaultPayer);
+  let category       = $formMemoryMode === 'remember_last' && $lastLoggedCategory ? $lastLoggedCategory : $defaultCategory;
   let projectId      = $defaultProject ? Number($defaultProject) : null;
   let tagId          = null;     // optional: link expense to a tag
 
@@ -109,8 +130,16 @@
     expenseDate    = today();
     paidByJoint    = $defaultPayer === 'Joint Account';
     jointAccountId = $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
-    whoPaid        = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
-    category       = $defaultCategory;
+    if ($formMemoryMode === 'remember_last') {
+      whoPaid  = $lastLoggedPayer || ($defaultPayer === 'Joint Account' ? '' : $defaultPayer);
+      category = $lastLoggedCategory || $defaultCategory;
+    } else if ($formMemoryMode === 'empty') {
+      whoPaid  = '';
+      category = '';
+    } else {
+      whoPaid  = $defaultPayer === 'Joint Account' ? '' : $defaultPayer;
+      category = $defaultCategory;
+    }
     projectId      = $defaultProject ? Number($defaultProject) : null;
     tagId          = null;
     errorMsg       = null;
@@ -138,32 +167,24 @@
 
     // 1. Amount validation
     if (costEuros === null || costEuros === undefined || costEuros === '') {
-      errorMsg = 'Amount is required.';
+      errorMsg = 'Cost is required.';
       return;
     }
-    const parsed = parseFloat(costEuros);
-    if (isNaN(parsed) || parsed <= 0) {
-      errorMsg = 'Amount must be a valid positive number.';
-      return;
-    }
-    const costCents = Math.round(parsed * 100);
-    if (costCents <= 0) {
-      errorMsg = `Amount must be at least ${$currencySymbol}0.01.`;
+    const costCents = Math.round(parseFloat(costEuros) * 100);
+    if (isNaN(costCents) || costCents <= 0) {
+      errorMsg = 'Cost must be greater than 0.';
       return;
     }
 
     // 2. Date validation
-    if (!expenseDate) {
-      errorMsg = 'Date is required.';
+    if (!expenseDate || !expenseDate.match(/^\d{4}-\d{2}-\d{2}$/)) {
+      errorMsg = 'Valid date required (YYYY-MM-DD).';
       return;
     }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(expenseDate)) {
-      errorMsg = 'Date must be in YYYY-MM-DD format.';
-      return;
-    }
-    const parsedDate = new Date(expenseDate);
-    if (isNaN(parsedDate.getTime())) {
-      errorMsg = 'Please enter a valid date.';
+
+    // ── Lock validation
+    if (isMonthLocked) {
+      errorMsg = `Month ${expenseDate.slice(0, 7)} is settled and locked. Adding expenses is disabled.`;
       return;
     }
 
@@ -202,6 +223,9 @@
         }));
       }
       await createExpense(payload, $selectedMonth);
+      if (whoPaid && !paidByJoint) lastLoggedPayer.set(whoPaid);
+      if (finalCategory) lastLoggedCategory.set(finalCategory);
+
       successName = name.trim();
       submitSuccess = true;
       reset();
@@ -268,7 +292,7 @@
   </div>
 
   <!-- 4. Project (above categories, shown only if projects exist and feature enabled) -->
-  {#if $showProjectsInExpense && $projects.length > 0}
+  {#if $enabledFormFields.projects && $showProjectsInExpense && $projects.length > 0}
     <div>
       <label for="expense-project" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
         Project <span class="text-neutral-500 dark:text-neutral-600">(optional)</span>
@@ -306,7 +330,7 @@
   {/if}
 
   <!-- 6. Tag (dropdown) — only visible when active tags exist -->
-  {#if activeTags.length > 0}
+  {#if $enabledFormFields.tags && activeTags.length > 0}
     <div>
       <label for="expense-tag" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
         Tag <span class="text-neutral-500 dark:text-neutral-600">(optional)</span>
@@ -359,7 +383,7 @@
         </label>
       {/each}
 
-      {#if $jointAccountEnabled || $jointAccount}
+      {#if $enabledFormFields.joint && ($jointAccountEnabled || $jointAccount)}
         <!-- Paid by Joint Account option -->
         <label class="flex items-center gap-2.5 text-sm text-indigo-700 dark:text-indigo-300 cursor-pointer select-none hover:opacity-90 transition-colors group border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 rounded-lg">
           <div class="relative flex items-center justify-center">
@@ -421,16 +445,17 @@
   {/if}
 
   <!-- Custom Split Toggle (N-user dynamic inputs) -->
-  <div>
-    <label class="flex items-center gap-2.5 cursor-pointer select-none group">
-      <div class="relative">
-        <input type="checkbox" bind:checked={customSplit} class="sr-only" id="custom-split-toggle" />
-        <div class="w-10 h-5 rounded-full transition-colors duration-200 {customSplit ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"></div>
-        <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 {customSplit ? 'translate-x-5' : ''}"></div>
-      </div>
-      <span class="text-xs font-medium text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors">Custom Split</span>
-    </label>
-    {#if customSplit}
+  {#if $enabledFormFields.splitOverride && !paidByJoint && activeUsers.length >= 2}
+    <div>
+      <label class="flex items-center gap-2.5 cursor-pointer select-none group">
+        <div class="relative">
+          <input type="checkbox" bind:checked={customSplit} class="sr-only" id="custom-split-toggle" />
+          <div class="w-10 h-5 rounded-full transition-colors duration-200 {customSplit ? 'bg-indigo-600' : 'bg-neutral-300 dark:bg-neutral-700'}"></div>
+          <div class="absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform duration-200 {customSplit ? 'translate-x-5' : ''}"></div>
+        </div>
+        <span class="text-xs font-medium text-neutral-600 dark:text-neutral-400 group-hover:text-neutral-900 dark:group-hover:text-neutral-200 transition-colors">Custom Split</span>
+      </label>
+      {#if customSplit}
       <div class="mt-3 p-3 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-indigo-800/40 rounded-xl space-y-2">
         {#if activeUsers.length === 2 && useSlider}
           <!-- Slider split view -->
@@ -527,6 +552,7 @@
       </div>
     {/if}
   </div>
+  {/if}
 
   <!-- Lock warning -->
   {#if isMonthLocked}

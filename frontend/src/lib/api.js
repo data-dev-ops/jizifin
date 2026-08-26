@@ -440,7 +440,8 @@ export async function fetchIncomeByPerson(month, users) {
   const decrypted = await Promise.all(
     data.map(async (i) => ({
       ...i,
-      who: await dec(i.who)
+      who: await dec(i.who),
+      override_note: i.override_note ? await dec(i.override_note) : null,
     }))
   );
 
@@ -448,10 +449,11 @@ export async function fetchIncomeByPerson(month, users) {
   return decrypted;
 }
 
-export async function fetchLatestSalaries() {
+export async function fetchLatestSalaries(month) {
   const encSalary = await enc('SALARY');
-  const qs = `?salary_cat=${encodeURIComponent(encSalary)}`;
-  const data = await request(`/income/latest-salary${qs}`);
+  const params = new URLSearchParams({ salary_cat: encSalary });
+  if (month) params.append('month', month);
+  const data = await request(`/income/latest-salary?${params.toString()}`);
   return Promise.all(
     data.map(async (s) => ({
       ...s,
@@ -459,6 +461,52 @@ export async function fetchLatestSalaries() {
       name: await dec(s.name)
     }))
   );
+}
+
+export async function fetchSalaryOverrides(params = {}) {
+  const query = new URLSearchParams();
+  if (params.month) query.set('month', params.month);
+  if (params.user_name) query.set('user_name', await enc(params.user_name));
+  const qs = query.toString() ? `?${query.toString()}` : '';
+  const data = await request(`/income/salary-overrides${qs}`);
+  return Promise.all(
+    data.map(async (o) => ({
+      ...o,
+      user_name: await dec(o.user_name),
+      note: o.note ? await dec(o.note) : null,
+    }))
+  );
+}
+
+export async function saveSalaryOverride(payload) {
+  const encPayload = {
+    ...payload,
+    user_name: await enc(payload.user_name),
+    note: payload.note ? await enc(payload.note) : null,
+  };
+  const data = await request('/income/salary-overrides', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encPayload),
+  });
+  if (payload.month) await fetchIncomeByPerson(payload.month);
+  return {
+    ...data,
+    user_name: await dec(data.user_name),
+    note: data.note ? await dec(data.note) : null,
+  };
+}
+
+export async function deleteSalaryOverride(userName, month) {
+  const encUser = await enc(userName);
+  const res = await authFetch(`/income/salary-overrides/${encodeURIComponent(encUser)}/${encodeURIComponent(month)}`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`API DELETE /income/salary-overrides → ${res.status}: ${body}`);
+  }
+  if (month) await fetchIncomeByPerson(month);
 }
 
 export async function createIncome(entries, month) {

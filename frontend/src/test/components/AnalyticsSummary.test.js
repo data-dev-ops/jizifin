@@ -1,11 +1,12 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/svelte';
 import AnalyticsSummary from '../../lib/AnalyticsSummary.svelte';
-import { analytics, users, currencySymbol } from '../../lib/stores.js';
+import { analytics, users, currencySymbol, currencyPrecisionMode } from '../../lib/stores.js';
 
 describe('AnalyticsSummary.svelte — Monthly Summary & Category Breakdown', () => {
   beforeEach(() => {
     currencySymbol.set('€');
+    currencyPrecisionMode.set('always_exact');
     users.set([
       { name: 'John', color: '#6366f1' },
       { name: 'Jane', color: '#ec4899' },

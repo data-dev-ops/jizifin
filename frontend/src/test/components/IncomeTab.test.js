@@ -111,4 +111,70 @@ describe("IncomeTab.svelte — Income Ledger & Category Management", () => {
 
     expect(screen.getByText("Add Employment Stream")).toBeInTheDocument();
   });
+
+  it("allows opening adjust salary modal, saving an override for the period, and shows adjusted badge", async () => {
+    const saveSpy = vi.spyOn(api, "saveSalaryOverride").mockResolvedValue({
+      user_name: "John",
+      month: "2026-07",
+      amount_cents: 380000,
+      note: "10d sick leave",
+    });
+    vi.spyOn(api, "fetchIncomeByPerson").mockResolvedValue([]);
+
+    render(IncomeTab);
+
+    const adjustBtn = document.getElementById("btn-adjust-salary-John");
+    expect(adjustBtn).toBeInTheDocument();
+    await fireEvent.click(adjustBtn);
+
+    expect(screen.getByText("Adjust Salary for 2026-07")).toBeInTheDocument();
+    expect(screen.getByText("Contract Base Rate:")).toBeInTheDocument();
+
+    const amountInput = document.getElementById("override-amount");
+    await fireEvent.input(amountInput, { target: { value: "3800.00" } });
+
+    const noteInput = document.getElementById("override-note");
+    await fireEvent.input(noteInput, { target: { value: "10d sick leave" } });
+
+    const saveOverrideBtn = document.getElementById("btn-save-salary-override");
+    await fireEvent.click(saveOverrideBtn);
+
+    expect(saveSpy).toHaveBeenCalledWith({
+      user_name: "John",
+      month: "2026-07",
+      amount_cents: 380000,
+      note: "10d sick leave",
+    });
+  });
+
+  it("allows resetting salary override to contract base", async () => {
+    // Set incomeAnalytics with an existing override
+    const { incomeAnalytics } = await import("../../lib/stores.js");
+    incomeAnalytics.set([
+      {
+        who: "John",
+        base_salary_cents: 380000,
+        total_cents: 380000,
+        has_override: true,
+        override_note: "10d sick leave",
+        contract_salary_cents: 450000,
+      }
+    ]);
+
+    const deleteSpy = vi.spyOn(api, "deleteSalaryOverride").mockResolvedValue();
+    vi.spyOn(api, "fetchIncomeByPerson").mockResolvedValue([]);
+
+    render(IncomeTab);
+
+    expect(screen.getByText("⚡ Adjusted")).toBeInTheDocument();
+
+    const editOverrideBtn = document.getElementById("btn-adjust-salary-John");
+    await fireEvent.click(editOverrideBtn);
+
+    const resetBtn = document.getElementById("btn-reset-salary-override");
+    expect(resetBtn).toBeInTheDocument();
+    await fireEvent.click(resetBtn);
+
+    expect(deleteSpy).toHaveBeenCalledWith("John", "2026-07");
+  });
 });

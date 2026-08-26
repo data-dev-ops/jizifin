@@ -203,6 +203,21 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         """
     )
 
+    # ── salary_overrides ────────────────────────────────────────────────
+    # Month-specific salary overrides (due to sickness, unpaid leave, overtime, etc.).
+    # user_name, note are encrypted.
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS salary_overrides (
+            user_name    TEXT    NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+            month        TEXT    NOT NULL CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'),
+            amount_cents INTEGER NOT NULL CHECK(amount_cents >= 0),
+            note         TEXT    CHECK(note IS NULL OR length(note) <= 512),
+            PRIMARY KEY (user_name, month)
+        )
+        """
+    )
+
     # ── recurring_expenses ──────────────────────────────────────────────
     await conn.execute(
         """

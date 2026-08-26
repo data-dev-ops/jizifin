@@ -11,7 +11,7 @@
    * - Dates converted from YYYY-MM-DD (storage) → DD/MM/YYYY (display).
    */
 
-  import { expenses, selectedMonth, projects, tags, settlements, users, splits, currencySymbol, jointCategories, jointAccountEnabled, jointAccounts, activeJointAccountId, showProjectsInExpense } from './stores.js';
+  import { expenses, selectedMonth, projects, tags, settlements, users, splits, currencySymbol, jointCategories, jointAccountEnabled, jointAccounts, activeJointAccountId, showProjectsInExpense, privacyShield, expenseRowDensity } from './stores.js';
   import { deleteExpense, updateExpense } from './api.js';
 
   $: activeUsers = $users.filter((u) => u.is_active);
@@ -475,27 +475,29 @@
                   {/if}
                 </div>
 
-                {#if expense.is_joint}
-                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                               bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60 font-semibold"
-                        title="Paid by Joint Account">
-                    🏦 Joint
-                  </span>
-                  {#if !jointCategorySet.has(expense.category)}
+                {#if $expenseRowDensity !== 'minimal'}
+                  {#if expense.is_joint}
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                                 bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/60 font-semibold"
-                          title="Category is not in the list of coupled joint account categories">
-                      ⚠️ Not Coupled
+                                 bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60 font-semibold"
+                          title="Paid by Joint Account">
+                      🏦 Joint
+                    </span>
+                    {#if !jointCategorySet.has(expense.category)}
+                      <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
+                                   bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/60 font-semibold"
+                            title="Category is not in the list of coupled joint account categories">
+                        ⚠️ Not Coupled
+                      </span>
+                    {/if}
+                  {/if}
+
+                  {#if expense.overrides && expense.overrides.length > 0}
+                    <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
+                                 bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
+                          title="Custom split: {expense.overrides.map(o => o.user_name + ' ' + o.pct + '%').join(' / ')}">
+                      ✶ custom split
                     </span>
                   {/if}
-                {/if}
-
-                {#if expense.overrides && expense.overrides.length > 0}
-                  <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
-                               bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
-                        title="Custom split: {expense.overrides.map(o => o.user_name + ' ' + o.pct + '%').join(' / ')}">
-                    ✶ custom split
-                  </span>
                 {/if}
               </div>
             </td>
@@ -512,7 +514,7 @@
               <span class="text-xs font-semibold tabular-nums" style="color: {userColor(expense.who_paid)}">
                 {expense.who_paid}
               </span>
-              {#if expense.is_joint}
+              {#if expense.is_joint && $expenseRowDensity !== 'minimal'}
                 <span class="block text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
                   🏦 {jointAccountMap[expense.joint_account_id]?.name || 'Joint'}
                 </span>
@@ -521,7 +523,7 @@
 
             <!-- Amount -->
             <td class="py-3 pr-4 text-right font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-              {formatAmount(expense.cost_cents)}
+              <span class:privacy-masked={$privacyShield}>{formatAmount(expense.cost_cents)}</span>
             </td>
 
             <!-- Actions -->
