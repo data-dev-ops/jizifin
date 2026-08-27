@@ -458,6 +458,7 @@ PUBLIC_PATHS = {
     "/auth/login",
     "/auth/import",
     "/auth/export",
+    "/auth/reset",
     "/auth/status",
 }
 
@@ -627,6 +628,32 @@ async def logout(authorization: Annotated[str | None, Header()] = None) -> dict:
         token = authorization[7:].strip()
         _ACTIVE_SESSIONS.pop(token, None)
     return {"status": "ok"}
+
+
+@app.post("/auth/reset", tags=["auth"])
+async def reset_database(payload: AuthLoginRequest, db: DbDep) -> dict:
+    """Verify master password proof, wipe all database tables, and reset instance to first boot."""
+    async with db.execute("SELECT value FROM app_config WHERE key = 'magic_word'") as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=400, detail="Database not initialized")
+    if payload.proof != row["value"]:
+        raise HTTPException(status_code=401, detail="Incorrect master password")
+
+    tables = [
+        "salary_overrides", "jobs", "joint_account_corrections", "joint_account_expected_costs",
+        "joint_account_deposits", "joint_account_categories", "joint_account", "split_allocations",
+        "settlements", "budgets", "recurring_expenses", "income", "expense_overrides", "expenses",
+        "tags", "projects", "income_categories", "splits", "users", "app_config"
+    ]
+    for table in tables:
+        try:
+            await db.execute(f"DELETE FROM {table}")
+        except Exception:
+            pass
+    await db.commit()
+    _ACTIVE_SESSIONS.clear()
+    return {"status": "ok", "message": "Database reset successfully"}
 
 
 @app.post("/auth/export", tags=["auth"])

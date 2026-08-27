@@ -944,6 +944,19 @@ export async function exportDatabase(saltText) {
   URL.revokeObjectURL(url);
 }
 
+export async function resetDatabase(proof) {
+  const res = await authFetch('/auth/reset', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ proof })
+  });
+  if (!res.ok) {
+    const errText = await res.text();
+    throw new Error(`Reset failed: ${errText}`);
+  }
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Recurring expenses
 // ---------------------------------------------------------------------------

@@ -209,4 +209,29 @@ describe('SettingsTab.svelte — Central Settings & Preferences', () => {
 
     expect(screen.getByText(/Reset desktop profile to standard defaults/i)).toBeInTheDocument();
   });
+
+  it('handles start from scratch modal opening and confirmation flow', async () => {
+    vi.spyOn(api, 'resetDatabase').mockResolvedValue({ status: 'ok' });
+
+    render(SettingsTab, { props: { tabs: dummyTabs } });
+
+    const scratchBtn = document.getElementById('start-from-scratch-btn');
+    expect(scratchBtn).toBeInTheDocument();
+
+    await fireEvent.click(scratchBtn);
+
+    expect(screen.getByText(/Confirm Reset to Scratch/i)).toBeInTheDocument();
+
+    const input = document.getElementById('reset-confirm-salt');
+    expect(input).toBeInTheDocument();
+
+    await fireEvent.input(input, { target: { value: 'S&gA02$e' } });
+
+    const confirmBtn = document.getElementById('confirm-reset-btn');
+    await fireEvent.click(confirmBtn);
+
+    await vi.waitFor(() => {
+      expect(api.resetDatabase).toHaveBeenCalled();
+    });
+  });
 });

@@ -17,6 +17,11 @@
   import Login from './lib/Login.svelte';
   import JointAccountTab from './lib/JointAccountTab.svelte';
   import SettingsTab from './lib/SettingsTab.svelte';
+  import DocsHub from './lib/docs/DocsHub.svelte';
+  import GettingStartedDocs from './lib/docs/GettingStartedDocs.svelte';
+  import FrontendDocs from './lib/docs/FrontendDocs.svelte';
+  import BackendDocs from './lib/docs/BackendDocs.svelte';
+  import SystemDocs from './lib/docs/SystemDocs.svelte';
   import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories, fetchRecurring } from './lib/api.js';
   import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
 
@@ -25,6 +30,39 @@
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
   let error = null;
+
+  function getRouteFromLocation() {
+    if (typeof window === 'undefined') return '/';
+    const path = window.location.pathname;
+    if (path === '/docs' || path === '/docs/') {
+      return '/docs';
+    } else if (path.startsWith('/docs/getting-started') || path.startsWith('/docs/how-to')) {
+      return '/docs/getting-started';
+    } else if (path.startsWith('/docs/frontend')) {
+      return '/docs/frontend';
+    } else if (path.startsWith('/docs/backend')) {
+      return '/docs/backend';
+    } else if (path.startsWith('/docs/architecture') || path.startsWith('/docs/api')) {
+      return '/docs/architecture';
+    } else if (window.location.hash.startsWith('#/docs') || window.location.hash.startsWith('#docs')) {
+      const hashPath = window.location.hash.replace(/^#/, '');
+      return hashPath.startsWith('/') ? hashPath : `/${hashPath}`;
+    }
+    return '/';
+  }
+
+  let currentRoute = getRouteFromLocation();
+
+  function updateRouteFromLocation() {
+    currentRoute = getRouteFromLocation();
+  }
+
+  function navigateTo(path) {
+    if (typeof window !== 'undefined') {
+      window.history.pushState({}, '', path);
+      updateRouteFromLocation();
+    }
+  }
 
   // Sidebar collapsed by default (especially for mobile)
   let sidebarOpen = false;
@@ -103,15 +141,18 @@
 
   onMount(async () => {
     initDeviceProfiles();
+    updateRouteFromLocation();
     const checkMobile = () => {
       isMobile = window.innerWidth < 768;
     };
     checkMobile();
     sidebarOpen = !isMobile;
     window.addEventListener('resize', checkMobile);
+    window.addEventListener('popstate', updateRouteFromLocation);
 
     return () => {
       window.removeEventListener('resize', checkMobile);
+      window.removeEventListener('popstate', updateRouteFromLocation);
     };
   });
 
@@ -167,7 +208,17 @@
   }
 </script>
 
-{#if !$authSalt}
+{#if currentRoute === '/docs'}
+  <DocsHub on:navigate={(e) => navigateTo(e.detail.path)} />
+{:else if currentRoute === '/docs/getting-started'}
+  <GettingStartedDocs on:navigate={(e) => navigateTo(e.detail.path)} />
+{:else if currentRoute === '/docs/frontend'}
+  <FrontendDocs on:navigate={(e) => navigateTo(e.detail.path)} />
+{:else if currentRoute === '/docs/backend'}
+  <BackendDocs on:navigate={(e) => navigateTo(e.detail.path)} />
+{:else if currentRoute === '/docs/architecture'}
+  <SystemDocs on:navigate={(e) => navigateTo(e.detail.path)} />
+{:else if !$authSalt}
   <Login />
 {:else}
   <div class="flex h-screen bg-slate-50 dark:bg-neutral-950 text-neutral-900 dark:text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$textScale !== '100' ? 'text-scale-' + $textScale : ''} {$highContrast ? 'high-contrast-mode' : ''}">
@@ -241,6 +292,17 @@
           <span class="font-medium">{tab.label}</span>
         </button>
       {/each}
+
+      <button
+        id="nav-docs"
+        on:click={() => navigateTo('/docs')}
+        class="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors mt-2"
+      >
+        <svg class="w-4 h-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.042A8.967 8.967 0 006 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 016 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 016-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0018 18a8.967 8.967 0 00-6 2.292m0-14.25v14.25" />
+        </svg>
+        <span class="font-medium">Documentation</span>
+      </button>
     </nav>
 
     <!-- Footer: dynamic active-user avatars -->

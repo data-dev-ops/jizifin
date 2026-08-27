@@ -742,7 +742,7 @@
         </div>
 
         <!-- Category breakdown -->
-        {#if dash && dash.categories.length > 0}
+        {#if dash && (dash.categories ?? []).length > 0}
           <div class="card p-5 sm:p-6 space-y-4">
             <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Category Spending Progression — {dash.month}</h3>
             <div class="space-y-3">

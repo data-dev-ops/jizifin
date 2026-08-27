@@ -152,7 +152,7 @@
       </div>
     </div>
 
-    {#if $paybacks.rows.length === 0}
+    {#if ($paybacks?.rows ?? []).length === 0}
       <div class="empty-state-box">
         <div class="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 flex items-center justify-center mb-2">
           <svg class="w-6 h-6 text-neutral-400 dark:text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -233,9 +233,9 @@
               <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
                 {#each catUsers as userName}
                   {@const color = userColor(userName)}
-                  {@const paid  = row.per_user_paid[userName] ?? 0}
-                  {@const net   = row.net_per_user[userName]  ?? 0}
-                  {@const pct   = row.per_user_share_pct[userName] ?? 0}
+                  {@const paid  = row.per_user_paid?.[userName] ?? 0}
+                  {@const net   = row.net_per_user?.[userName]  ?? 0}
+                  {@const pct   = row.per_user_share_pct?.[userName] ?? 0}
 
                   <div class="card-sub p-3">
                     <div class="flex items-center gap-2 mb-1.5">

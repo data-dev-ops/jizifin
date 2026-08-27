@@ -83,6 +83,30 @@ async def test_data_prg(client: AsyncClient, passphrase):
     exp_resp = await client.post("/auth/export", json={"value": passphrase})
     assert exp_resp.status_code in (200, 400, 401)
 
+
+@pytest.mark.asyncio
+async def test_auth_reset_database(client: AsyncClient):
+    """[AuthReset] Verify /auth/reset clears database and resets to first boot."""
+    key = derive_key("test-salt")
+    magic_enc = encrypt_text("FinanceTrackerAuth", key)
+    init_res = await client.post("/auth/salt", json={"value": magic_enc})
+    assert init_res.status_code == 200
+
+    # Wrong password fails
+    wrong_key = derive_key("wrong-salt")
+    wrong_proof = encrypt_text("FinanceTrackerAuth", wrong_key)
+    res_wrong = await client.post("/auth/reset", json={"proof": wrong_proof})
+    assert res_wrong.status_code == 401
+
+    # Correct password succeeds
+    res_ok = await client.post("/auth/reset", json={"proof": magic_enc})
+    assert res_ok.status_code == 200
+    assert res_ok.json()["status"] == "ok"
+
+    # Verify uninitialized state
+    uninit = await client.get("/auth/salt")
+    assert uninit.status_code == 404
+
 @pytest.mark.asyncio
 async def test_concurrent_api_mutations(client: AsyncClient):
     """[Concurrency] Verify parallel POST requests (expenses, joint account corrections) under lock contention maintain ACID integrity."""

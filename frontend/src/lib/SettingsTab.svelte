@@ -7,7 +7,8 @@
    */
 
   import UserManager from './UserManager.svelte';
-  import { exportDatabase } from './api.js';
+  import { exportDatabase, resetDatabase } from './api.js';
+  import { deriveKey, encryptText } from './crypto.js';
   import {
     theme,
     users,
@@ -28,6 +29,8 @@
     mobileCompactView,
     mobileLargeTouchTargets,
     authSalt,
+    cryptoKey,
+    sessionToken,
     activeDeviceMode,
     detectedDeviceType,
     loadDeviceProfile,
@@ -52,6 +55,10 @@
 
   let exporting = false;
   let exportError = '';
+  let showResetModal = false;
+  let resetConfirmSalt = '';
+  let resetError = '';
+  let resetting = false;
   let tabToggleWarning = '';
   let profileFeedback = '';
   let profileTimer;
@@ -115,6 +122,31 @@
       exportError = e.message || 'Export failed.';
     } finally {
       exporting = false;
+    }
+  }
+
+  async function handleResetConfirm() {
+    if (!resetConfirmSalt.trim()) {
+      resetError = 'Master password is required.';
+      return;
+    }
+    resetting = true;
+    resetError = '';
+    try {
+      const key = await deriveKey(resetConfirmSalt);
+      const proof = await encryptText("FinanceTrackerAuth", key);
+      await resetDatabase(proof);
+      authSalt.set('');
+      cryptoKey.set(null);
+      sessionToken.set('');
+      showResetModal = false;
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      }
+    } catch (e) {
+      resetError = e.message || 'Incorrect master password or reset failed.';
+    } finally {
+      resetting = false;
     }
   }
 
@@ -1089,4 +1121,144 @@
       </button>
     </div>
   </div>
+
+  <!-- ── 8. Documentation ────────────────────────────────────────────────── -->
+  <div class="card space-y-5">
+    <div class="border-b border-neutral-200 dark:border-neutral-800 pb-4">
+      <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+        <span>Documentation</span>
+      </h2>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Frontend, backend, and security architecture guides.</p>
+    </div>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+      <a
+        id="settings-link-frontend-docs"
+        href="/docs/frontend"
+        on:click|preventDefault={() => {
+          if (typeof window !== 'undefined') {
+            window.history.pushState({}, '', '/docs/frontend');
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }
+        }}
+        class="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20 hover:bg-indigo-100/60 dark:hover:bg-indigo-900/30 transition-colors flex items-center justify-between group cursor-pointer"
+      >
+        <div>
+          <p class="text-xs font-bold text-indigo-900 dark:text-indigo-200">Frontend Technical Docs</p>
+          <p class="text-[11px] text-indigo-700 dark:text-indigo-400 mt-0.5">Svelte, WebCrypto, Stores & Vitest</p>
+        </div>
+        <span class="text-xs font-semibold text-indigo-600 dark:text-indigo-400 group-hover:translate-x-0.5 transition-transform">→</span>
+      </a>
+
+      <a
+        id="settings-link-docs-hub"
+        href="/docs"
+        on:click|preventDefault={() => {
+          if (typeof window !== 'undefined') {
+            window.history.pushState({}, '', '/docs');
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }
+        }}
+        class="p-3.5 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 hover:bg-neutral-50 dark:hover:bg-neutral-800/80 transition-colors flex items-center justify-between group cursor-pointer"
+      >
+        <div>
+          <p class="text-xs font-bold text-neutral-900 dark:text-white">Documentation Hub</p>
+          <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">Frontend, Backend & Architecture</p>
+        </div>
+        <span class="text-xs font-semibold text-neutral-500 group-hover:translate-x-0.5 transition-transform">→</span>
+      </a>
+    </div>
+  </div>
+
+  <!-- ── 9. Start from Scratch (Danger Zone) ───────────────────────────────── -->
+  <div class="card space-y-5 border-2 border-rose-300/80 dark:border-rose-900/60 bg-rose-50/20 dark:bg-rose-950/10">
+    <div class="border-b border-rose-200 dark:border-rose-900/40 pb-4">
+      <h2 class="text-sm font-bold text-rose-900 dark:text-rose-300 flex items-center gap-2">
+        <span>Start from Scratch</span>
+      </h2>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Permanently erase all household ledger data, categories, users, and reset the instance to initial setup.</p>
+    </div>
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Reset Application Database</p>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">This action is irreversible. You will be prompted to re-enter your current master passphrase to confirm.</p>
+      </div>
+      <button
+        id="start-from-scratch-btn"
+        on:click={() => {
+          resetConfirmSalt = '';
+          resetError = '';
+          showResetModal = true;
+        }}
+        class="w-full sm:w-auto px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm whitespace-nowrap"
+      >
+        Start from Scratch
+      </button>
+    </div>
+  </div>
 </div>
+
+<!-- ── Reset Confirmation Modal ────────────────────────────────────────────── -->
+{#if showResetModal}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+    <div class="card max-w-md w-full shadow-2xl space-y-5 border-2 border-rose-300 dark:border-rose-900 bg-white dark:bg-neutral-900">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/30 flex items-center justify-center text-rose-600 dark:text-rose-400 text-lg flex-none font-bold">
+          ⚠️
+        </div>
+        <div>
+          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Confirm Reset to Scratch</h3>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Permanent, irreversible data deletion</p>
+        </div>
+      </div>
+
+      <p class="text-xs text-neutral-600 dark:text-neutral-300 leading-relaxed">
+        This will permanently delete all expenses, users, categories, budgets, and settings. Enter your current master passphrase to confirm.
+      </p>
+
+      <form on:submit|preventDefault={handleResetConfirm} class="space-y-4">
+        <div>
+          <label for="reset-confirm-salt" class="block text-xs font-semibold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 mb-1.5">
+            Current Master Password
+          </label>
+          <input
+            id="reset-confirm-salt"
+            type="password"
+            bind:value={resetConfirmSalt}
+            placeholder="Type current master passphrase..."
+            class="input-field py-2 text-sm"
+            disabled={resetting}
+            required
+          />
+        </div>
+
+        {#if resetError}
+          <div class="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/20 text-xs text-rose-600 dark:text-rose-400">
+            {resetError}
+          </div>
+        {/if}
+
+        <div class="flex flex-col sm:flex-row gap-2.5 pt-2">
+          <button
+            id="cancel-reset-btn"
+            type="button"
+            on:click={() => (showResetModal = false)}
+            disabled={resetting}
+            class="btn-secondary flex-1 text-center"
+          >
+            Cancel
+          </button>
+          <button
+            id="confirm-reset-btn"
+            type="submit"
+            disabled={resetting}
+            class="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white text-xs font-semibold rounded-xl transition-colors shadow-sm flex-1 text-center disabled:opacity-50"
+          >
+            {resetting ? 'Resetting…' : 'Confirm & Reset Database'}
+          </button>
+        </div>
+      </form>
+    </div>
+  </div>
+{/if}
