@@ -184,19 +184,24 @@
   }
 </script>
 
-<div class="p-4 sm:p-6 md:p-8 max-w-4xl mx-auto space-y-8 animate-fadeIn">
+<div class="space-y-6 animate-fadeIn">
   <!-- Header -->
-  <header>
-    <h1 class="page-title">Settings</h1>
-    <p class="page-subtitle">Configure personalized display presets, privacy shields, view filters, rapid logging accelerators, and device display profiles.</p>
+  <header class="page-header">
+    <div>
+      <h1 class="page-title flex items-center gap-2.5">
+        <span>⚙️</span> Household & Display Settings
+      </h1>
+      <p class="page-subtitle">Configure personalized display presets, privacy shields, view filters, rapid logging accelerators, and device display profiles.</p>
+    </div>
   </header>
 
   <!-- ── 0. Device Display Profiles & Workflow Presets ───────────────────────── -->
-  <div class="card space-y-5 border-2 border-indigo-200/80 dark:border-indigo-900/50 bg-gradient-to-b from-indigo-50/30 to-transparent dark:from-indigo-950/20 dark:to-transparent">
+  <div class="card space-y-5 border-indigo-200/80 dark:border-indigo-900/50 bg-gradient-to-b from-indigo-50/30 to-transparent dark:from-indigo-950/20 dark:to-transparent">
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
       <div>
         <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-          <span>💻 📱 Device Display Profiles & Workflow Presets</span>
+          <span>💻 📱</span>
+          <span>Device Display Profiles & Workflow Presets</span>
         </h2>
         <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
           Customize separate experiences for desktop and mobile devices, or apply functional workflow presets.

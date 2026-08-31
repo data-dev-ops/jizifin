@@ -266,16 +266,32 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         """
     )
 
+    # ── split_agreements (SCD2 Parent for Category Split Rules & Overrides) ──
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS split_agreements (
+            id         INTEGER PRIMARY KEY AUTOINCREMENT,
+            category   TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+            start_date TEXT NOT NULL CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            end_date   TEXT CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+            is_active  INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+            note       TEXT CHECK(note IS NULL OR length(note) <= 512),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )
+        """
+    )
+
     # ── split_allocations ───────────────────────────────────────────────
-    # Per-user percentage share per category. Allocations for a category
+    # Per-user percentage share per category agreement. Allocations for an agreement
     # must sum to 100.0 — enforced at the API layer.
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS split_allocations (
-            category  TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
-            user_name TEXT NOT NULL REFERENCES users(name)       ON UPDATE CASCADE ON DELETE CASCADE,
-            pct       REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0),
-            PRIMARY KEY (category, user_name)
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            agreement_id INTEGER REFERENCES split_agreements(id) ON DELETE CASCADE,
+            category     TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+            user_name    TEXT NOT NULL REFERENCES users(name)       ON UPDATE CASCADE ON DELETE CASCADE,
+            pct          REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0)
         )
         """
     )
@@ -634,6 +650,91 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     except Exception:
         pass
 
+    # Migrate split_allocations to include agreement_id & migrate to split_agreements if needed
+    try:
+        async with conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='split_agreements'") as cur:
+            has_agreements = await cur.fetchone()
+        if not has_agreements:
+            await conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS split_agreements (
+                    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                    category   TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+                    start_date TEXT NOT NULL CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                    end_date   TEXT CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+                    is_active  INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+                    note       TEXT CHECK(note IS NULL OR length(note) <= 512),
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                )
+                """
+            )
+
+        async with conn.execute("PRAGMA table_info(split_allocations)") as cur:
+            cols = await cur.fetchall()
+            col_names = [c["name"] for c in cols]
+
+        if "agreement_id" not in col_names and len(cols) > 0:
+            async with conn.execute("SELECT DISTINCT category FROM split_allocations") as cur:
+                old_cats = [r["category"] for r in await cur.fetchall()]
+
+            async with conn.execute("SELECT category FROM splits") as cur:
+                all_splits = [r["category"] for r in await cur.fetchall()]
+
+            cat_to_agreement_id = {}
+            for cat in set(old_cats) | set(all_splits):
+                async with conn.execute("SELECT id FROM split_agreements WHERE category = ? ORDER BY id LIMIT 1", (cat,)) as cur:
+                    existing_agr = await cur.fetchone()
+                if existing_agr:
+                    cat_to_agreement_id[cat] = existing_agr["id"]
+                else:
+                    cursor = await conn.execute(
+                        "INSERT INTO split_agreements (category, start_date, end_date, is_active, note) VALUES (?, '2000-01-01', NULL, 1, 'Baseline')",
+                        (cat,)
+                    )
+                    cat_to_agreement_id[cat] = cursor.lastrowid
+
+            await conn.execute("DROP TABLE IF EXISTS split_allocations_new")
+            await conn.execute(
+                """
+                CREATE TABLE split_allocations_new (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    agreement_id INTEGER REFERENCES split_agreements(id) ON DELETE CASCADE,
+                    category     TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE,
+                    user_name    TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE,
+                    pct          REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0)
+                )
+                """
+            )
+            async with conn.execute("SELECT category, user_name, pct FROM split_allocations") as cur:
+                old_rows = await cur.fetchall()
+
+            for r in old_rows:
+                agr_id = cat_to_agreement_id.get(r["category"])
+                await conn.execute(
+                    "INSERT INTO split_allocations_new (agreement_id, category, user_name, pct) VALUES (?, ?, ?, ?)",
+                    (agr_id, r["category"], r["user_name"], r["pct"])
+                )
+
+            await conn.execute("DROP TABLE split_allocations")
+            await conn.execute("ALTER TABLE split_allocations_new RENAME TO split_allocations")
+        else:
+            async with conn.execute("SELECT category FROM splits") as cur:
+                splits_list = [r["category"] for r in await cur.fetchall()]
+            for cat in splits_list:
+                async with conn.execute("SELECT id FROM split_agreements WHERE category = ? LIMIT 1", (cat,)) as cur:
+                    if await cur.fetchone() is None:
+                        cursor = await conn.execute(
+                            "INSERT INTO split_agreements (category, start_date, end_date, is_active, note) VALUES (?, '2000-01-01', NULL, 1, 'Baseline')",
+                            (cat,)
+                        )
+                        agr_id = cursor.lastrowid
+                        await conn.execute(
+                            "UPDATE split_allocations SET agreement_id = ? WHERE category = ? AND agreement_id IS NULL",
+                            (agr_id, cat)
+                        )
+    except Exception:
+        pass
+
     # users
     await ensure_column(conn, "users", "color", "TEXT NOT NULL DEFAULT '#6366f1'", "'#6366f1'")
     await ensure_column(conn, "users", "is_active", "INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1))", "1")
@@ -706,6 +807,15 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_jobs_who_dates ON jobs (who, start_date, end_date)"
     )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_split_agreements_cat_dates ON split_agreements (category, start_date, end_date)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_split_allocations_agreement ON split_allocations (agreement_id)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_split_allocations_category ON split_allocations (category)"
+    )
 
     # ── Analytics views ─────────────────────────────────────────────────
     # Dropped and recreated on every boot so schema changes take effect
@@ -718,6 +828,8 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         "view_project_summary",
         "view_tag_totals",
         "view_joint_account_monthly",
+        "view_current_split_allocations",
+        "view_split_agreements_active",
     ):
         await conn.execute(f"DROP VIEW IF EXISTS {view}")
 
@@ -824,6 +936,45 @@ async def _init_db_schema(conn: aiosqlite.Connection) -> None:
         FROM expenses e
         INNER JOIN joint_account_categories jac ON jac.category = e.category
         GROUP BY strftime('%Y-%m', e.expense_date), e.category, jac.account_id
+        """
+    )
+
+    # ── view_current_split_allocations (SCD2 Active Split Allocations) ──
+    await conn.execute(
+        """
+        CREATE VIEW view_current_split_allocations AS
+        SELECT
+            sa.category,
+            sa.user_name,
+            sa.pct,
+            agr.id AS agreement_id,
+            agr.start_date,
+            agr.end_date,
+            agr.note
+        FROM split_allocations sa
+        INNER JOIN split_agreements agr ON agr.id = sa.agreement_id
+        WHERE agr.is_active = 1
+          AND agr.start_date <= strftime('%Y-%m-%d', 'now')
+          AND (agr.end_date IS NULL OR agr.end_date >= strftime('%Y-%m-%d', 'now'))
+        ORDER BY sa.category, sa.user_name
+        """
+    )
+
+    # ── view_split_agreements_active (SCD2 Active Split Agreement Timelines) ──
+    await conn.execute(
+        """
+        CREATE VIEW view_split_agreements_active AS
+        SELECT
+            id,
+            category,
+            start_date,
+            COALESCE(end_date, 'Open-ended') AS end_date,
+            is_active,
+            note,
+            created_at
+        FROM split_agreements
+        WHERE is_active = 1
+        ORDER BY category, start_date DESC
         """
     )
 

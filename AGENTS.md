@@ -155,13 +155,25 @@ All database interactions are defined in `backend/app/database.py`. The tables a
     - `settled_at` (TEXT NOT NULL)
     - `net_balance_transferred_cents` (INTEGER NOT NULL)
 
-13. **`split_allocations`** (Default split allocations)
+13. **`split_agreements`** (SCD2 category split timeline and temporary overrides)
+    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
+    - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
+    - `start_date` (TEXT NOT NULL CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
+    - `end_date` (TEXT CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
+    - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
+    - `note` (TEXT CHECK(note IS NULL OR length(note) <= 512)) — Encrypted.
+    - `created_at` (TEXT NOT NULL DEFAULT (datetime('now')))
+    - *Indexes*: `idx_split_agreements_cat_dates` on `(category, start_date DESC)`
+
+14. **`split_allocations`** (Split allocations linked to split agreements)
+    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
+    - `agreement_id` (INTEGER REFERENCES split_agreements(id) ON DELETE CASCADE)
     - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
     - `user_name` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
     - `pct` (REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0))
-    - *Primary Key*: `(category, user_name)`
+    - *Indexes*: `idx_split_allocations_agreement` on `(agreement_id)`, `idx_split_allocations_category` on `(category)`
 
-14. **`joint_account`** (Singleton joint account config — id always 1)
+15. **`joint_account`** (Singleton joint account config — id always 1)
     - `id` (INTEGER PRIMARY KEY CHECK(id = 1))
     - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
     - `balance_cents` (INTEGER NOT NULL DEFAULT 0)

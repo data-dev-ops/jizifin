@@ -249,17 +249,63 @@ class SplitCreate(BaseModel):
 
 
 class SplitUpdate(BaseModel):
-    allocations: list[AllocationEntry]
+    category:    Optional[Annotated[str, Field(min_length=1, max_length=256)]] = None
+    allocations: Optional[list[AllocationEntry]] = None
 
     @model_validator(mode="after")
     def validate_allocations(self) -> "SplitUpdate":
+        if self.allocations is not None:
+            _validate_allocations(self.allocations)
+        return self
+
+
+class SplitAgreementCreate(BaseModel):
+    category:    Annotated[str, Field(min_length=1, max_length=256)]
+    start_date:  Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="ISO date YYYY-MM-DD")]
+    end_date:    Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="ISO date YYYY-MM-DD")]] = None
+    is_active:   bool = True
+    note:        Optional[Annotated[str, Field(max_length=512)]] = None
+    allocations: list[AllocationEntry]
+
+    @model_validator(mode="after")
+    def validate_dates_and_allocations(self) -> "SplitAgreementCreate":
+        if self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("end_date cannot be earlier than start_date")
         _validate_allocations(self.allocations)
         return self
+
+
+class SplitAgreementUpdate(BaseModel):
+    start_date:  Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="ISO date YYYY-MM-DD")]] = None
+    end_date:    Optional[Annotated[str, Field(pattern=r"^\d{4}-\d{2}-\d{2}$", description="ISO date YYYY-MM-DD")]] = None
+    is_active:   Optional[bool] = None
+    note:        Optional[Annotated[str, Field(max_length=512)]] = None
+    allocations: Optional[list[AllocationEntry]] = None
+
+    @model_validator(mode="after")
+    def validate_dates_and_allocations(self) -> "SplitAgreementUpdate":
+        if self.start_date is not None and self.end_date is not None and self.end_date < self.start_date:
+            raise ValueError("end_date cannot be earlier than start_date")
+        if self.allocations is not None:
+            _validate_allocations(self.allocations)
+        return self
+
+
+class SplitAgreementResponse(BaseModel):
+    id:          int
+    category:    str
+    start_date:  str
+    end_date:    Optional[str] = None
+    is_active:   bool = True
+    note:        Optional[str] = None
+    created_at:  Optional[str] = None
+    allocations: list[AllocationEntry]
 
 
 class SplitResponse(BaseModel):
     category:    str
     allocations: list[AllocationEntry]
+    agreements:  list[SplitAgreementResponse] = []
 
 
 # ---------------------------------------------------------------------------
@@ -402,6 +448,11 @@ class LatestSalaryRow(BaseModel):
 
 class IncomeCategoryCreate(BaseModel):
     """Payload for creating a new income category."""
+    category: Annotated[str, Field(min_length=1, max_length=256)]
+
+
+class IncomeCategoryUpdate(BaseModel):
+    """Payload for updating / renaming an income category."""
     category: Annotated[str, Field(min_length=1, max_length=256)]
 
 

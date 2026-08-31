@@ -300,18 +300,31 @@
   }
 </script>
 
-<div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
-
-  <!-- ── LEFT PANEL: Configurable New Project Form ───────────────────────── -->
-  <div class="xl:col-span-2 card space-y-5">
-    <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3">
-      <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-        <span>🎯</span> New Savings / Project Goal
-      </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-        Define shared or individual milestone budgets with customizable funding rules
+<div class="space-y-6">
+  <!-- ── Top Page Header ────────────────────────────────────────────────── -->
+  <header class="page-header">
+    <div>
+      <h1 class="page-title flex items-center gap-2.5">
+        <span>🎯</span> Projects & Target Goals
+      </h1>
+      <p class="page-subtitle">
+        Define shared or individual milestone budgets with customizable funding rules, equity settlement balance sheets, and real-time progress tracking.
       </p>
     </div>
+  </header>
+
+  <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+
+    <!-- ── LEFT PANEL: Configurable New Project Form ───────────────────────── -->
+    <div class="xl:col-span-2 card space-y-5">
+      <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3">
+        <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+          <span>🎯</span> New Savings / Project Goal
+        </h2>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+          Define shared or individual milestone budgets with customizable funding rules
+        </p>
+      </div>
 
     <form on:submit={handleAdd} id="add-project-form" class="space-y-4">
 
@@ -996,4 +1009,5 @@
       {/each}
     {/if}
   </div>
+</div>
 </div>

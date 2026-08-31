@@ -499,11 +499,11 @@
   </div>
 
   <!-- ── 2. DASHBOARD SUBTABS NAVIGATION ───────────────────────────────────── -->
-  <div class="flex items-center gap-2 overflow-x-auto border-b border-neutral-200 dark:border-neutral-800 pb-1 scrollbar-none">
+  <div class="flex items-center gap-2 overflow-x-auto border-b border-neutral-200 dark:border-neutral-800 pb-3 scrollbar-none">
     <button
       type="button"
       on:click={() => (activeSubtab = 'pulse')}
-      class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'pulse' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'pulse' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>📊</span>
       <span>Financial Pulse & Spend</span>
@@ -512,7 +512,7 @@
     <button
       type="button"
       on:click={() => (activeSubtab = 'settle')}
-      class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'settle' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'settle' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>⚖️</span>
       <span>Reimbursements & Settle Up</span>
@@ -522,7 +522,7 @@
       <button
         type="button"
         on:click={() => (activeSubtab = 'joint')}
-        class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'joint' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+        class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'joint' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
       >
         <span>🏦</span>
         <span>Joint Account & Deposits</span>
@@ -532,7 +532,7 @@
     <button
       type="button"
       on:click={() => (activeSubtab = 'budgets')}
-      class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'budgets' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'budgets' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>🎯</span>
       <span>Category Budgets & Health</span>
@@ -541,7 +541,7 @@
     <button
       type="button"
       on:click={() => (activeSubtab = 'projections')}
-      class="px-4 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'projections' ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'projections' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>📈</span>
       <span>Live Timeline & Projects</span>

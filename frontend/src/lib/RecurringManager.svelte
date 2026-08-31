@@ -370,15 +370,15 @@
 
 <div class="space-y-6">
   <!-- ── Header & Month Context ──────────────────────────────────────── -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <header class="page-header">
     <div>
-      <h2 class="text-lg font-bold text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-        <span>Recurring Commitments</span>
+      <h1 class="page-title flex items-center gap-2.5">
+        <span>🔄</span> Recurring Commitments
         <span class="text-xs font-semibold px-2.5 py-0.5 rounded-full bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 border border-neutral-200 dark:border-neutral-700">
           {activeCommitmentsCount} Active
         </span>
-      </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+      </h1>
+      <p class="page-subtitle">
         Manage automated subscriptions, fixed bills, and flexible frequency schedules.
       </p>
     </div>
@@ -400,7 +400,7 @@
         aria-label="Next month"
       >›</button>
     </div>
-  </div>
+  </header>
 
   <!-- ── Summary KPI Cards ────────────────────────────────────────────── -->
   <div class="grid grid-cols-1 md:grid-cols-3 gap-4">

@@ -345,33 +345,53 @@
     : [];
 </script>
 
-<div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
+<div class="space-y-6">
+  <!-- ── Top Page Header ────────────────────────────────────────────────── -->
+  <header class="page-header">
+    <div>
+      <h1 class="page-title flex items-center gap-2.5">
+        <span>🏷️</span> Tags & Labels
+      </h1>
+      <p class="page-subtitle">
+        Organize transactions across categories with temporary event tags, trip budgets, and custom lifecycle markers.
+      </p>
+    </div>
+  </header>
 
-  <!-- ── LEFT PANEL: Create + Tag list ──────────────────────────────────── -->
-  <div class="xl:col-span-2 space-y-4">
+  <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
 
-    <!-- Add Tag Form -->
-    <div class="card">
-      <h2 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 mb-5">New Tag</h2>
+    <!-- ── LEFT PANEL: Create + Tag list ──────────────────────────────────── -->
+    <div class="xl:col-span-2 space-y-4">
 
-      <form on:submit={handleAdd} id="add-tag-form" class="space-y-4">
-
-        <div>
-          <label for="tag-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Tag Name</label>
-          <input
-            id="tag-name"
-            type="text"
-            maxlength="96"
-            placeholder="e.g. Paris 2025, Bathroom Reno"
-            bind:value={newName}
-            class="input-field"
-          />
+      <!-- Add Tag Form -->
+      <div class="card space-y-4">
+        <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3">
+          <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+            <span>🏷️</span> New Tag
+          </h2>
+          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
+            Create an open-ended or time-bounded label for grouping related expenses
+          </p>
         </div>
 
-        <div>
-          <label for="tag-description" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">
-            Description <span class="text-neutral-500">(optional)</span>
-          </label>
+        <form on:submit={handleAdd} id="add-tag-form" class="space-y-4">
+
+          <div>
+            <label for="tag-name" class="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-1.5">Tag Name</label>
+            <input
+              id="tag-name"
+              type="text"
+              maxlength="96"
+              placeholder="e.g. Paris 2025, Bathroom Reno"
+              bind:value={newName}
+              class="input-field"
+            />
+          </div>
+
+          <div>
+            <label for="tag-description" class="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider mb-1.5">
+              Description <span class="text-neutral-400 font-normal lowercase">(optional)</span>
+            </label>
           <input
             id="tag-description"
             type="text"
@@ -838,4 +858,5 @@
       </div>
     {/if}
   </div>
+</div>
 </div>

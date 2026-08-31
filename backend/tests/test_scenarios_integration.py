@@ -1211,3 +1211,246 @@ async def test_cross_couple_debt_graph_isolation(client: AsyncClient):
     assert ("Bob", "Charlie") not in transfer_pairs
     assert ("Dave", "Alice") not in transfer_pairs
 
+
+# ===========================================================================
+# SCENARIO 4: Overlapping Category Split Overrides & Timeline Precedence
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_scenario_4_overlapping_category_split_overrides_and_timeline_precedence(client: AsyncClient):
+    """
+    Scenario 4: Overlapping Category Split Overrides & Timeline Priority Precedence
+
+    Household Setup:
+      - 2 members: Zina and Jim (Salt: zinajim3303).
+      - Category: GROCERIES
+      - Baseline Agreement (Ongoing): Zina 50%, Jim 50%
+      - Override 1 (2026-08-01 to 2026-08-31): Zina 20%, Jim 80% (Summer Host Month)
+      - Override 2 (2026-08-10 to 2026-08-17): Zina 100%, Jim 0% (Private Event Week, overlapping Override 1)
+
+    Transactions:
+      1. 2026-08-05: Weekly Farmers Market - €100.00 (10,000 cents) paid by Jim (Override 1: Zina 20%, Jim 80%)
+         -> Jim paid €100, owes €80; Zina owes €20 -> Jim +€20, Zina -€20
+      2. 2026-08-12: Party Supplies & Catered Dinner - €200.00 (20,000 cents) paid by Jim (Override 2: Zina 100%, Jim 0%)
+         -> Jim paid €200, owes €0; Zina owes €200 -> Jim +€200, Zina -€200
+      3. 2026-08-25: Bulk Pantry Restock - €150.00 (15,000 cents) paid by Zina (Override 1: Zina 20%, Jim 80%)
+         -> Zina paid €150, owes €30; Jim owes €120 -> Zina +€120, Jim -€120
+      4. 2026-09-02: September Welcome Dinner - €80.00 (8,000 cents) paid by Jim (Baseline: Zina 50%, Jim 50%)
+         -> Jim paid €80, owes €40; Zina owes €40 -> Jim +€40, Zina -€40
+
+    Validation & Invariants:
+      - August 2026 Net Balances: Jim +€100.00, Zina -€100.00
+      - August 2026 Debt Transfer: Zina pays Jim €100.00
+      - September 2026 Net Balances: Jim +€40.00, Zina -€40.00
+      - September 2026 Debt Transfer: Zina pays Jim €40.00
+    """
+    key = derive_key()
+
+    u_zina = encrypt_text("Zina", key)
+    u_jim = encrypt_text("Jim", key)
+    for u in [u_zina, u_jim]:
+        await client.post("/users", json={"name": u, "color": "#ff7800", "is_active": 1})
+
+    cat_groceries = encrypt_text("GROCERIES", key)
+
+    # 1. Create Category with Baseline 50/50
+    r_cat = await client.post("/splits", json={
+        "category": cat_groceries,
+        "allocations": [{"user_name": u_zina, "pct": 50.0}, {"user_name": u_jim, "pct": 50.0}],
+    })
+    assert r_cat.status_code == 201
+
+    # 2. Add Override 1 (Full Month August: Zina 20%, Jim 80%)
+    r_ov1 = await client.post(f"/splits/{cat_groceries}/agreements", json={
+        "category": cat_groceries,
+        "start_date": "2026-08-01",
+        "end_date": "2026-08-31",
+        "is_active": True,
+        "note": encrypt_text("Summer Host Month", key),
+        "allocations": [{"user_name": u_zina, "pct": 20.0}, {"user_name": u_jim, "pct": 80.0}],
+    })
+    assert r_ov1.status_code == 201
+
+    # 3. Add Override 2 (Overlapping Event Window Aug 10-17: Zina 100%, Jim 0%)
+    r_ov2 = await client.post(f"/splits/{cat_groceries}/agreements", json={
+        "category": cat_groceries,
+        "start_date": "2026-08-10",
+        "end_date": "2026-08-17",
+        "is_active": True,
+        "note": encrypt_text("Private Event Week", key),
+        "allocations": [{"user_name": u_zina, "pct": 100.0}, {"user_name": u_jim, "pct": 0.0}],
+    })
+    assert r_ov2.status_code == 201
+
+    # 4. Log Expenses
+    # Expense 1 (Aug 5, falls in Override 1)
+    await client.post("/expenses", json={
+        "name": encrypt_text("Weekly Farmers Market", key),
+        "cost_cents": 10000,
+        "expense_date": "2026-08-05",
+        "who_paid": u_jim,
+        "category": cat_groceries,
+        "is_joint": False,
+    })
+
+    # Expense 2 (Aug 12, falls in Override 2 - overlapping window)
+    await client.post("/expenses", json={
+        "name": encrypt_text("Party Supplies & Catered Dinner", key),
+        "cost_cents": 20000,
+        "expense_date": "2026-08-12",
+        "who_paid": u_jim,
+        "category": cat_groceries,
+        "is_joint": False,
+    })
+
+    # Expense 3 (Aug 25, falls in Override 1 after Override 2 expired)
+    await client.post("/expenses", json={
+        "name": encrypt_text("Bulk Pantry Restock", key),
+        "cost_cents": 15000,
+        "expense_date": "2026-08-25",
+        "who_paid": u_zina,
+        "category": cat_groceries,
+        "is_joint": False,
+    })
+
+    # Expense 4 (Sep 2, falls in Baseline after all overrides expired)
+    await client.post("/expenses", json={
+        "name": encrypt_text("September Welcome Dinner", key),
+        "cost_cents": 8000,
+        "expense_date": "2026-09-02",
+        "who_paid": u_jim,
+        "category": cat_groceries,
+        "is_joint": False,
+    })
+
+    # 5. Verify August 2026 Paybacks
+    r_aug = await client.get("/analytics/paybacks?month=2026-08&personal_cats=&combined_fixed_cat=&apartment_cat=&jane_name=&john_name=")
+    assert r_aug.status_code == 200
+    aug_data = r_aug.json()
+
+    aug_row_net = {decrypt_text(k, key): v for k, v in aug_data["rows"][0]["net_per_user"].items()}
+    assert aug_row_net.get("Jim") == 100.00
+    assert aug_row_net.get("Zina") == -100.00
+
+    aug_debts = aug_data["debts"]
+    assert len(aug_debts) == 1
+    assert decrypt_text(aug_debts[0]["from_user"], key) == "Zina"
+    assert decrypt_text(aug_debts[0]["to_user"], key) == "Jim"
+    assert aug_debts[0]["amount"] == 100.00
+
+    # 6. Verify September 2026 Paybacks (Baseline fallback)
+    r_sep = await client.get("/analytics/paybacks?month=2026-09&personal_cats=&combined_fixed_cat=&apartment_cat=&jane_name=&john_name=")
+    assert r_sep.status_code == 200
+    sep_data = r_sep.json()
+
+    sep_row_net = {decrypt_text(k, key): v for k, v in sep_data["rows"][0]["net_per_user"].items()}
+    assert sep_row_net.get("Jim") == 40.00
+    assert sep_row_net.get("Zina") == -40.00
+
+    sep_debts = sep_data["debts"]
+    assert len(sep_debts) == 1
+    assert decrypt_text(sep_debts[0]["from_user"], key) == "Zina"
+    assert decrypt_text(sep_debts[0]["to_user"], key) == "Jim"
+    assert sep_debts[0]["amount"] == 40.00
+
+
+# ===========================================================================
+# SCENARIO 5: Split Override Active on Category Linked to Joint Account
+# ===========================================================================
+
+@pytest.mark.asyncio
+async def test_scenario_5_split_override_on_category_linked_to_joint_account(client: AsyncClient):
+    """
+    Scenario 5: Split Override on Category with Out-of-Pocket vs Direct Joint Funding
+
+    Household Setup:
+      - 2 members: Zina and Jim.
+      - Singleton Joint Account (id=1) with members Zina and Jim.
+      - Category: HOME IMPROVEMENT.
+      - Baseline Agreement: Zina 50%, Jim 50%
+      - Override (2026-08-01 to 2026-08-31): Zina 75%, Jim 25% (Custom Renovation Split)
+
+    Transactions:
+      1. 2026-08-18: Custom Bookshelf Unit - €400.00 (40,000 cents) paid out-of-pocket by Jim (is_joint = False)
+         -> Split according to Override (Zina 75%, Jim 25%): Jim funded €400, owes €100, Zina owes €300 -> Jim +€300, Zina -€300
+      2. 2026-08-20: Painting Supplies - €150.00 (15,000 cents) paid directly by Joint Account (is_joint = True)
+         -> Direct joint account payment: excluded from peer-to-peer payback settlements.
+
+    Validation & Invariants:
+      - August 2026 Net Balances in Payback Row: Jim +€300.00, Zina -€300.00
+      - August 2026 Debt Transfer: Zina pays Jim €300.00
+    """
+    key = derive_key()
+    month = "2026-08"
+
+    u_zina = encrypt_text("Zina", key)
+    u_jim = encrypt_text("Jim", key)
+    for u in [u_zina, u_jim]:
+        await client.post("/users", json={"name": u, "color": "#ff7800", "is_active": 1})
+
+    # Setup Joint Account
+    r_ja = await client.post("/joint-account", json={
+        "name": encrypt_text("Household Joint Account", key),
+        "balance_cents": 500000,
+        "safety_margin_pct": 10,
+        "deposit_split_mode": "manual",
+        "expected_total_cents": None,
+        "member_names": [u_zina, u_jim],
+    })
+    assert r_ja.status_code == 201
+
+    cat_home = encrypt_text("HOME IMPROVEMENT", key)
+
+    # 1. Create Category with Baseline 50/50
+    await client.post("/splits", json={
+        "category": cat_home,
+        "allocations": [{"user_name": u_zina, "pct": 50.0}, {"user_name": u_jim, "pct": 50.0}],
+    })
+
+    # 2. Add Override for August (Zina 75%, Jim 25%)
+    await client.post(f"/splits/{cat_home}/agreements", json={
+        "category": cat_home,
+        "start_date": f"{month}-01",
+        "end_date": f"{month}-31",
+        "is_active": True,
+        "note": encrypt_text("Custom Renovation Split", key),
+        "allocations": [{"user_name": u_zina, "pct": 75.0}, {"user_name": u_jim, "pct": 25.0}],
+    })
+
+    # 3. Log Expenses
+    # Personal out-of-pocket expense paid by Jim (is_joint = False) -> subject to 75/25 override
+    await client.post("/expenses", json={
+        "name": encrypt_text("Custom Bookshelf Unit", key),
+        "cost_cents": 40000,
+        "expense_date": f"{month}-18",
+        "who_paid": u_jim,
+        "category": cat_home,
+        "is_joint": False,
+    })
+
+    # Direct Joint Account payment (is_joint = True) -> excluded from peer-to-peer paybacks
+    await client.post("/expenses", json={
+        "name": encrypt_text("Painting Supplies", key),
+        "cost_cents": 15000,
+        "expense_date": f"{month}-20",
+        "who_paid": u_jim,
+        "category": cat_home,
+        "is_joint": True,
+    })
+
+    # 4. Verify Paybacks
+    r_pb = await client.get(f"/analytics/paybacks?month={month}&personal_cats=&combined_fixed_cat=&apartment_cat=&jane_name=&john_name=")
+    assert r_pb.status_code == 200
+    pb_data = r_pb.json()
+
+    row_net = {decrypt_text(k, key): v for k, v in pb_data["rows"][0]["net_per_user"].items()}
+    assert row_net.get("Jim") == 300.00
+    assert row_net.get("Zina") == -300.00
+
+    debts = pb_data["debts"]
+    assert len(debts) == 1
+    assert decrypt_text(debts[0]["from_user"], key) == "Zina"
+    assert decrypt_text(debts[0]["to_user"], key) == "Jim"
+    assert debts[0]["amount"] == 300.00
+
+

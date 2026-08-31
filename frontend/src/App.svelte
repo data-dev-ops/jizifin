@@ -442,20 +442,31 @@
       <div class="page-container">
         <header class="page-header">
           <div>
-            <h1 class="page-title">Expenses</h1>
-            <p class="page-subtitle">Log a new expense or review {monthLabel}'s history</p>
+            <h1 class="page-title flex items-center gap-2.5">
+              <span>💸</span> Expenses Log & Entry
+            </h1>
+            <p class="page-subtitle">Log a new household expense or review {monthLabel}'s ledger history</p>
           </div>
           <span class="badge-indigo">{monthLabel}</span>
         </header>
 
-        <div class="grid grid-cols-1 xl:grid-cols-5 gap-6">
-          <div class="xl:col-span-2 card">
-            <h2 class="text-sm font-semibold text-neutral-200 mb-5">Add Expense</h2>
+        <div class="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
+          <div class="xl:col-span-2 card space-y-4">
+            <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3">
+              <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                <span>➕</span> Add Expense
+              </h2>
+              <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Quickly log personal or shared purchases</p>
+            </div>
             <ExpenseForm />
           </div>
 
-          <div class="xl:col-span-3 card">
-            <h2 class="text-sm font-semibold text-neutral-200 mb-5">Expense Log</h2>
+          <div class="xl:col-span-3 card space-y-4">
+            <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3 flex items-center justify-between">
+              <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+                <span>📋</span> Monthly Ledger History
+              </h2>
+            </div>
             <ExpenseList />
           </div>
         </div>
@@ -463,48 +474,21 @@
 
     {:else if activeTab === 'splits'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Categories & Splits</h1>
-            <p class="page-subtitle">Manage expense and income categories, and configure household split ratios</p>
-          </div>
-        </header>
-
-        <div class="card">
-          <SplitManager on:navigateIncome={() => (activeTab = 'income')} />
-        </div>
+        <SplitManager on:navigateIncome={() => (activeTab = 'income')} />
       </div>
 
     {:else if activeTab === 'projects'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Projects</h1>
-            <p class="page-subtitle">Track savings goals and see estimated completion times</p>
-          </div>
-        </header>
         <ProjectsTab />
       </div>
 
     {:else if activeTab === 'tags'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Tags</h1>
-            <p class="page-subtitle">Track open-ended events — vacations, repairs, and more — across all months</p>
-          </div>
-        </header>
         <TagsTab />
       </div>
 
     {:else if activeTab === 'query'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Query Console</h1>
-            <p class="page-subtitle">Run raw SQL against the SQLite database — results capped at 50 rows</p>
-          </div>
-        </header>
         <QueryConsole />
       </div>
 
@@ -520,27 +504,12 @@
 
     {:else if activeTab === 'budgets'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Budgets</h1>
-            <p class="page-subtitle">Set, monitor, and enforce monthly spending limits across household categories, individual members, and joint accounts</p>
-          </div>
-          <span class="badge-indigo">{monthLabel}</span>
-        </header>
         <BudgetManager />
       </div>
 
     {:else if activeTab === 'recurring'}
       <div class="page-container">
-        <header class="page-header">
-          <div>
-            <h1 class="page-title">Recurring Expenses</h1>
-            <p class="page-subtitle">Automate recurring monthly and periodic expense streams</p>
-          </div>
-        </header>
-        <div class="card">
-          <RecurringManager />
-        </div>
+        <RecurringManager />
       </div>
     {/if}
 

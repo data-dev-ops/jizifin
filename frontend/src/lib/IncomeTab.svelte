@@ -486,7 +486,9 @@
 <!-- ── Page Header ──────────────────────────────────────────────────────────── -->
 <header class="page-header">
   <div>
-    <h1 class="page-title">Income & Employment Streams</h1>
+    <h1 class="page-title flex items-center gap-2.5">
+      <span>💰</span> Income & Employment Streams
+    </h1>
     <p class="page-subtitle">
       Define salaries, timeline promotions, and one-off bonuses for accurate monthly budgeting and split ratios.
     </p>

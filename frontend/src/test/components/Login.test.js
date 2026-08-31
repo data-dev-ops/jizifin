@@ -84,4 +84,23 @@ describe('Login.svelte — Master Password & Auth Component', () => {
       expect(get(cryptoKey)).not.toBeNull();
     });
   });
+
+  it('toggles password visibility between password and text when eye icon button is clicked', async () => {
+    render(Login);
+    expect(screen.getByLabelText(/Master Password/i)).toHaveAttribute('type', 'password');
+
+    const toggleBtn = screen.getByRole('button', { name: /Show password/i });
+    expect(toggleBtn).toBeInTheDocument();
+
+    // Click to show password
+    await fireEvent.click(toggleBtn);
+    expect(screen.getByLabelText(/Master Password/i)).toHaveAttribute('type', 'text');
+    expect(screen.getByRole('button', { name: /Hide password/i })).toBeInTheDocument();
+
+    // Click to hide password again
+    const hideBtn = screen.getByRole('button', { name: /Hide password/i });
+    await fireEvent.click(hideBtn);
+    expect(screen.getByLabelText(/Master Password/i)).toHaveAttribute('type', 'password');
+    expect(screen.getByRole('button', { name: /Show password/i })).toBeInTheDocument();
+  });
 });

@@ -479,7 +479,7 @@
 <div class="space-y-6">
 
   <!-- ── Top Header & Action Controls ────────────────────────────────────── -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+  <header class="page-header">
     <div>
       <h1 class="page-title flex items-center gap-2.5">
         <span>⚡</span> SQL Query Console & Explorer
@@ -518,7 +518,7 @@
         <span>Preset Library</span>
       </button>
     </div>
-  </div>
+  </header>
 
   <!-- ── Main Workbench Grid: Schema Sidebar + Query Editor ──────────────── -->
   <div class="grid grid-cols-1 {showSchemaSidebar ? 'lg:grid-cols-4' : ''} gap-6 items-start">

@@ -242,8 +242,24 @@ export async function updateExpense(id, payload, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Splits
+// Splits & SCD2 Split Agreements
 // ---------------------------------------------------------------------------
+
+export async function decryptSplitAgreement(a) {
+  return {
+    ...a,
+    category: await dec(a.category),
+    note: a.note ? await dec(a.note) : null,
+    allocations: a.allocations
+      ? await Promise.all(
+          a.allocations.map(async (entry) => ({
+            ...entry,
+            user_name: await dec(entry.user_name)
+          }))
+        )
+      : []
+  };
+}
 
 async function decryptSplit(s) {
   return {
@@ -256,12 +272,16 @@ async function decryptSplit(s) {
             user_name: await dec(a.user_name)
           }))
         )
+      : [],
+    agreements: s.agreements
+      ? await Promise.all(s.agreements.map(decryptSplitAgreement))
       : []
   };
 }
 
-export async function fetchSplits() {
-  const data = await request('/splits');
+export async function fetchSplits(month = null) {
+  const query = month ? `?month=${encodeURIComponent(month)}` : '';
+  const data = await request(`/splits${query}`);
   const decrypted = await Promise.all(data.map(decryptSplit));
   splits.set(decrypted);
   return decrypted;
@@ -291,14 +311,18 @@ export async function createSplit(payload) {
 
 export async function updateSplit(category, payload) {
   const encCategory = await enc(category);
-  const encryptedPayload = {
-    allocations: await Promise.all(
+  const encryptedPayload = {};
+  if (payload.category !== undefined) {
+    encryptedPayload.category = await enc(payload.category);
+  }
+  if (payload.allocations !== undefined) {
+    encryptedPayload.allocations = await Promise.all(
       payload.allocations.map(async (a) => ({
         ...a,
         user_name: await enc(a.user_name)
       }))
-    )
-  };
+    );
+  }
 
   const data = await request(`/splits/${encodeURIComponent(encCategory)}`, {
     method: 'PUT',
@@ -307,8 +331,146 @@ export async function updateSplit(category, payload) {
   });
   
   const decrypted = await decryptSplit(data);
+  const newCategory = decrypted.category;
+
+  // Update splits store
   splits.update((prev) => prev.map((s) => (s.category === category ? decrypted : s)));
+
+  // If renamed, update other stores reactively
+  if (newCategory && newCategory !== category) {
+    expenses.update((prev) => prev.map((e) => (e.category === category ? { ...e, category: newCategory } : e)));
+    recurringExpenses.update((prev) => prev.map((r) => (r.category === category ? { ...r, category: newCategory } : r)));
+    budgets.update((prev) => prev.map((b) => (b.category === category ? { ...b, category: newCategory } : b)));
+    jointCategories.update((prev) => prev.map((c) => (c === category ? newCategory : c?.plain === category ? { ...c, plain: newCategory } : c)));
+    jointExpectedCosts.update((prev) => prev.map((c) => (c.category === category ? { ...c, category: newCategory } : c)));
+  }
+
   return decrypted;
+}
+
+export async function renameSplit(oldCategory, newCategory) {
+  return updateSplit(oldCategory, { category: newCategory });
+}
+
+export async function deleteSplit(category) {
+  const encCategory = await enc(category);
+  const res = await authFetch(`/splits/${encodeURIComponent(encCategory)}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    let message = body;
+    try {
+      const json = JSON.parse(body);
+      if (json.detail) message = json.detail;
+    } catch {}
+    throw new Error(message || `API DELETE /splits → ${res.status}`);
+  }
+  splits.update((prev) => prev.filter((s) => s.category !== category));
+  budgets.update((prev) => prev.filter((b) => b.category !== category));
+  jointCategories.update((prev) => prev.filter((c) => (typeof c === 'string' ? c !== category : c?.plain !== category)));
+  jointExpectedCosts.update((prev) => prev.filter((c) => c.category !== category));
+}
+
+/**
+ * Create a temporary split override or timeline agreement for a category.
+ */
+export async function createSplitAgreement(category, payload) {
+  const encCategory = await enc(category);
+  const encryptedPayload = {
+    category: encCategory,
+    start_date: payload.start_date,
+    end_date: payload.end_date || null,
+    is_active: payload.is_active !== undefined ? payload.is_active : true,
+    note: payload.note ? await enc(payload.note) : null,
+    allocations: await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    )
+  };
+
+  const data = await request(`/splits/${encodeURIComponent(encCategory)}/agreements`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+
+  const decrypted = await decryptSplitAgreement(data);
+  splits.update((prev) =>
+    prev.map((s) => {
+      if (s.category !== category) return s;
+      const existing = s.agreements || [];
+      return {
+        ...s,
+        agreements: [decrypted, ...existing.filter((a) => a.id !== decrypted.id)]
+      };
+    })
+  );
+  return decrypted;
+}
+
+/**
+ * Update an existing split agreement / temporary override.
+ */
+export async function updateSplitAgreement(id, payload, category) {
+  const encryptedPayload = {};
+  if (payload.start_date !== undefined) encryptedPayload.start_date = payload.start_date;
+  if (payload.end_date !== undefined) encryptedPayload.end_date = payload.end_date;
+  if (payload.is_active !== undefined) encryptedPayload.is_active = payload.is_active;
+  if (payload.note !== undefined) encryptedPayload.note = payload.note ? await enc(payload.note) : null;
+  if (payload.allocations !== undefined) {
+    encryptedPayload.allocations = await Promise.all(
+      payload.allocations.map(async (a) => ({
+        ...a,
+        user_name: await enc(a.user_name)
+      }))
+    );
+  }
+
+  const data = await request(`/splits/agreements/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayload),
+  });
+
+  const decrypted = await decryptSplitAgreement(data);
+  splits.update((prev) =>
+    prev.map((s) => {
+      if (s.category !== (category || decrypted.category)) return s;
+      const existing = s.agreements || [];
+      return {
+        ...s,
+        agreements: existing.map((a) => (a.id === id ? decrypted : a))
+      };
+    })
+  );
+  return decrypted;
+}
+
+/**
+ * Delete a split agreement / temporary override.
+ */
+export async function deleteSplitAgreement(id, category) {
+  const res = await authFetch(`/splits/agreements/${id}`, { method: 'DELETE' });
+  if (!res.ok) {
+    const body = await res.text();
+    let message = body;
+    try {
+      const json = JSON.parse(body);
+      if (json.detail) message = json.detail;
+    } catch {}
+    throw new Error(message || `API DELETE /splits/agreements/${id} → ${res.status}`);
+  }
+  splits.update((prev) =>
+    prev.map((s) => {
+      if (category && s.category !== category) return s;
+      const existing = s.agreements || [];
+      return {
+        ...s,
+        agreements: existing.filter((a) => a.id !== id)
+      };
+    })
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -697,6 +859,23 @@ export async function createIncomeCategory(name) {
 }
 
 /**
+ * Update / rename an income category and reclassify in local stores.
+ */
+export async function updateIncomeCategory(oldCategory, newCategory) {
+  const encOld = await enc(oldCategory);
+  const encNew = await enc(newCategory);
+  const data = await request(`/income-categories/${encodeURIComponent(encOld)}`, {
+    method:  'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ category: encNew }),
+  });
+  const decrypted = { ...data, category: await dec(data.category) };
+  incomeCategories.update((prev) => prev.map((c) => (c.category === oldCategory ? decrypted : c)));
+  incomeEntries.update((prev) => prev.map((i) => (i.category === oldCategory ? { ...i, category: newCategory } : i)));
+  return decrypted;
+}
+
+/**
  * Delete an income category from the registry and remove it from the store.
  */
 export async function deleteIncomeCategory(name) {
@@ -704,7 +883,12 @@ export async function deleteIncomeCategory(name) {
   const res = await authFetch(`/income-categories/${encodeURIComponent(encName)}`, { method: 'DELETE' });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`API DELETE /income-categories → ${res.status}: ${body}`);
+    let message = body;
+    try {
+      const json = JSON.parse(body);
+      if (json.detail) message = json.detail;
+    } catch {}
+    throw new Error(message || `API DELETE /income-categories → ${res.status}`);
   }
   incomeCategories.update((prev) => prev.filter((c) => c.category !== name));
 }

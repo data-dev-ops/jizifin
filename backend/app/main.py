@@ -90,6 +90,7 @@ from .models import (
     IncomeByPersonRow,
     IncomeCategoryCreate,
     IncomeCategoryResponse,
+    IncomeCategoryUpdate,
     IncomeCreate,
     IncomeResponse,
     JobCreate,
@@ -116,6 +117,9 @@ from .models import (
     RecurringPayerBreakdown,
     SettlementCreate,
     SettlementResponse,
+    SplitAgreementCreate,
+    SplitAgreementResponse,
+    SplitAgreementUpdate,
     SplitCreate,
     SplitResponse,
     SplitUpdate,
@@ -1267,6 +1271,26 @@ async def delete_project(project_id: int, db: DbDep) -> None:
     await db.commit()
 
 
+def _resolve_category_split(category: str, expense_date: str, agreements_by_cat: dict[str, list[dict]]) -> dict[str, float]:
+    """Resolve effective split for category on expense_date using SCD2 agreements."""
+    agrs = agreements_by_cat.get(category, [])
+    valid_agrs = [
+        a for a in agrs
+        if a["start_date"] <= expense_date and (a["end_date"] is None or a["end_date"] >= expense_date)
+    ]
+    if not valid_agrs:
+        return {}
+    bounded = [a for a in valid_agrs if a["end_date"] is not None]
+    if bounded:
+        bounded.sort(key=lambda x: (x["start_date"], x["id"]), reverse=True)
+        return bounded[0]["allocations"]
+    open_ended = [a for a in valid_agrs if a["end_date"] is None]
+    if open_ended:
+        open_ended.sort(key=lambda x: (x["start_date"], x["id"]), reverse=True)
+        return open_ended[0]["allocations"]
+    return {}
+
+
 @app.get("/projects/{project_id}/settlement", response_model=ProjectSettlementResponse, tags=["projects"])
 async def get_project_settlement(project_id: int, db: DbDep) -> ProjectSettlementResponse:
     """
@@ -1309,12 +1333,29 @@ async def get_project_settlement(project_id: int, db: DbDep) -> ProjectSettlemen
             for r in await cur.fetchall():
                 override_map.setdefault(r["expense_id"], {})[r["user_name"]] = r["pct"]
 
-    # Load category splits
-    async with db.execute("SELECT category, user_name, pct FROM split_allocations") as cur:
-        alloc_rows = await cur.fetchall()
+    # Load category split agreements & allocations
+    async with db.execute(
+        "SELECT id, category, start_date, end_date FROM split_agreements WHERE is_active = 1 ORDER BY start_date DESC, id DESC"
+    ) as cur:
+        agr_rows = await cur.fetchall()
+
+    agr_allocs: dict[int, dict[str, float]] = {}
     splits_dict: dict[str, dict[str, float]] = {}
+    async with db.execute("SELECT agreement_id, category, user_name, pct FROM split_allocations") as cur:
+        alloc_rows = await cur.fetchall()
     for r in alloc_rows:
+        if r["agreement_id"] is not None:
+            agr_allocs.setdefault(r["agreement_id"], {})[r["user_name"]] = r["pct"]
         splits_dict.setdefault(r["category"], {})[r["user_name"]] = r["pct"]
+
+    agreements_by_cat: dict[str, list[dict]] = {}
+    for r in agr_rows:
+        agreements_by_cat.setdefault(r["category"], []).append({
+            "id": r["id"],
+            "start_date": r["start_date"],
+            "end_date": r["end_date"],
+            "allocations": agr_allocs.get(r["id"], {}),
+        })
 
     # Preload joint account equity shares
     async with db.execute("SELECT id FROM joint_accounts") as cur:
@@ -1385,7 +1426,7 @@ async def get_project_settlement(project_id: int, db: DbDep) -> ProjectSettlemen
         if eid in override_map:
             alloc = override_map[eid]
         else:
-            alloc = splits_dict.get(e["category"]) or {}
+            alloc = _resolve_category_split(e["category"], e["expense_date"], agreements_by_cat) or splits_dict.get(e["category"]) or {}
             if not alloc:
                 n = len(members) or 1
                 alloc = {m_u: 100.0 / n for m_u in members}
@@ -1657,22 +1698,96 @@ async def get_tag_detail(tag_id: int, db: DbDep) -> TagDetailResponse:
 
 
 # ---------------------------------------------------------------------------
-# Splits
+# Splits & SCD2 Split Agreements
 # ---------------------------------------------------------------------------
 
+async def _fetch_split_response(category: str, db: aiosqlite.Connection, target_date: str | None = None) -> SplitResponse:
+    if target_date is None:
+        today_str = _date.today().strftime("%Y-%m-%d")
+    elif len(target_date) == 7:
+        today_str = f"{target_date}-01"
+    else:
+        today_str = target_date
+
+    async with db.execute(
+        "SELECT id, category, start_date, end_date, is_active, note, created_at FROM split_agreements WHERE category = ? ORDER BY start_date DESC, id DESC",
+        (category,)
+    ) as cur:
+        agr_rows = await cur.fetchall()
+
+    agreements: list[SplitAgreementResponse] = []
+    current_allocs: list[AllocationEntry] = []
+
+    if not agr_rows:
+        async with db.execute(
+            "SELECT user_name, pct FROM split_allocations WHERE category = ? ORDER BY user_name",
+            (category,)
+        ) as cur:
+            current_allocs = [AllocationEntry(user_name=r["user_name"], pct=r["pct"]) async for r in cur]
+        return SplitResponse(category=category, allocations=current_allocs, agreements=[])
+
+    for agr in agr_rows:
+        async with db.execute(
+            "SELECT user_name, pct FROM split_allocations WHERE agreement_id = ? ORDER BY user_name",
+            (agr["id"],)
+        ) as cur:
+            allocs = [AllocationEntry(user_name=r["user_name"], pct=r["pct"]) async for r in cur]
+
+        if not allocs and agr["end_date"] is None:
+            async with db.execute(
+                "SELECT user_name, pct FROM split_allocations WHERE category = ? AND agreement_id IS NULL ORDER BY user_name",
+                (category,)
+            ) as cur:
+                allocs = [AllocationEntry(user_name=r["user_name"], pct=r["pct"]) async for r in cur]
+
+        agreements.append(
+            SplitAgreementResponse(
+                id=agr["id"],
+                category=agr["category"],
+                start_date=agr["start_date"],
+                end_date=agr["end_date"],
+                is_active=bool(agr["is_active"]),
+                note=agr["note"],
+                created_at=agr["created_at"],
+                allocations=allocs,
+            )
+        )
+
+    valid_today = [
+        a for a in agreements
+        if a.is_active and a.start_date <= today_str and (a.end_date is None or a.end_date >= today_str)
+    ]
+    if valid_today:
+        bounded = [a for a in valid_today if a.end_date is not None]
+        if bounded:
+            bounded.sort(key=lambda x: (x.start_date, x.id), reverse=True)
+            current_allocs = bounded[0].allocations
+        else:
+            open_ended = [a for a in valid_today if a.end_date is None]
+            if open_ended:
+                open_ended.sort(key=lambda x: (x.start_date, x.id), reverse=True)
+                current_allocs = open_ended[0].allocations
+            else:
+                current_allocs = valid_today[0].allocations
+    elif agreements:
+        open_ended = [a for a in agreements if a.is_active and a.end_date is None]
+        if open_ended:
+            open_ended.sort(key=lambda x: (x.start_date, x.id), reverse=True)
+            current_allocs = open_ended[0].allocations
+        else:
+            current_allocs = agreements[0].allocations
+
+    return SplitResponse(category=category, allocations=current_allocs, agreements=agreements)
+
+
 @app.get("/splits", response_model=list[SplitResponse], tags=["splits"])
-async def list_splits(db: DbDep) -> list[SplitResponse]:
-    """Return all split categories with their per-user allocation percentages."""
+async def list_splits(db: DbDep, month: str | None = None) -> list[SplitResponse]:
+    """Return all split categories with current allocations and their SCD2 historical agreement timeline."""
     async with db.execute("SELECT category FROM splits ORDER BY category") as cur:
         categories = [r["category"] async for r in cur]
     result = []
     for cat in categories:
-        async with db.execute(
-            "SELECT user_name, pct FROM split_allocations WHERE category = ? ORDER BY user_name",
-            (cat,),
-        ) as cur:
-            allocs = [AllocationEntry(user_name=r["user_name"], pct=r["pct"]) async for r in cur]
-        result.append(SplitResponse(category=cat, allocations=allocs))
+        result.append(await _fetch_split_response(cat, db, target_date=month))
     return result
 
 
@@ -1682,13 +1797,19 @@ async def create_split(split: SplitCreate, db: DbDep) -> SplitResponse:
         await db.execute("INSERT INTO splits (category) VALUES (?)", (split.category,))
     except Exception as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Category '{split.category}' already exists.") from exc
+
+    cursor = await db.execute(
+        "INSERT INTO split_agreements (category, start_date, end_date, is_active, note) VALUES (?, '2000-01-01', NULL, 1, 'Baseline')",
+        (split.category,)
+    )
+    agreement_id = cursor.lastrowid
     for alloc in split.allocations:
         await db.execute(
-            "INSERT INTO split_allocations (category, user_name, pct) VALUES (?, ?, ?)",
-            (split.category, alloc.user_name, alloc.pct),
+            "INSERT INTO split_allocations (agreement_id, category, user_name, pct) VALUES (?, ?, ?, ?)",
+            (agreement_id, split.category, alloc.user_name, alloc.pct),
         )
     await db.commit()
-    return SplitResponse(category=split.category, allocations=split.allocations)
+    return await _fetch_split_response(split.category, db)
 
 
 @app.put("/splits/{category}", response_model=SplitResponse, tags=["splits"])
@@ -1696,14 +1817,171 @@ async def update_split(category: str, update: SplitUpdate, db: DbDep) -> SplitRe
     async with db.execute("SELECT category FROM splits WHERE category = ?", (category,)) as cur:
         if await cur.fetchone() is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Category '{category}' not found.")
-    await db.execute("DELETE FROM split_allocations WHERE category = ?", (category,))
-    for alloc in update.allocations:
+
+    target_category = category
+    if update.category and update.category != category:
+        async with db.execute("SELECT category FROM splits WHERE category = ?", (update.category,)) as cur:
+            if await cur.fetchone() is not None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Category '{update.category}' already exists.")
+        await db.execute("UPDATE splits SET category = ? WHERE category = ?", (update.category, category))
+        target_category = update.category
+
+    if update.allocations is not None:
+        async with db.execute(
+            "SELECT id FROM split_agreements WHERE category = ? AND end_date IS NULL ORDER BY id LIMIT 1",
+            (target_category,)
+        ) as cur:
+            row = await cur.fetchone()
+
+        if row:
+            agr_id = row["id"]
+            await db.execute("DELETE FROM split_allocations WHERE agreement_id = ?", (agr_id,))
+        else:
+            cursor = await db.execute(
+                "INSERT INTO split_agreements (category, start_date, end_date, is_active, note) VALUES (?, '2000-01-01', NULL, 1, 'Baseline')",
+                (target_category,)
+            )
+            agr_id = cursor.lastrowid
+
+        for alloc in update.allocations:
+            await db.execute(
+                "INSERT INTO split_allocations (agreement_id, category, user_name, pct) VALUES (?, ?, ?, ?)",
+                (agr_id, target_category, alloc.user_name, alloc.pct),
+            )
+
+    await db.commit()
+    return await _fetch_split_response(target_category, db)
+
+
+@app.delete("/splits/{category}", status_code=status.HTTP_204_NO_CONTENT, tags=["splits"])
+async def delete_split(category: str, db: DbDep) -> None:
+    """Hard-delete an expense category if not referenced by expenses or recurring rules."""
+    async with db.execute("SELECT category FROM splits WHERE category = ?", (category,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Category '{category}' not found.")
+
+    async with db.execute("SELECT 1 FROM expenses WHERE category = ? LIMIT 1", (category,)) as cur:
+        has_expenses = await cur.fetchone() is not None
+    async with db.execute("SELECT 1 FROM recurring_expenses WHERE category = ? LIMIT 1", (category,)) as cur:
+        has_recurring = await cur.fetchone() is not None
+
+    if has_expenses or has_recurring:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                f"Category '{category}' is referenced by existing transactions or recurring expenses and cannot be deleted. "
+                "Reclassify or delete those transactions first, or rename the category instead."
+            ),
+        )
+
+    await db.execute("DELETE FROM splits WHERE category = ?", (category,))
+    await db.commit()
+
+
+@app.post("/splits/{category}/agreements", response_model=SplitAgreementResponse, status_code=status.HTTP_201_CREATED, tags=["splits"])
+async def create_split_agreement(category: str, agreement: SplitAgreementCreate, db: DbDep) -> SplitAgreementResponse:
+    """Create a temporary override or new timeline split agreement for a category."""
+    async with db.execute("SELECT category FROM splits WHERE category = ?", (category,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Category '{category}' not found.")
+
+    cursor = await db.execute(
+        """
+        INSERT INTO split_agreements (category, start_date, end_date, is_active, note)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (category, agreement.start_date, agreement.end_date, int(agreement.is_active), agreement.note)
+    )
+    agr_id = cursor.lastrowid
+    for alloc in agreement.allocations:
         await db.execute(
-            "INSERT INTO split_allocations (category, user_name, pct) VALUES (?, ?, ?)",
-            (category, alloc.user_name, alloc.pct),
+            """
+            INSERT INTO split_allocations (agreement_id, category, user_name, pct)
+            VALUES (?, ?, ?, ?)
+            """,
+            (agr_id, category, alloc.user_name, alloc.pct)
         )
     await db.commit()
-    return SplitResponse(category=category, allocations=update.allocations)
+
+    async with db.execute("SELECT created_at FROM split_agreements WHERE id = ?", (agr_id,)) as cur:
+        row = await cur.fetchone()
+        created_at = row["created_at"] if row else None
+
+    return SplitAgreementResponse(
+        id=agr_id,
+        category=category,
+        start_date=agreement.start_date,
+        end_date=agreement.end_date,
+        is_active=agreement.is_active,
+        note=agreement.note,
+        created_at=created_at,
+        allocations=agreement.allocations,
+    )
+
+
+@app.put("/splits/agreements/{id}", response_model=SplitAgreementResponse, tags=["splits"])
+async def update_split_agreement(id: int, update: SplitAgreementUpdate, db: DbDep) -> SplitAgreementResponse:
+    """Update a specific split agreement or temporary override."""
+    async with db.execute("SELECT id, category, start_date, end_date, is_active, note, created_at FROM split_agreements WHERE id = ?", (id,)) as cur:
+        row = await cur.fetchone()
+    if row is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Split agreement {id} not found.")
+
+    category = row["category"]
+    new_start_date = update.start_date if update.start_date is not None else row["start_date"]
+    new_end_date = update.end_date if update.end_date is not None else row["end_date"]
+    new_is_active = update.is_active if update.is_active is not None else bool(row["is_active"])
+    new_note = update.note if update.note is not None else row["note"]
+
+    if new_end_date is not None and new_end_date < new_start_date:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="end_date cannot be earlier than start_date")
+
+    await db.execute(
+        """
+        UPDATE split_agreements
+        SET start_date = ?, end_date = ?, is_active = ?, note = ?
+        WHERE id = ?
+        """,
+        (new_start_date, new_end_date, int(new_is_active), new_note, id)
+    )
+
+    if update.allocations is not None:
+        await db.execute("DELETE FROM split_allocations WHERE agreement_id = ?", (id,))
+        for alloc in update.allocations:
+            await db.execute(
+                """
+                INSERT INTO split_allocations (agreement_id, category, user_name, pct)
+                VALUES (?, ?, ?, ?)
+                """,
+                (id, category, alloc.user_name, alloc.pct)
+            )
+        allocations = update.allocations
+    else:
+        async with db.execute("SELECT user_name, pct FROM split_allocations WHERE agreement_id = ? ORDER BY user_name", (id,)) as cur:
+            allocations = [AllocationEntry(user_name=r["user_name"], pct=r["pct"]) async for r in cur]
+
+    await db.commit()
+    return SplitAgreementResponse(
+        id=id,
+        category=category,
+        start_date=new_start_date,
+        end_date=new_end_date,
+        is_active=new_is_active,
+        note=new_note,
+        created_at=row["created_at"],
+        allocations=allocations,
+    )
+
+
+@app.delete("/splits/agreements/{id}", status_code=status.HTTP_204_NO_CONTENT, tags=["splits"])
+async def delete_split_agreement(id: int, db: DbDep) -> None:
+    """Delete a split agreement / temporary override."""
+    async with db.execute("SELECT id FROM split_agreements WHERE id = ?", (id,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=f"Split agreement {id} not found.")
+
+    await db.execute("DELETE FROM split_agreements WHERE id = ?", (id,))
+    await db.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -1837,12 +2115,29 @@ async def get_paybacks(
     from datetime import date as _date
     target_month = month or _date.today().strftime("%Y-%m")
 
-    # 1. Load split allocations: {category: {user_name: pct}}
-    async with db.execute("SELECT category, user_name, pct FROM split_allocations") as cur:
-        alloc_rows = await cur.fetchall()
+    # 1. Load split agreements & allocations: {category: [agreements]}
+    async with db.execute(
+        "SELECT id, category, start_date, end_date FROM split_agreements WHERE is_active = 1 ORDER BY start_date DESC, id DESC"
+    ) as cur:
+        agr_rows = await cur.fetchall()
+
+    agr_allocs: dict[int, dict[str, float]] = {}
     splits_dict: dict[str, dict[str, float]] = {}
+    async with db.execute("SELECT agreement_id, category, user_name, pct FROM split_allocations") as cur:
+        alloc_rows = await cur.fetchall()
     for r in alloc_rows:
+        if r["agreement_id"] is not None:
+            agr_allocs.setdefault(r["agreement_id"], {})[r["user_name"]] = r["pct"]
         splits_dict.setdefault(r["category"], {})[r["user_name"]] = r["pct"]
+
+    agreements_by_cat: dict[str, list[dict]] = {}
+    for r in agr_rows:
+        agreements_by_cat.setdefault(r["category"], []).append({
+            "id": r["id"],
+            "start_date": r["start_date"],
+            "end_date": r["end_date"],
+            "allocations": agr_allocs.get(r["id"], {}),
+        })
 
     # 2. Load joint-account categories to exclude from paybacks
     async with db.execute("SELECT category FROM joint_account_categories") as cur:
@@ -1851,7 +2146,7 @@ async def get_paybacks(
 
     # 3. Load expenses for target month (excluding joint-account categories and is_joint expenses)
     async with db.execute(
-        "SELECT id, name, cost_cents, who_paid, category, is_joint FROM expenses WHERE strftime('%Y-%m', expense_date) = ?",
+        "SELECT id, name, cost_cents, who_paid, category, is_joint, expense_date FROM expenses WHERE strftime('%Y-%m', expense_date) = ?",
         (target_month,),
     ) as cur:
         expense_rows = await cur.fetchall()
@@ -1895,6 +2190,8 @@ async def get_paybacks(
     all_users: set[str] = {e["who_paid"] for e in expenses}
     for cat_alloc in splits_dict.values():
         all_users.update(cat_alloc.keys())
+    for agr_map in agr_allocs.values():
+        all_users.update(agr_map.keys())
     if income_weights:
         all_users.update(income_weights.keys())
 
@@ -1916,6 +2213,7 @@ async def get_paybacks(
         payer = e["who_paid"]
         cost  = e["cost_cents"]
         eid   = e["id"]
+        exp_date = e.get("expense_date", f"{target_month}-01")
         base_cat = cat.rsplit(" ", 1)[0]
 
         # Determine effective split for this expense
@@ -1926,7 +2224,13 @@ async def get_paybacks(
         elif (cat in dynamic_cats_set or base_cat in dynamic_cats_set) and income_weights:
             eff_split = income_weights
         else:
-            eff_split = splits_dict.get(cat) or splits_dict.get(base_cat) or {}
+            eff_split = (
+                _resolve_category_split(cat, exp_date, agreements_by_cat)
+                or _resolve_category_split(base_cat, exp_date, agreements_by_cat)
+                or splits_dict.get(cat)
+                or splits_dict.get(base_cat)
+                or {}
+            )
             if not eff_split:
                 n = len(all_users) or 1
                 eff_split = {u: round(100.0 / n, 4) for u in all_users}
@@ -2128,6 +2432,23 @@ async def create_income_category(payload: IncomeCategoryCreate, db: DbDep) -> In
             detail=f"Income category already exists.",
         ) from exc
     await db.commit()
+    return IncomeCategoryResponse(category=payload.category)
+
+
+@app.put("/income-categories/{category}", response_model=IncomeCategoryResponse, tags=["income"])
+async def update_income_category(category: str, payload: IncomeCategoryUpdate, db: DbDep) -> IncomeCategoryResponse:
+    """Update / rename an income category and reclassify existing income ledger records."""
+    async with db.execute("SELECT category FROM income_categories WHERE category = ?", (category,)) as cur:
+        if await cur.fetchone() is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Income category not found.")
+
+    if payload.category != category:
+        async with db.execute("SELECT category FROM income_categories WHERE category = ?", (payload.category,)) as cur:
+            if await cur.fetchone() is not None:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"Income category '{payload.category}' already exists.")
+        await db.execute("UPDATE income_categories SET category = ? WHERE category = ?", (payload.category, category))
+        await db.execute("UPDATE income SET category = ? WHERE category = ?", (payload.category, category))
+        await db.commit()
     return IncomeCategoryResponse(category=payload.category)
 
 

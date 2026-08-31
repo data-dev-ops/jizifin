@@ -188,54 +188,341 @@
     }
   }
 
-  async function handleRemoveIncomeCategory(name) {
-    deletingIncomeCat = name;
+  // ── Rename Category Modal State ───────────────────────────────────────────
+  let showRenameModal = false;
+  let renameCategoryTarget = '';
+  let renameCategoryNewName = '';
+  let renameCategoryType = 'expense'; // 'expense' | 'income'
+  let renameCategoryLoading = false;
+  let renameCategoryError = '';
+
+  function openRenameModal(name, type = 'expense') {
+    renameCategoryTarget = name;
+    renameCategoryNewName = name;
+    renameCategoryType = type;
+    renameCategoryError = '';
+    showRenameModal = true;
+  }
+
+  function closeRenameModal() {
+    showRenameModal = false;
+    renameCategoryTarget = '';
+    renameCategoryNewName = '';
+    renameCategoryError = '';
+  }
+
+  async function handleRenameCategory() {
+    const trimmed = renameCategoryNewName.trim().toUpperCase();
+    if (!trimmed) {
+      renameCategoryError = 'Category name cannot be empty.';
+      return;
+    }
+    if (trimmed === renameCategoryTarget) {
+      closeRenameModal();
+      return;
+    }
+    renameCategoryLoading = true;
+    renameCategoryError = '';
     try {
-      await api.deleteIncomeCategory(name);
+      if (renameCategoryType === 'expense') {
+        await api.renameSplit(renameCategoryTarget, trimmed);
+        if (editValues[renameCategoryTarget]) {
+          editValues[trimmed] = { ...editValues[renameCategoryTarget] };
+          delete editValues[renameCategoryTarget];
+          editValues = { ...editValues };
+        }
+      } else {
+        await api.updateIncomeCategory(renameCategoryTarget, trimmed);
+      }
+      closeRenameModal();
     } catch (err) {
-      console.error(err);
+      renameCategoryError = err.message || 'Failed to rename category.';
     } finally {
-      deletingIncomeCat = '';
+      renameCategoryLoading = false;
     }
   }
 
-  // ── Per-row edit state ─────────────────────────────────────────────────────
+  // ── Delete Category Modal State ───────────────────────────────────────────
+  let showDeleteModal = false;
+  let deleteCategoryTarget = '';
+  let deleteCategoryType = 'expense'; // 'expense' | 'income'
+  let deleteCategoryLoading = false;
+  let deleteCategoryError = '';
+
+  function openDeleteModal(name, type = 'expense') {
+    deleteCategoryTarget = name;
+    deleteCategoryType = type;
+    deleteCategoryError = '';
+    showDeleteModal = true;
+  }
+
+  function closeDeleteModal() {
+    showDeleteModal = false;
+    deleteCategoryTarget = '';
+    deleteCategoryError = '';
+  }
+
+  async function handleConfirmDeleteCategory() {
+    deleteCategoryLoading = true;
+    deleteCategoryError = '';
+    try {
+      if (deleteCategoryType === 'expense') {
+        await api.deleteSplit(deleteCategoryTarget);
+        if (editValues[deleteCategoryTarget]) {
+          delete editValues[deleteCategoryTarget];
+          editValues = { ...editValues };
+        }
+      } else {
+        await api.deleteIncomeCategory(deleteCategoryTarget);
+      }
+      closeDeleteModal();
+    } catch (err) {
+      deleteCategoryError = err.message || 'Failed to delete category.';
+    } finally {
+      deleteCategoryLoading = false;
+    }
+  }
+
+  // ── SCD2 Split Timeline & Temporary Override State ──────────────────────────
+  let expandedTimelines = {};
+  let showOverrideModal = false;
+  let overrideModalMode = 'create'; // 'create' | 'edit'
+  let overrideId = null;
+  let overrideCategory = '';
+  let overrideStartDate = '';
+  let overrideEndDate = '';
+  let overrideNote = '';
+  let overrideAllocations = {};
+  let overrideLoading = false;
+  let overrideError = '';
+
+  function toggleTimeline(category) {
+    expandedTimelines[category] = !expandedTimelines[category];
+    expandedTimelines = { ...expandedTimelines };
+  }
+
+  function openCreateOverrideModal(category) {
+    overrideModalMode = 'create';
+    overrideId = null;
+    overrideCategory = category;
+    const now = new Date();
+    const startStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    const lastDay = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+    const endStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(lastDay).padStart(2, '0')}`;
+    overrideStartDate = startStr;
+    overrideEndDate = endStr;
+    overrideNote = '';
+
+    const base = editValues[category] || {};
+    const allocs = {};
+    for (const u of activeUsers) {
+      allocs[u.name] = base[u.name] || '0';
+    }
+    overrideAllocations = allocs;
+    overrideError = '';
+    showOverrideModal = true;
+  }
+
+  function openEditOverrideModal(agreement) {
+    overrideModalMode = 'edit';
+    overrideId = agreement.id;
+    overrideCategory = agreement.category;
+    overrideStartDate = agreement.start_date;
+    overrideEndDate = agreement.end_date || '';
+    overrideNote = agreement.note || '';
+
+    const allocs = {};
+    for (const u of activeUsers) {
+      const found = (agreement.allocations || []).find((a) => a.user_name === u.name);
+      allocs[u.name] = found ? String(Math.round(found.pct)) : '0';
+    }
+    overrideAllocations = allocs;
+    overrideError = '';
+    showOverrideModal = true;
+  }
+
+  function closeOverrideModal() {
+    showOverrideModal = false;
+    overrideId = null;
+    overrideCategory = '';
+    overrideError = '';
+  }
+
+  function overrideSum() {
+    return Number(Object.values(overrideAllocations).reduce((acc, v) => acc + (parseFloat(v) || 0), 0).toFixed(2));
+  }
+
+  async function handleSaveOverride() {
+    if (!overrideStartDate) {
+      overrideError = 'Start date is required.';
+      return;
+    }
+    if (overrideEndDate && overrideEndDate < overrideStartDate) {
+      overrideError = 'End date cannot be earlier than start date.';
+      return;
+    }
+    const sum = overrideSum();
+    if (Math.abs(sum - 100) >= 0.05) {
+      overrideError = `Total allocation must equal 100% (currently ${sum}%).`;
+      return;
+    }
+
+    overrideLoading = true;
+    overrideError = '';
+    try {
+      const payload = {
+        category: overrideCategory,
+        start_date: overrideStartDate,
+        end_date: overrideEndDate || null,
+        is_active: true,
+        note: overrideNote.trim() || null,
+        allocations: activeUsers.map((u) => ({
+          user_name: u.name,
+          pct: parseFloat(overrideAllocations[u.name] || '0')
+        }))
+      };
+
+      if (overrideModalMode === 'create') {
+        await api.createSplitAgreement(overrideCategory, payload);
+      } else {
+        await api.updateSplitAgreement(overrideId, payload, overrideCategory);
+      }
+      closeOverrideModal();
+    } catch (err) {
+      overrideError = err.message || 'Failed to save split override.';
+    } finally {
+      overrideLoading = false;
+    }
+  }
+
+  async function handleDeleteOverride(id, category) {
+    if (!confirm('Are you sure you want to remove this temporary split override?')) return;
+    try {
+      await api.deleteSplitAgreement(id, category);
+    } catch (err) {
+      alert(err.message || 'Failed to delete split agreement.');
+    }
+  }
+
+  // ── Per-row edit state & SCD2 Month-Aware Agreement Resolution ───────────
   /** { [category]: { [userName]: pctString } } */
   let editValues = {};
   let saving = {};
   let rowError = {};
   let rowSuccess = {};
+  let lastEvaluatedMonth = null;
+  let lastEvaluatedSplitsKey = '';
 
-  function initEditValues(split) {
-    if (split.category in editValues) return;
-    const storedAllocs = split.allocations ?? [];
-    const entry = {};
-
-    if (storedAllocs.length > 0) {
-      for (const alloc of storedAllocs) {
-        entry[alloc.user_name] = String(Math.round(alloc.pct));
-      }
-      for (const u of activeUsers) {
-        if (!(u.name in entry)) entry[u.name] = '0';
-      }
-    } else {
-      const n = activeUsers.length;
-      if (n > 0) {
-        const exact = 100 / n;
-        const floor = Math.floor(exact);
-        const sumFloors = floor * n;
-        const extra = 100 - sumFloors;
-        activeUsers.forEach((u, idx) => {
-          entry[u.name] = String(floor + (idx < extra ? 1 : 0));
-        });
-      }
+  /**
+   * Resolves the effective split agreement for a given category and targetMonth (YYYY-MM).
+   */
+  export function getEffectiveSplitAgreement(split, targetMonth) {
+    if (!split) return null;
+    const agrs = split.agreements || [];
+    if (!targetMonth || targetMonth === 'ALL') {
+      const baseline = agrs.find((a) => a.is_active && a.end_date === null);
+      if (baseline) return { ...baseline, is_override: false };
+      return agrs[0] ? { ...agrs[0], is_override: agrs[0].end_date !== null } : null;
     }
 
-    editValues[split.category] = entry;
+    const monthStart = `${targetMonth}-01`;
+    const monthEnd = `${targetMonth}-31`;
+
+    const validAgrs = agrs.filter(
+      (a) => a.is_active && a.start_date <= monthEnd && (a.end_date === null || a.end_date >= monthStart)
+    );
+
+    // Priority 1: Bounded temporary overrides covering targetMonth
+    const bounded = validAgrs
+      .filter((a) => a.end_date !== null)
+      .sort((a, b) => b.start_date.localeCompare(a.start_date) || b.id - a.id);
+
+    if (bounded.length > 0) {
+      return { ...bounded[0], is_override: true };
+    }
+
+    // Priority 2: Baseline open-ended agreement
+    const openEnded = validAgrs
+      .filter((a) => a.end_date === null)
+      .sort((a, b) => b.start_date.localeCompare(a.start_date) || b.id - a.id);
+
+    if (openEnded.length > 0) {
+      return { ...openEnded[0], is_override: false };
+    }
+
+    // Priority 3: Any active baseline agreement
+    const fallbackBaseline = agrs.find((a) => a.is_active && a.end_date === null);
+    if (fallbackBaseline) return { ...fallbackBaseline, is_override: false };
+
+    return null;
   }
 
-  $: {
-    for (const s of variableSplits) initEditValues(s);
+  export function isAgreementActiveForMonth(agreement, targetMonth) {
+    if (!agreement || !agreement.is_active) return false;
+    if (!targetMonth || targetMonth === 'ALL') return agreement.end_date === null;
+    const monthStart = `${targetMonth}-01`;
+    const monthEnd = `${targetMonth}-31`;
+    return agreement.start_date <= monthEnd && (agreement.end_date === null || agreement.end_date >= monthStart);
+  }
+
+  function getEffectiveSplitAllocations(split, targetMonth, usersList) {
+    const agreement = getEffectiveSplitAgreement(split, targetMonth);
+    const entry = {};
+
+    if (agreement && agreement.allocations && agreement.allocations.length > 0) {
+      for (const alloc of agreement.allocations) {
+        entry[alloc.user_name] = String(Math.round(alloc.pct));
+      }
+      for (const u of usersList) {
+        if (!(u.name in entry)) entry[u.name] = '0';
+      }
+      return entry;
+    }
+
+    if (split && split.allocations && split.allocations.length > 0) {
+      for (const alloc of split.allocations) {
+        entry[alloc.user_name] = String(Math.round(alloc.pct));
+      }
+      for (const u of usersList) {
+        if (!(u.name in entry)) entry[u.name] = '0';
+      }
+      return entry;
+    }
+
+    const n = usersList.length;
+    if (n > 0) {
+      const exact = 100 / n;
+      const floor = Math.floor(exact);
+      const sumFloors = floor * n;
+      const extra = 100 - sumFloors;
+      usersList.forEach((u, idx) => {
+        entry[u.name] = String(floor + (idx < extra ? 1 : 0));
+      });
+    }
+    return entry;
+  }
+
+  function computeSplitsKey(splitsList) {
+    return (splitsList || [])
+      .map((s) => `${s.category}:${(s.agreements || []).map((a) => `${a.id}-${a.start_date}-${a.end_date}-${(a.allocations || []).map((x) => x.pct).join(',')}`).join(';')}`)
+      .join('|');
+  }
+
+  function syncEditValuesForMonth(month, force = false) {
+    const currentKey = computeSplitsKey(variableSplits);
+    if (!force && month === lastEvaluatedMonth && currentKey === lastEvaluatedSplitsKey && Object.keys(editValues).length >= variableSplits.length) {
+      return;
+    }
+    for (const s of variableSplits) {
+      editValues[s.category] = getEffectiveSplitAllocations(s, month, activeUsers);
+    }
+    editValues = { ...editValues };
+    lastEvaluatedMonth = month;
+    lastEvaluatedSplitsKey = currentKey;
+  }
+
+  $: if ($selectedMonth || variableSplits) {
+    syncEditValuesForMonth($selectedMonth);
   }
 
   function rowSum(category, values) {
@@ -699,142 +986,219 @@
             {@const sum = rowSum(split.category, editValues)}
             {@const sumOk = Math.abs(sum - 100) < 0.05}
             {@const isJointCategory = jointCategorySet.has(split.category)}
+            {@const agreementsList = (split.agreements || []).filter(a => a.end_date !== null)}
+            {@const baselineAgr = (split.agreements || []).find(a => a.end_date === null) || (split.agreements || [])[0]}
+            {@const effectiveAgr = getEffectiveSplitAgreement(split, $selectedMonth)}
+            {@const hasActiveOverride = effectiveAgr?.is_override === true}
+            {@const isTimelineOpen = !!expandedTimelines[split.category]}
 
-            <div class="card p-4 sm:p-5 space-y-4 {isJointCategory ? 'border-indigo-300 dark:border-indigo-800/40 bg-indigo-50/50 dark:bg-indigo-950/10' : ''}">
-              <!-- Header Row: Category Name, Badges, Quick Subgroup Presets -->
-              <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div class="flex items-center gap-2 flex-wrap">
-                  <span class="text-sm font-bold text-neutral-900 dark:text-white px-3 py-1 rounded-xl bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700/80">
+            <div class="card p-3.5 sm:p-4 space-y-2.5 {isJointCategory ? 'border-indigo-300 dark:border-indigo-800/40 bg-indigo-50/30 dark:bg-indigo-950/10' : ''}">
+              <!-- Header Row: Category Name, Actions, Quick Presets & Save/Reset -->
+              <div class="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+                <!-- Left: Category Title, Rename, Delete, Joint Badge, Timeline Toggle -->
+                <div class="flex items-center gap-1.5 flex-wrap">
+                  <span class="text-xs sm:text-sm font-bold text-neutral-900 dark:text-white px-2.5 py-0.5 rounded-lg bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700/80">
                     {split.category}
                   </span>
+                  <button
+                    id="rename-cat-{split.category}"
+                    type="button"
+                    on:click={() => openRenameModal(split.category, 'expense')}
+                    disabled={isJointCategory}
+                    class="p-1 rounded-md text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Rename category"
+                    aria-label="Rename {split.category}"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                    </svg>
+                  </button>
+                  <button
+                    id="delete-cat-{split.category}"
+                    type="button"
+                    on:click={() => openDeleteModal(split.category, 'expense')}
+                    disabled={isJointCategory}
+                    class="p-1 rounded-md text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/50 transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                    title="Delete category"
+                    aria-label="Delete {split.category}"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                    </svg>
+                  </button>
+
                   {#if isJointCategory}
-                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg text-xs bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-700/60 font-semibold" title="Category is managed directly by the Joint Account">
-                      🏦 Joint Account (Locked)
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/60 font-semibold" title="Category is managed directly by the Joint Account">
+                      🏦 Joint Account
                     </span>
                   {/if}
+
+                  {#if hasActiveOverride}
+                    <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] bg-amber-100 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-700/80 font-bold" title="Temporary split override is active for {$selectedMonth}">
+                      ⚡ Override Active ({$selectedMonth})
+                    </span>
+                  {/if}
+
+                  <!-- Timeline & Overrides Button -->
+                  <button
+                    id="toggle-timeline-{split.category}"
+                    type="button"
+                    on:click={() => toggleTimeline(split.category)}
+                    class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold transition-colors cursor-pointer border {isTimelineOpen ? 'bg-indigo-600 text-white border-indigo-600 shadow-xs' : hasActiveOverride ? 'bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/80 hover:bg-amber-100 dark:hover:bg-amber-900' : agreementsList.length > 0 ? 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-400 border-neutral-200 dark:border-neutral-700 hover:bg-neutral-200 dark:hover:bg-neutral-700'}"
+                  >
+                    <span>📅</span>
+                    <span>{agreementsList.length > 0 ? `${agreementsList.length} override${agreementsList.length === 1 ? '' : 's'}` : 'Timeline'}</span>
+                    <svg class="w-3 h-3 transition-transform {isTimelineOpen ? 'rotate-180' : ''}" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </button>
                 </div>
 
-                <!-- Presets applied to this category -->
-                {#if !isJointCategory}
-                  <div class="flex items-center gap-1.5 flex-wrap">
-                    <span class="text-[10px] text-neutral-500 uppercase tracking-wider font-semibold mr-1">Quick Apply:</span>
-                    <button
-                      type="button"
-                      on:click={() => applyEvenSplit(split.category)}
-                      class="px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-xs font-medium transition-colors cursor-pointer border border-neutral-200 dark:border-transparent"
-                      title="Split evenly among all members"
-                    >
-                      Even ({Math.floor(100 / activeUsers.length)}%)
-                    </button>
-                    {#each $jointAccounts || [] as acc}
-                      {#if acc.member_names && acc.member_names.length > 0 && acc.member_names.length < activeUsers.length}
+                <!-- Right: Quick Presets & Save/Reset Actions -->
+                <div class="flex items-center gap-1.5 flex-wrap justify-start lg:justify-end">
+                  {#if !isJointCategory && activeUsers.length > 0}
+                    <div class="flex items-center gap-1 flex-wrap">
+                      <span class="text-[10px] text-neutral-400 uppercase tracking-wider font-semibold mr-0.5">Quick:</span>
+                      <button
+                        type="button"
+                        on:click={() => applyEvenSplit(split.category)}
+                        class="px-2 py-0.5 rounded-md bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 text-neutral-700 dark:text-neutral-300 text-[11px] font-medium transition-colors cursor-pointer border border-neutral-200 dark:border-transparent"
+                        title="Split evenly among all members"
+                      >
+                        Even ({Math.floor(100 / activeUsers.length)}%)
+                      </button>
+                      {#each $jointAccounts || [] as acc}
+                        {#if acc.member_names && acc.member_names.length > 0 && acc.member_names.length < activeUsers.length}
+                          <button
+                            type="button"
+                            on:click={() => applySubgroupSplit(split.category, acc.member_names, 'even')}
+                            class="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 text-[11px] font-medium transition-colors cursor-pointer"
+                            title="Split among {acc.name} members ({acc.member_names.join(' & ')})"
+                          >
+                            🏦 {acc.name} ({acc.member_names.join('+')})
+                          </button>
+                        {/if}
+                      {/each}
+                      {#if customSelectedUsers.length < activeUsers.length && customSelectedUsers.length > 0 && selectedSubgroupMode === 'custom'}
                         <button
                           type="button"
-                          on:click={() => applySubgroupSplit(split.category, acc.member_names, 'even')}
-                          class="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/70 hover:bg-indigo-100 dark:hover:bg-indigo-900/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800/50 text-xs font-medium transition-colors cursor-pointer"
-                          title="Split among {acc.name} members ({acc.member_names.join(' & ')})"
+                          on:click={() => applySubgroupSplit(split.category, customSelectedUsers, 'even')}
+                          class="px-2 py-0.5 rounded-md bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-[11px] font-medium transition-colors cursor-pointer"
+                          title="Split equally among active selected subgroup ({customSelectedUsers.join(' & ')})"
                         >
-                          🏦 {acc.name} ({acc.member_names.join('+')})
+                          Subgroup ({customSelectedUsers.join('+')})
                         </button>
                       {/if}
-                    {/each}
-                    {#if customSelectedUsers.length < activeUsers.length && customSelectedUsers.length > 0 && selectedSubgroupMode === 'custom'}
-                      <button
-                        type="button"
-                        on:click={() => applySubgroupSplit(split.category, customSelectedUsers, 'even')}
-                        class="px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950 hover:bg-indigo-100 dark:hover:bg-indigo-900 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800 text-xs font-medium transition-colors cursor-pointer"
-                        title="Split equally among active selected subgroup ({customSelectedUsers.join(' & ')})"
-                      >
-                        Subgroup ({customSelectedUsers.join('+')})
-                      </button>
-                    {/if}
-                    {#if totalSalary > 0}
-                      <button
-                        type="button"
-                        on:click={() => resetToSalary(split.category)}
-                        class="px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-neutral-800 hover:bg-amber-100 dark:hover:bg-neutral-700 text-amber-800 dark:text-amber-300 text-xs font-medium transition-colors cursor-pointer border border-amber-200 dark:border-transparent"
-                        title="Distribute proportionally to monthly salary ratios"
-                      >
-                        Salary Ratio
-                      </button>
-                    {/if}
+                      {#if totalSalary > 0}
+                        <button
+                          type="button"
+                          on:click={() => resetToSalary(split.category)}
+                          class="px-2 py-0.5 rounded-md bg-amber-50 dark:bg-neutral-800 hover:bg-amber-100 dark:hover:bg-neutral-700 text-amber-800 dark:text-amber-300 text-[11px] font-medium transition-colors cursor-pointer border border-amber-200 dark:border-transparent"
+                          title="Distribute proportionally to monthly salary ratios"
+                        >
+                          Salary Ratio
+                        </button>
+                      {/if}
+                    </div>
+                  {/if}
+
+                  <!-- Reset & Save Buttons -->
+                  <div class="flex items-center gap-1.5 ml-auto lg:ml-2">
+                    <button
+                      id="reset-split-{split.category}"
+                      type="button"
+                      on:click={() => resetToSalary(split.category)}
+                      disabled={isJointCategory || totalSalary === 0}
+                      class="px-2.5 py-1 rounded-lg text-xs font-semibold text-neutral-600 dark:text-neutral-300 bg-neutral-100 dark:bg-neutral-800 hover:bg-neutral-200 dark:hover:bg-neutral-700 disabled:opacity-40 transition-colors cursor-pointer border border-neutral-200 dark:border-neutral-700"
+                      title="Reset to salary ratio"
+                    >
+                      Reset
+                    </button>
+                    <button
+                      id="save-split-{split.category}"
+                      type="button"
+                      on:click={() => save(split.category)}
+                      disabled={isJointCategory || saving[split.category] || !sumOk}
+                      class="px-3 py-1 rounded-lg text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 active:bg-indigo-800 disabled:opacity-40 transition-all shadow-xs cursor-pointer"
+                    >
+                      {saving[split.category] ? 'Saving…' : 'Save Agreement'}
+                    </button>
                   </div>
-                {/if}
+                </div>
               </div>
 
-              <!-- Visual Split Percentage Bar -->
-              <div class="space-y-1.5">
-                <div class="h-2.5 w-full bg-neutral-200 dark:bg-neutral-950 rounded-full overflow-hidden flex shadow-inner">
+              <!-- Row 2: Visual Distribution Bar & Status / Legend -->
+              <div class="space-y-1">
+                <div class="h-2 w-full bg-neutral-200 dark:bg-neutral-950 rounded-full overflow-hidden flex shadow-inner">
                   {#each activeUsers as u}
-                    {@const pctVal = parseFloat(editValues[split.category][u.name] || '0')}
+                    {@const pctVal = parseFloat(editValues[split.category]?.[u.name] || '0')}
                     {#if pctVal > 0}
                       <div
-                        class="h-full transition-all duration-300"
+                        class="h-full transition-all duration-200"
                         style="width: {pctVal}%; background-color: {u.color}"
                         title="{u.name}: {pctVal}%"
                       ></div>
                     {/if}
                   {/each}
                 </div>
-                <div class="flex justify-between items-center text-[11px] text-neutral-500 dark:text-neutral-400">
+                <div class="flex items-center justify-between text-[11px] text-neutral-500 dark:text-neutral-400">
                   <div class="flex items-center gap-3 flex-wrap">
                     {#each activeUsers as u}
-                      {@const pctVal = parseFloat(editValues[split.category][u.name] || '0')}
+                      {@const pctVal = parseFloat(editValues[split.category]?.[u.name] || '0')}
                       <span class="inline-flex items-center gap-1 font-semibold {pctVal > 0 ? '' : 'opacity-40'}">
-                        <span class="w-2.5 h-2.5 rounded-full" style="background-color: {u.color}"></span>
-                        <span style="color: {u.color}">{u.name}: {pctVal}%</span>
+                        <span class="w-2 h-2 rounded-full" style="background-color: {u.color}"></span>
+                        <span style="color: {u.color}">{u.name}:</span>
+                        <span class="tabular-nums font-bold text-neutral-800 dark:text-neutral-200">{pctVal}%</span>
                       </span>
                     {/each}
                   </div>
-                  <span class="font-bold tabular-nums {sumOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
-                    Total: {sum}%
-                  </span>
+
+                  <div class="flex items-center gap-2">
+                    {#if rowSuccess[split.category]}
+                      <span class="text-[11px] text-emerald-600 dark:text-emerald-400 font-semibold">✓ Saved</span>
+                    {/if}
+                    {#if rowError[split.category]}
+                      <span class="text-[11px] text-rose-700 dark:text-red-400 font-medium">{rowError[split.category]}</span>
+                    {/if}
+                    <span class="font-bold tabular-nums {sumOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
+                      Total: {sum}%
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <!-- Input Controls Row / Slider Row -->
+              <!-- Row 3: Compact Interactive Inputs / Slider -->
               {#if $splitInputMode === 'slider' && activeUsers.length === 2}
-                <!-- 2-User Slider Mode -->
-                {@const sliderVal = Math.round(parseFloat(editValues[split.category][activeUsers[0].name] || '0'))}
-                <div class="flex items-center gap-3 pt-2">
-                  <div class="flex-1">
-                    <input
-                      id="slider-{split.category}"
-                      type="range"
-                      min="0"
-                      max="100"
-                      step="1"
-                      value={sliderVal}
-                      disabled={isJointCategory}
-                      on:input={(e) => {
-                        const val = Math.round(parseFloat(e.target.value));
-                        editValues[split.category][activeUsers[0].name] = String(val);
-                        editValues[split.category][activeUsers[1].name] = String(100 - val);
-                        editValues = { ...editValues };
-                      }}
-                      class="w-full h-2.5 rounded-full cursor-pointer slider-split disabled:opacity-40"
-                      style="background: linear-gradient(to right, {activeUsers[0].color} {sliderVal}%, {activeUsers[1].color} {sliderVal}%)"
-                    />
-                  </div>
+                {@const sliderVal = Math.round(parseFloat(editValues[split.category]?.[activeUsers[0].name] || '0'))}
+                <div class="flex items-center gap-2.5 pt-0.5">
+                  <span class="text-xs font-bold tabular-nums min-w-[32px]" style="color: {activeUsers[0].color}">{sliderVal}%</span>
+                  <input
+                    id="slider-{split.category}"
+                    type="range"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={sliderVal}
+                    disabled={isJointCategory}
+                    on:input={(e) => {
+                      const val = Math.round(parseFloat(e.target.value));
+                      editValues[split.category][activeUsers[0].name] = String(val);
+                      editValues[split.category][activeUsers[1].name] = String(100 - val);
+                      editValues = { ...editValues };
+                    }}
+                    class="flex-1 h-2 rounded-full cursor-pointer slider-split disabled:opacity-40"
+                    style="background: linear-gradient(to right, {activeUsers[0].color} {sliderVal}%, {activeUsers[1].color} {sliderVal}%)"
+                  />
+                  <span class="text-xs font-bold tabular-nums min-w-[32px] text-right" style="color: {activeUsers[1].color}">{100 - sliderVal}%</span>
                 </div>
-              {:else}
-                <!-- Multi-User Inputs Grid -->
-                <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 pt-2">
+              {:else if activeUsers.length > 0}
+                <!-- Compact multi-user input strip -->
+                <div class="flex items-center gap-2 flex-wrap pt-0.5">
                   {#each activeUsers as u}
-                    <div class="bg-neutral-50 dark:bg-neutral-950/70 p-2.5 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-1.5">
-                      <div class="flex items-center justify-between text-xs">
-                        <span class="font-semibold" style="color: {u.color}">{u.name}</span>
-                        <button
-                          type="button"
-                          on:click={() => setSinglePayer(split.category, u.name)}
-                          disabled={isJointCategory}
-                          class="text-[10px] text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors"
-                          title="Assign 100% to {u.name}"
-                        >
-                          100%
-                        </button>
-                      </div>
-                      <div class="relative">
+                    <div class="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs">
+                      <span class="w-2 h-2 rounded-full shrink-0" style="background-color: {u.color}"></span>
+                      <span class="font-semibold text-[11px] truncate max-w-[80px]" style="color: {u.color}">{u.name}</span>
+                      <div class="relative w-14">
                         <input
                           id="split-{u.name}-{split.category}"
                           type="number"
@@ -843,49 +1207,130 @@
                           step="1"
                           disabled={isJointCategory}
                           bind:value={editValues[split.category][u.name]}
-                          class="w-full bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700/80 rounded-lg px-2.5 py-1.5 text-sm font-semibold tabular-nums text-neutral-900 dark:text-neutral-100 disabled:opacity-40 focus:outline-none focus:ring-1"
+                          class="w-full bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded px-1.5 py-0.5 text-xs font-bold tabular-nums text-neutral-900 dark:text-neutral-100 disabled:opacity-40 focus:outline-none focus:ring-1 text-center"
                           style="--tw-ring-color: {u.color}"
                         />
-                        <span class="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-neutral-500 font-bold">%</span>
                       </div>
+                      <span class="text-[10px] text-neutral-400 font-bold">%</span>
+                      <button
+                        type="button"
+                        on:click={() => setSinglePayer(split.category, u.name)}
+                        disabled={isJointCategory}
+                        class="text-[10px] text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 px-1 py-0.5 rounded hover:bg-neutral-200 dark:hover:bg-neutral-800 transition-colors disabled:opacity-30 cursor-pointer"
+                        title="Assign 100% to {u.name}"
+                      >
+                        100%
+                      </button>
                     </div>
                   {/each}
                 </div>
               {/if}
 
-              <!-- Actions & Status Notifications -->
-              <div class="flex items-center justify-between pt-2 border-t border-neutral-200 dark:border-neutral-800/80">
-                <div>
-                  {#if rowSuccess[split.category]}
-                    <span class="text-xs text-emerald-600 dark:text-emerald-400 font-semibold">✓ Agreement Saved Successfully</span>
-                  {/if}
-                  {#if rowError[split.category]}
-                    <span class="text-xs text-rose-700 dark:text-red-400">{rowError[split.category]}</span>
-                  {/if}
-                </div>
+              <!-- Row 4: Timeline Accordion Tray (only when expanded) -->
+              {#if isTimelineOpen}
+                <div class="pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 space-y-2">
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs font-bold text-neutral-700 dark:text-neutral-300 flex items-center gap-1.5">
+                      <span>📅</span> Split Agreements Timeline
+                    </span>
+                    <button
+                      id="add-override-btn-{split.category}"
+                      type="button"
+                      on:click={() => openCreateOverrideModal(split.category)}
+                      disabled={isJointCategory}
+                      class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] font-semibold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900 border border-indigo-200 dark:border-indigo-800/60 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <span>+</span>
+                      <span>Add Temporary Override</span>
+                    </button>
+                  </div>
 
-                <div class="flex items-center gap-2">
-                  <button
-                    id="reset-split-{split.category}"
-                    type="button"
-                    on:click={() => resetToSalary(split.category)}
-                    disabled={isJointCategory || totalSalary === 0}
-                    class="btn-secondary py-1.5 text-xs"
-                    title="Reset to salary ratio"
-                  >
-                    Reset
-                  </button>
-                  <button
-                    id="save-split-{split.category}"
-                    type="button"
-                    on:click={() => save(split.category)}
-                    disabled={isJointCategory || saving[split.category] || !sumOk}
-                    class="btn-primary py-1.5 text-xs"
-                  >
-                    {saving[split.category] ? 'Saving…' : 'Save Agreement'}
-                  </button>
+                  <!-- Baseline Info -->
+                  <div class="flex items-center justify-between p-2 rounded-lg bg-neutral-100 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 text-xs">
+                    <div class="flex items-center gap-2">
+                      <span class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300">
+                        Baseline
+                      </span>
+                      <span class="text-neutral-500 font-mono text-[11px]">Ongoing (Default)</span>
+                      {#if !hasActiveOverride}
+                        <span class="px-1.5 py-0.2 rounded text-[10px] font-semibold bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
+                          ✓ Active in {$selectedMonth || 'current period'}
+                        </span>
+                      {/if}
+                    </div>
+                    <div class="flex items-center gap-2.5">
+                      {#each activeUsers as u}
+                        {@const baselineAlloc = (baselineAgr?.allocations || []).find(a => a.user_name === u.name)}
+                        {@const basePct = baselineAlloc ? Math.round(baselineAlloc.pct) : Math.round(parseFloat(editValues[split.category]?.[u.name] || '0'))}
+                        <span class="font-medium text-[11px]" style="color: {u.color}">{u.name}: {basePct}%</span>
+                      {/each}
+                    </div>
+                  </div>
+
+                  <!-- Temporary Overrides List -->
+                  {#each agreementsList as agr (agr.id)}
+                    {@const isThisOverrideActive = isAgreementActiveForMonth(agr, $selectedMonth)}
+                    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-1.5 p-2 rounded-lg {isThisOverrideActive ? 'bg-indigo-50/90 dark:bg-indigo-950/40 border-indigo-300 dark:border-indigo-700' : 'bg-neutral-50 dark:bg-neutral-900/40 border-neutral-200 dark:border-neutral-800/60 opacity-90'} border text-xs">
+                      <div class="space-y-0.5">
+                        <div class="flex items-center gap-1.5 flex-wrap">
+                          <span class="px-1.5 py-0.5 rounded text-[10px] font-bold {isThisOverrideActive ? 'bg-indigo-600 text-white' : 'bg-neutral-200 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300'}">
+                            Override
+                          </span>
+                          <span class="font-mono font-semibold text-neutral-900 dark:text-white text-[11px]">
+                            {agr.start_date} → {agr.end_date || 'Ongoing'}
+                          </span>
+                          {#if isThisOverrideActive}
+                            <span class="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 border border-amber-300 dark:border-amber-800/60">
+                              ⚡ Active in {$selectedMonth}
+                            </span>
+                          {:else}
+                            <span class="px-1.5 py-0.2 rounded text-[10px] font-medium text-neutral-500 bg-neutral-100 dark:bg-neutral-800 border border-neutral-200 dark:border-neutral-700">
+                              Inactive in {$selectedMonth}
+                            </span>
+                          {/if}
+                          {#if agr.note}
+                            <span class="text-neutral-500 dark:text-neutral-400 italic text-[11px]">
+                              ({agr.note})
+                            </span>
+                          {/if}
+                        </div>
+                        <div class="flex items-center gap-2.5 flex-wrap pt-0.5">
+                          {#each activeUsers as u}
+                            {@const userAlloc = (agr.allocations || []).find(a => a.user_name === u.name)}
+                            {@const pctVal = userAlloc ? Math.round(userAlloc.pct) : 0}
+                            <span class="font-semibold text-[11px]" style="color: {u.color}">
+                              {u.name}: {pctVal}%
+                            </span>
+                          {/each}
+                        </div>
+                      </div>
+
+                      <div class="flex items-center gap-1 self-end sm:self-center">
+                        <button
+                          type="button"
+                          on:click={() => openEditOverrideModal(agr)}
+                          class="p-1 rounded text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-colors cursor-pointer"
+                          title="Edit override"
+                        >
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                          </svg>
+                        </button>
+                        <button
+                          type="button"
+                          on:click={() => handleDeleteOverride(agr.id, split.category)}
+                          class="p-1 rounded text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 transition-colors cursor-pointer"
+                          title="Delete override"
+                        >
+                          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  {/each}
                 </div>
-              </div>
+              {/if}
             </div>
           {/if}
         {/each}
@@ -952,16 +1397,40 @@
                     </td>
                   {/each}
                   <td class="py-3 px-3 text-right">
-                    <button
-                      type="button"
-                      on:click={() => {
-                        categorySearch = split.category;
-                        section = 'agreements';
-                      }}
-                      class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold"
-                    >
-                      Edit →
-                    </button>
+                    <div class="inline-flex items-center gap-2 justify-end">
+                      <button
+                        type="button"
+                        on:click={() => {
+                          categorySearch = split.category;
+                          section = 'agreements';
+                        }}
+                        class="text-xs text-indigo-600 dark:text-indigo-400 hover:underline font-semibold cursor-pointer"
+                      >
+                        Edit Split
+                      </button>
+                      <button
+                        id="matrix-rename-{split.category}"
+                        type="button"
+                        on:click={() => openRenameModal(split.category, 'expense')}
+                        disabled={isJoint}
+                        class="text-xs text-neutral-500 hover:text-indigo-600 dark:hover:text-indigo-400 p-1 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Rename category"
+                        aria-label="Rename {split.category}"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        id="matrix-delete-{split.category}"
+                        type="button"
+                        on:click={() => openDeleteModal(split.category, 'expense')}
+                        disabled={isJoint}
+                        class="text-xs text-neutral-500 hover:text-rose-600 dark:hover:text-red-400 p-1 rounded transition-colors cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                        title="Delete category"
+                        aria-label="Delete {split.category}"
+                      >
+                        🗑️
+                      </button>
+                    </div>
                   </td>
                 </tr>
               {/each}
@@ -1149,22 +1618,311 @@
         {:else}
           <div class="flex flex-wrap gap-2.5">
             {#each $incomeCategories as c (c.category)}
-              <div class="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700/80 text-xs font-semibold text-neutral-800 dark:text-neutral-200 shadow-sm">
+              <div class="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-700/80 text-xs font-semibold text-neutral-800 dark:text-neutral-200 shadow-sm">
                 <span>{c.category}</span>
+                <button
+                  id="rename-income-cat-{c.category}"
+                  type="button"
+                  on:click={() => openRenameModal(c.category, 'income')}
+                  class="w-5 h-5 rounded-lg flex items-center justify-center text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-colors cursor-pointer"
+                  title="Rename income category"
+                  aria-label="Rename {c.category}"
+                >
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+                  </svg>
+                </button>
                 <button
                   id="delete-income-cat-{c.category}"
                   type="button"
-                  on:click={() => handleRemoveIncomeCategory(c.category)}
-                  disabled={deletingIncomeCat === c.category}
-                  class="w-5 h-5 rounded-lg flex items-center justify-center text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-colors disabled:opacity-30 cursor-pointer"
+                  on:click={() => openDeleteModal(c.category, 'income')}
+                  class="w-5 h-5 rounded-lg flex items-center justify-center text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-colors cursor-pointer"
                   title="Remove income category"
+                  aria-label="Delete {c.category}"
                 >
-                  {deletingIncomeCat === c.category ? '…' : '×'}
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                  </svg>
                 </button>
               </div>
             {/each}
           </div>
         {/if}
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── Rename Category Modal ─────────────────────────────────────────────── -->
+  {#if showRenameModal}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-labelledby="rename-modal-title">
+      <div class="card w-full max-w-md p-6 space-y-4 shadow-2xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+        <div class="flex items-center justify-between">
+          <h3 id="rename-modal-title" class="text-base font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+            <span>✏️</span> Rename {renameCategoryType === 'expense' ? 'Expense' : 'Income'} Category
+          </h3>
+          <button
+            type="button"
+            on:click={closeRenameModal}
+            disabled={renameCategoryLoading}
+            class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-lg p-1 rounded-lg transition-colors cursor-pointer"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p class="text-xs text-neutral-500 dark:text-neutral-400">
+          Renaming <strong>{renameCategoryTarget}</strong> will automatically update all existing transactions, split rules, and budget limits.
+        </p>
+
+        <div>
+          <label for="rename-category-input" class="block text-xs font-semibold uppercase tracking-wider text-neutral-700 dark:text-neutral-300 mb-1.5">
+            New Category Name
+          </label>
+          <input
+            id="rename-category-input"
+            type="text"
+            bind:value={renameCategoryNewName}
+            class="input-field uppercase py-2.5 text-sm"
+            placeholder="e.g. GROCERIES & FOOD"
+            disabled={renameCategoryLoading}
+            on:keydown={(e) => e.key === 'Enter' && handleRenameCategory()}
+          />
+        </div>
+
+        {#if renameCategoryError}
+          <div class="text-rose-700 dark:text-red-400 text-xs bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800/60 rounded-xl p-3">
+            {renameCategoryError}
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            on:click={closeRenameModal}
+            disabled={renameCategoryLoading}
+            class="btn-secondary py-2 px-4 text-xs"
+          >
+            Cancel
+          </button>
+          <button
+            id="confirm-rename-btn"
+            type="button"
+            on:click={handleRenameCategory}
+            disabled={renameCategoryLoading || !renameCategoryNewName.trim()}
+            class="btn-primary py-2 px-4 text-xs"
+          >
+            {renameCategoryLoading ? 'Saving…' : 'Save Name'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ── Delete Category Confirmation Modal ─────────────────────────────────── -->
+  {#if showDeleteModal}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs" role="dialog" aria-modal="true" aria-labelledby="delete-modal-title">
+      <div class="card w-full max-w-md p-6 space-y-4 shadow-2xl border border-rose-200 dark:border-rose-900/40 bg-white dark:bg-neutral-900">
+        <div class="flex items-center justify-between">
+          <h3 id="delete-modal-title" class="text-base font-bold text-rose-600 dark:text-rose-400 flex items-center gap-2">
+            <span>🗑️</span> Remove {deleteCategoryType === 'expense' ? 'Expense' : 'Income'} Category
+          </h3>
+          <button
+            type="button"
+            on:click={closeDeleteModal}
+            disabled={deleteCategoryLoading}
+            class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-lg p-1 rounded-lg transition-colors cursor-pointer"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <p class="text-xs text-neutral-600 dark:text-neutral-300">
+          Are you sure you want to completely remove the category <strong class="text-neutral-900 dark:text-white font-bold">{deleteCategoryTarget}</strong>?
+        </p>
+
+        <p class="text-[11px] text-neutral-500 dark:text-neutral-400">
+          Note: If any expenses or recurring rules currently reference this category, deletion will be blocked to preserve data integrity.
+        </p>
+
+        {#if deleteCategoryError}
+          <div class="text-rose-700 dark:text-red-400 text-xs bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800/60 rounded-xl p-3">
+            {deleteCategoryError}
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-end gap-2.5 pt-2">
+          <button
+            type="button"
+            on:click={closeDeleteModal}
+            disabled={deleteCategoryLoading}
+            class="btn-secondary py-2 px-4 text-xs"
+          >
+            Cancel
+          </button>
+          <button
+            id="confirm-delete-category-btn"
+            type="button"
+            on:click={handleConfirmDeleteCategory}
+            disabled={deleteCategoryLoading}
+            class="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-rose-600 hover:bg-rose-700 active:bg-rose-800 transition-colors shadow-sm cursor-pointer disabled:opacity-50"
+          >
+            {deleteCategoryLoading ? 'Removing…' : 'Delete Category'}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  <!-- ═════════════════════════════════════════════════════════════════════════
+       TEMPORARY SPLIT OVERRIDE MODAL
+       ═════════════════════════════════════════════════════════════════════════ -->
+  {#if showOverrideModal}
+    {@const ovSum = overrideSum()}
+    {@const ovSumOk = Math.abs(ovSum - 100) < 0.05}
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-neutral-900/60 backdrop-blur-xs">
+      <div
+        class="bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-2xl animate-in fade-in zoom-in-95 duration-150 max-h-[90vh] overflow-y-auto"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="override-modal-title"
+      >
+        <div class="flex items-center justify-between">
+          <h3 id="override-modal-title" class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
+            <span>📅</span>
+            <span>{overrideModalMode === 'create' ? 'Add Temporary Split Override' : 'Edit Split Override'}</span>
+          </h3>
+          <button
+            type="button"
+            on:click={closeOverrideModal}
+            class="text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200 text-lg leading-none cursor-pointer"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+
+        <div class="space-y-3">
+          <div>
+            <span class="text-xs font-semibold text-neutral-500">Target Category:</span>
+            <div class="mt-1 px-3 py-1.5 rounded-xl bg-neutral-100 dark:bg-neutral-800 font-bold text-sm text-neutral-900 dark:text-white border border-neutral-200 dark:border-neutral-700">
+              {overrideCategory}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label for="override-start-date" class="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                Start Date *
+              </label>
+              <input
+                id="override-start-date"
+                type="date"
+                bind:value={overrideStartDate}
+                class="input-field text-xs py-2"
+                required
+              />
+            </div>
+            <div>
+              <label for="override-end-date" class="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+                End Date (Inclusive)
+              </label>
+              <input
+                id="override-end-date"
+                type="date"
+                bind:value={overrideEndDate}
+                class="input-field text-xs py-2"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label for="override-note" class="block text-xs font-semibold text-neutral-700 dark:text-neutral-300 mb-1">
+              Note / Reason (Optional)
+            </label>
+            <input
+              id="override-note"
+              type="text"
+              bind:value={overrideNote}
+              placeholder="e.g. Summer holiday guests, Parental leave"
+              class="input-field text-xs py-2"
+              maxlength="512"
+            />
+          </div>
+
+          <!-- Allocation Inputs -->
+          <div class="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-semibold text-neutral-700 dark:text-neutral-300">
+                Override Allocation Split
+              </span>
+              <span class="text-xs font-bold tabular-nums {ovSumOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
+                Total: {ovSum}%
+              </span>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {#each activeUsers as u}
+                <div class="bg-neutral-50 dark:bg-neutral-950 p-2 rounded-xl border border-neutral-200 dark:border-neutral-800 space-y-1">
+                  <div class="flex items-center justify-between text-xs">
+                    <span class="font-semibold" style="color: {u.color}">{u.name}</span>
+                    <button
+                      type="button"
+                      on:click={() => {
+                        for (const other of activeUsers) {
+                          overrideAllocations[other.name] = other.name === u.name ? '100' : '0';
+                        }
+                        overrideAllocations = { ...overrideAllocations };
+                      }}
+                      class="text-[10px] text-neutral-400 hover:text-indigo-600 transition-colors"
+                    >
+                      100%
+                    </button>
+                  </div>
+                  <div class="relative">
+                    <input
+                      id="override-split-{u.name}"
+                      type="number"
+                      min="0"
+                      max="100"
+                      step="1"
+                      bind:value={overrideAllocations[u.name]}
+                      class="w-full bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-xs font-semibold tabular-nums text-neutral-900 dark:text-neutral-100"
+                    />
+                    <span class="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-neutral-400 font-bold">%</span>
+                  </div>
+                </div>
+              {/each}
+            </div>
+          </div>
+        </div>
+
+        {#if overrideError}
+          <div class="text-rose-700 dark:text-red-400 text-xs bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800/60 rounded-xl p-3">
+            {overrideError}
+          </div>
+        {/if}
+
+        <div class="flex items-center justify-end gap-2.5 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+          <button
+            type="button"
+            on:click={closeOverrideModal}
+            disabled={overrideLoading}
+            class="btn-secondary py-2 px-4 text-xs"
+          >
+            Cancel
+          </button>
+          <button
+            id="save-override-btn"
+            type="button"
+            on:click={handleSaveOverride}
+            disabled={overrideLoading || !ovSumOk}
+            class="btn-primary py-2 px-4 text-xs"
+          >
+            {overrideLoading ? 'Saving…' : 'Save Override'}
+          </button>
+        </div>
       </div>
     </div>
   {/if}
