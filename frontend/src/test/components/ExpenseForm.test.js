@@ -1,12 +1,13 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/svelte';
 import ExpenseForm from '../../lib/ExpenseForm.svelte';
-import { users, splits, settlements, defaultPayer, defaultCategory, selectedMonth } from '../../lib/stores.js';
+import { users, splits, settlements, defaultPayer, defaultCategory, selectedMonth, expenses } from '../../lib/stores.js';
 import * as api from '../../lib/api.js';
 
 describe('ExpenseForm.svelte — Expense Creation Form', () => {
   beforeEach(() => {
     selectedMonth.set('2026-07');
+    expenses.set([]);
     users.set([
       { name: 'John', color: '#6366f1', is_active: true },
       { name: 'Jane', color: '#ec4899', is_active: true },
@@ -150,5 +151,89 @@ describe('ExpenseForm.svelte — Expense Creation Form', () => {
 
     expect(document.getElementById('expense-tag')).toBeInTheDocument();
     expect(screen.getByText(/Active Vacation/i)).toBeInTheDocument();
+  });
+
+  it('prompts user when a matching expense with same category and amount already exists, allowing cancellation', async () => {
+    const createSpy = vi.spyOn(api, 'createExpense').mockResolvedValue({});
+    expenses.set([
+      {
+        id: 99,
+        name: 'Existing Supermarket Bill',
+        cost_cents: 4500,
+        category: 'GROCERIES',
+        who_paid: 'John',
+        expense_date: '2026-07-02',
+      },
+    ]);
+
+    render(ExpenseForm);
+
+    const descInput = screen.getByPlaceholderText(/e.g. Weekly Groceries/i);
+    await fireEvent.input(descInput, { target: { value: 'New Supermarket Bill' } });
+
+    const amountInput = screen.getByPlaceholderText('0.00');
+    await fireEvent.input(amountInput, { target: { value: '45.00' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Log Expense/i });
+    await fireEvent.click(submitBtn);
+
+    // Duplicate prompt modal should appear
+    expect(screen.getByText(/Potential Duplicate Expense Detected/i)).toBeInTheDocument();
+    expect(screen.getByText(/This expense might already have been entered:/i)).toBeInTheDocument();
+    expect(screen.getByText('Existing Supermarket Bill')).toBeInTheDocument();
+    expect(screen.getByText(/Do you still want to add it\?/i)).toBeInTheDocument();
+
+    // Expense is not saved yet
+    expect(createSpy).not.toHaveBeenCalled();
+
+    // Click "No, Cancel"
+    const cancelBtn = screen.getByRole('button', { name: /No, Cancel/i });
+    await fireEvent.click(cancelBtn);
+
+    // Prompt closed, createExpense never called
+    expect(screen.queryByText(/Potential Duplicate Expense Detected/i)).not.toBeInTheDocument();
+    expect(createSpy).not.toHaveBeenCalled();
+  });
+
+  it('prompts user when duplicate matches, and saves when user chooses "Yes, Add Anyway"', async () => {
+    const createSpy = vi.spyOn(api, 'createExpense').mockResolvedValue({});
+    expenses.set([
+      {
+        id: 101,
+        name: 'Existing Grocery Run',
+        cost_cents: 2500,
+        category: 'GROCERIES',
+        who_paid: 'Jane',
+        expense_date: '2026-07-10',
+      },
+    ]);
+
+    render(ExpenseForm);
+
+    const descInput = screen.getByPlaceholderText(/e.g. Weekly Groceries/i);
+    await fireEvent.input(descInput, { target: { value: 'Another Grocery Run' } });
+
+    const amountInput = screen.getByPlaceholderText('0.00');
+    await fireEvent.input(amountInput, { target: { value: '25.00' } });
+
+    const submitBtn = screen.getByRole('button', { name: /Log Expense/i });
+    await fireEvent.click(submitBtn);
+
+    // Prompt appears
+    expect(screen.getByText(/Potential Duplicate Expense Detected/i)).toBeInTheDocument();
+
+    // Click "Yes, Add Anyway"
+    const confirmBtn = screen.getByRole('button', { name: /Yes, Add Anyway/i });
+    await fireEvent.click(confirmBtn);
+
+    expect(createSpy).toHaveBeenCalledTimes(1);
+    expect(createSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'Another Grocery Run',
+        cost_cents: 2500,
+        category: 'GROCERIES',
+      }),
+      '2026-07'
+    );
   });
 });

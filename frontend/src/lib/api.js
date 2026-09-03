@@ -205,6 +205,38 @@ export async function createExpense(payload, month) {
   return decrypted;
 }
 
+export async function createExpensesBatch(expensesList, month) {
+  if (!expensesList || expensesList.length === 0) return [];
+
+  const encryptedPayloads = await Promise.all(
+    expensesList.map(async (payload) => ({
+      ...payload,
+      name: await enc(payload.name),
+      category: await enc(payload.category),
+      who_paid: await enc(payload.who_paid),
+      overrides: payload.overrides
+        ? await Promise.all(
+            payload.overrides.map(async (o) => ({
+              ...o,
+              user_name: await enc(o.user_name)
+            }))
+          )
+        : []
+    }))
+  );
+
+  const data = await request('/expenses/batch', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(encryptedPayloads),
+  });
+
+  const decryptedList = await Promise.all(data.map(decryptExpense));
+  expenses.update((prev) => [...decryptedList, ...(Array.isArray(prev) ? prev : [])]);
+  if (month) await fetchAnalytics(month);
+  return decryptedList;
+}
+
 export async function deleteExpense(id, month) {
   const res = await authFetch(`/expenses/${id}`, { method: 'DELETE' });
   if (!res.ok) {

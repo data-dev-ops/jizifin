@@ -9,7 +9,10 @@
 
   import { fly } from 'svelte/transition';
   import { createExpense } from './api.js';
+  import { findMatchingExpenses } from './duplicateDetector.js';
+  import DuplicatePromptModal from './DuplicatePromptModal.svelte';
   import {
+    expenses,
     splits,
     selectedMonth,
     projects,
@@ -203,30 +206,44 @@
       return;
     }
 
+    const payload = {
+      name:             name.trim(),
+      cost_cents:       costCents,
+      expense_date:     expenseDate,
+      who_paid:         paidByJoint ? (activeUsers[0]?.name ?? 'John') : whoPaid,
+      category:         finalCategory,
+      project_id:       projectId ? Number(projectId) : null,
+      tag_id:           tagId ? Number(tagId) : null,
+      is_joint:         paidByJoint,
+      joint_account_id: paidByJoint ? (jointAccountId || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
+    };
+    if (!paidByJoint && customSplit && overrideOk) {
+      payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
+        user_name,
+        pct: Number(parseFloat(pct).toFixed(4)),
+      }));
+    }
+
+    // Check for potential duplicate expense (matching category and amount)
+    const matches = findMatchingExpenses(payload, $expenses);
+    if (matches.length > 0) {
+      pendingPayload = payload;
+      duplicateItems = [{ prospective: payload, matches }];
+      showDuplicateModal = true;
+      return;
+    }
+
+    await executeExpenseSave(payload);
+  }
+
+  async function executeExpenseSave(payloadToSave) {
     submitting = true;
     try {
-      const payload = {
-        name:             name.trim(),
-        cost_cents:       costCents,
-        expense_date:     expenseDate,
-        who_paid:         paidByJoint ? (activeUsers[0]?.name ?? 'John') : whoPaid,
-        category:         finalCategory,
-        project_id:       projectId ? Number(projectId) : null,
-        tag_id:           tagId ? Number(tagId) : null,
-        is_joint:         paidByJoint,
-        joint_account_id: paidByJoint ? (jointAccountId || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
-      };
-      if (!paidByJoint && customSplit && overrideOk) {
-        payload.overrides = Object.entries(overridePcts).map(([user_name, pct]) => ({
-          user_name,
-          pct: Number(parseFloat(pct).toFixed(4)),
-        }));
-      }
-      await createExpense(payload, $selectedMonth);
-      if (whoPaid && !paidByJoint) lastLoggedPayer.set(whoPaid);
-      if (finalCategory) lastLoggedCategory.set(finalCategory);
+      await createExpense(payloadToSave, $selectedMonth);
+      if (payloadToSave.who_paid && !payloadToSave.is_joint) lastLoggedPayer.set(payloadToSave.who_paid);
+      if (payloadToSave.category) lastLoggedCategory.set(payloadToSave.category);
 
-      successName = name.trim();
+      successName = payloadToSave.name;
       submitSuccess = true;
       reset();
       // Auto-dismiss success banner after 3 s
@@ -240,6 +257,27 @@
       submitting = false;
     }
   }
+
+  async function handleConfirmDuplicate() {
+    showDuplicateModal = false;
+    if (pendingPayload) {
+      const toSave = pendingPayload;
+      pendingPayload = null;
+      duplicateItems = [];
+      await executeExpenseSave(toSave);
+    }
+  }
+
+  function handleCancelDuplicate() {
+    showDuplicateModal = false;
+    pendingPayload = null;
+    duplicateItems = [];
+  }
+
+  // Duplicate prompt state
+  let showDuplicateModal = false;
+  let duplicateItems = [];
+  let pendingPayload = null;
 </script>
 
 <form on:submit={handleSubmit} id="expense-form" class="space-y-4">
@@ -602,4 +640,12 @@
     {/if}
   </button>
 </form>
+
+<DuplicatePromptModal
+  isOpen={showDuplicateModal}
+  items={duplicateItems}
+  isBatch={false}
+  on:confirm={handleConfirmDuplicate}
+  on:cancel={handleCancelDuplicate}
+/>
 

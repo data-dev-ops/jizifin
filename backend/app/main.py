@@ -1035,6 +1035,81 @@ async def create_expense(expense: ExpenseCreate, db: DbDep) -> ExpenseResponse:
     return result
 
 
+@app.post(
+    "/expenses/batch",
+    response_model=list[ExpenseResponse],
+    status_code=status.HTTP_201_CREATED,
+    tags=["expenses"],
+)
+async def create_expenses_batch(expenses: list[ExpenseCreate], db: DbDep) -> list[ExpenseResponse]:
+    if not expenses:
+        return []
+
+    created_ids: list[int] = []
+    # Pre-validate locks, users, categories and tag date boundaries
+    for exp in expenses:
+        await _check_month_not_locked(db, exp.expense_date)
+        await _assert_active_user(db, exp.who_paid)
+
+        async with db.execute(
+            "SELECT category FROM splits WHERE category = ?", (exp.category,)
+        ) as cur:
+            if await cur.fetchone() is None:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail=f"Category '{exp.category}' does not exist in splits table.",
+                )
+
+        if exp.tag_id:
+            async with db.execute("SELECT id, name, start_date, end_date FROM tags WHERE id = ?", (exp.tag_id,)) as cur:
+                tag_row = await cur.fetchone()
+            if tag_row:
+                if tag_row["start_date"] and exp.expense_date < tag_row["start_date"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Expense date {exp.expense_date} is before start_date {tag_row['start_date']} of tag.",
+                    )
+                if tag_row["end_date"] and exp.expense_date > tag_row["end_date"]:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail=f"Expense date {exp.expense_date} is after end_date {tag_row['end_date']} of tag.",
+                    )
+
+    for exp in expenses:
+        is_joint_val = 1 if exp.is_joint else 0
+        ja_id = exp.joint_account_id if exp.is_joint else None
+        async with db.execute(
+            "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (exp.name, exp.cost_cents, exp.expense_date, exp.who_paid, exp.category, exp.project_id, exp.tag_id, is_joint_val, ja_id),
+        ) as cur:
+            new_id = cur.lastrowid
+            created_ids.append(new_id)
+
+        if exp.overrides:
+            for alloc in exp.overrides:
+                await db.execute(
+                    "INSERT INTO expense_overrides (expense_id, user_name, pct) VALUES (?, ?, ?)",
+                    (new_id, alloc.user_name, alloc.pct),
+                )
+
+        if exp.is_joint:
+            target_ja_id = ja_id or 1
+            await db.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (exp.cost_cents, target_ja_id))
+
+    await db.commit()
+
+    placeholders = ",".join("?" for _ in created_ids)
+    async with db.execute(
+        f"SELECT id, name, cost_cents, expense_date, who_paid, category, project_id, tag_id, is_joint, joint_account_id FROM expenses WHERE id IN ({placeholders}) ORDER BY id ASC",
+        tuple(created_ids),
+    ) as cur:
+        rows = await cur.fetchall()
+
+    results = await _build_expense_responses(db, rows)
+    await manager.broadcast({"event": "expenses_batch_created", "payload": {"count": len(results), "ids": created_ids}})
+    return results
+
+
 @app.put("/expenses/{expense_id}", response_model=ExpenseResponse, tags=["expenses"])
 async def update_expense(expense_id: int, update: ExpenseUpdate, db: DbDep) -> ExpenseResponse:
     async with db.execute(

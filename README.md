@@ -23,6 +23,7 @@ A monorepo personal finance tracking application designed for managing shared ho
 - **Dynamic Tag Timelines & Boundary Enforcement:** Open-ended color-coded tag labeling system with `start_date` and `end_date` active windows. Validates that expenses fall strictly within active tag milestones and prevents retrospective tag window shrinkage.
 - **Projects & Settlement Equity Balance Sheets:** Long-term project budget targets with estimated completion dates and dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), tracking effective funding vs assigned liability.
 - **Expense Tracking & Full Management:** Log and manage shared/personal expenses with split percentage overrides, project allocations, and tag associations. Features a live search/filter toolbar, quick inline tag popover assignment, a full-featured Edit Expense modal, and date-locking for settled historical months.
+- **Bank Statement CSV Importer & Duplicate Detection:** Upload and review bank statements (supporting ING Belgium format with KBC selection). Features clean beneficiary extraction from Debit Mastercard, Bancontact, SEPA Direct Debits, and credit transfers. Implements dual-stream routing (positive credits to Income, debits to Expenses), real-time category auto-cascading per beneficiary, 1-click micro-expense bundling, and strict categorization validation (no default fallback to "other"). Integrated duplicate detection engine checks category and cent amount against decrypted ledger expenses in both manual form entry and CSV imports, providing an interactive confirmation prompt to cancel, add anyway, or skip duplicates.
 - **Centralized Settings & Personalization:** Comprehensive settings panel managing household members and color palettes, feature modules, navigation tab visibility, entry defaults with 1-click currency presets (€, $, £, CHF, ¥, kr), chart & split visualization styles, mobile layout density, and zero-knowledge encrypted database backups.
 - **Zero-Knowledge Privacy:** Client-side AES-GCM 256-bit encryption (via Web Crypto API) ensures all names, descriptions, notes, and category labels are stored encrypted at rest on the server, with secure in-place server-side database export/import utilities.
 - **Modern UI & Design System:** Modern typography powered by Plus Jakarta Sans and JetBrains Mono, `tabular-nums` formatting on all currency and financial amounts, and glassmorphic depth.
@@ -115,7 +116,8 @@ The application features full-stack automated test suites ensuring zero regressi
 
 ### 1. Backend Test Suite & Integration Scenarios (Pytest)
 - **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** **339 passed tests** across 20 test modules, including:
+- **Coverage:** **342 passed tests** across 21 test modules, including:
+  - `tests/test_expenses_batch.py`: Atomic batch expense creation with deterministic client-side encryption and category referential integrity.
   - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, graph-decomposed couple debt isolation, and SCD2 category split overrides with timeline precedence.
   - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_category_rename_delete.py`, `test_scd2_category_splits.py`, `test_multi_household_couples.py`, etc.
 
@@ -132,7 +134,7 @@ docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/test
 
 ### 2. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Coverage:** **343 passed tests** across 39 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
+- **Coverage:** **384 passed tests** across 43 test files covering bank statement CSV parsing (`csvParser.test.js`), duplicate detection matching (`duplicateDetector.test.js`), bank statement import modal workflows (`BankCsvImportModal.test.js`), duplicate prompt interception (`ExpenseForm.test.js`), encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:

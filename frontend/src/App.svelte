@@ -17,6 +17,7 @@
   import Login from './lib/Login.svelte';
   import JointAccountTab from './lib/JointAccountTab.svelte';
   import SettingsTab from './lib/SettingsTab.svelte';
+  import BankCsvImportModal from './lib/BankCsvImportModal.svelte';
   import DocsHub from './lib/docs/DocsHub.svelte';
   import GettingStartedDocs from './lib/docs/GettingStartedDocs.svelte';
   import FrontendDocs from './lib/docs/FrontendDocs.svelte';
@@ -26,6 +27,7 @@
   import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
 
   let showJointPromptModal = false;
+  let showCsvImportModal = false;
 
   let activeTab = 'dashboard';
   let loading = false; // Handled after salt is entered
@@ -447,7 +449,18 @@
             </h1>
             <p class="page-subtitle">Log a new household expense or review {monthLabel}'s ledger history</p>
           </div>
-          <span class="badge-indigo">{monthLabel}</span>
+          <div class="flex items-center gap-2.5">
+            <button
+              type="button"
+              id="btn-import-bank-csv"
+              on:click={() => (showCsvImportModal = true)}
+              class="px-3 py-1.5 rounded-xl text-xs font-bold text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 border border-indigo-200 dark:border-indigo-800 transition flex items-center gap-1.5 shadow-sm"
+              title="Import and auto-categorize bank statement CSV"
+            >
+              <span>📥</span> Import Bank CSV
+            </button>
+            <span class="badge-indigo">{monthLabel}</span>
+          </div>
         </header>
 
         <div class="grid grid-cols-1 xl:grid-cols-5 gap-6 items-start">
@@ -558,6 +571,8 @@
     </div>
   </div>
 {/if}
+
+<BankCsvImportModal bind:isOpen={showCsvImportModal} on:close={() => (showCsvImportModal = false)} />
 
 
 <style>

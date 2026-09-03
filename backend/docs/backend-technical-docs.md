@@ -225,6 +225,7 @@ Database Schema (SQLite)
 |---|---|---|---|---|---|
 | `GET` | `/expenses` | `?month=YYYY-MM&category=...&who_paid=...&is_joint=...` | `ExpenseResponse[]` | 200 | Lists expenses matching filter criteria |
 | `POST` | `/expenses` | `ExpenseCreate` | `ExpenseResponse` | 201, 422 | Logs expense with tag validation, project linking, or split overrides |
+| `POST` | `/expenses/batch` | `list[ExpenseCreate]` | `list[ExpenseResponse]` | 201, 422 | Batch logs multiple expenses in an atomic transaction |
 | `PUT` | `/expenses/{id}` | `ExpenseUpdate` | `ExpenseResponse` | 200, 404, 422 | Updates existing expense (enforcing tag boundaries) |
 | `DELETE` | `/expenses/{id}` | None | None | 204, 404 | Deletes an expense by ID |
 
@@ -327,7 +328,7 @@ Database Schema (SQLite)
 
 ## 5. Automated Testing and Test Harness
 
-The backend test suite contains **339 tests across 20 test files** enforcing zero regression, integer cent precision, and cryptographic integrity:
+The backend test suite contains **342 tests across 21 test files** (including `tests/test_expenses_batch.py`) enforcing zero regression, integer cent precision, and cryptographic integrity:
 
 ### Test Execution Commands
 - **Primary Host CLI**:

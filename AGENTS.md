@@ -128,6 +128,13 @@ The application provides the following core capabilities:
    - In-app technical and user documentation suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) backed by repository markdown guides.
 10. **Database Migration Resilience**:
     - Automatic in-memory/import schema migration via `ensure_column` and dynamic table updaters, guaranteeing legacy backups import cleanly with backfilled defaults.
+11. **Bank Statement CSV Importer & Duplicate Expense Detection**:
+    - Client-side RFC 4180 CSV parser and ING Belgium export parser (`csvParser.js`), extracting clean counterparty names from Debit Mastercard, Bancontact, SEPA Direct Debits, and credit transfers.
+    - Dual-stream income vs expense processing: positive rows are routed to the income ledger with `$incomeCategories`, while negative rows are routed to the expense ledger with `$splits`.
+    - Real-time auto-cascading of category assignments across identical beneficiaries within the same stream.
+    - Strict categorization enforcement: all to-import entries must have an explicit category set (no silent fallback to 'other').
+    - Category-and-amount duplicate detection engine (`duplicateDetector.js`) intercepting both manual form entry (`ExpenseForm.svelte`) and batch CSV import (`BankCsvImportModal.svelte`).
+    - Accessible confirmation prompts (`DuplicatePromptModal.svelte`) displaying matching ledger entries and giving users 1-click options to confirm, cancel, or skip duplicate items.
 
 ---
 
@@ -236,7 +243,7 @@ jizifin/
 │   │   ├── models.py          # Pydantic v2 validation models
 │   │   └── crypto_utils.py    # Server-side PBKDF2/AES-GCM backup streaming
 │   ├── docs/                  # Backend technical documentation markdown
-│   ├── tests/                 # Pytest test suite (339 tests, 20 test files)
+│   ├── tests/                 # Pytest test suite (342 tests, 21 test files)
 │   ├── pyproject.toml         # Python project configuration and dependencies
 │   └── Dockerfile             # Python 3.14 container definition
 ├── frontend/
@@ -250,7 +257,7 @@ jizifin/
 │   │   ├── App.svelte         # Main application shell, tabs, privacy shield
 │   │   └── main.js            # DOM mount point
 │   ├── docs/                  # Frontend technical documentation markdown
-│   ├── src/test/              # Vitest test suite (343 tests, 39 test files)
+│   ├── src/test/              # Vitest test suite (384 tests, 43 test files)
 │   ├── package.json           # Node scripts and dependencies
 │   └── Dockerfile             # Vite / Node container definition
 ├── docs/                      # General and getting-started documentation
@@ -266,10 +273,10 @@ jizifin/
 ### Critical Invariant: Zero Regression Verification
 Any code modification, schema adjustment, feature addition, or refactor **must verify 100% test passage across both backend and frontend suites**:
 
-- **Backend Test Suite (339 Tests across 20 test files)**:
+- **Backend Test Suite (342 Tests across 21 test files)**:
   - *Host CLI*: `uv run --directory backend pytest`
   - *Docker Fallback*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
-- **Frontend Test Suite (343 Tests across 39 test files)**:
+- **Frontend Test Suite (384 Tests across 43 test files)**:
   - *Host CLI*: `npm --prefix frontend test -- --run`
   - *Docker Fallback*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
 

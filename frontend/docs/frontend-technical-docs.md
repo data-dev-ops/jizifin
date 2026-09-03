@@ -47,7 +47,9 @@ frontend/
 │   │   │   ├── BackendDocs.svelte    # In-app backend architecture overview
 │   │   │   └── SystemDocs.svelte     # Cryptography and zero-knowledge model
 │   │   ├── AnalyticsSummary.svelte   # Monthly totals, payer splits, budget gauges
+│   │   ├── BankCsvImportModal.svelte # CSV bank statement importer and review modal
 │   │   ├── BudgetManager.svelte      # Category budget targets and burndown meters
+│   │   ├── DuplicatePromptModal.svelte # Confirmation dialog for duplicate expense detection
 │   │   ├── ExpenseForm.svelte        # Expense creation with tag validation and split overrides
 │   │   ├── ExpenseList.svelte        # Paginated expense ledger with filtering and bulk actions
 │   │   ├── IncomeChart.svelte        # Income breakdown visualization
@@ -66,11 +68,13 @@ frontend/
 │   │   ├── api.js                    # Fetch wrapper with automatic AES-GCM encryption
 │   │   ├── colorUtils.js             # HSL color math and contrast ratio checks
 │   │   ├── crypto.js                 # WebCrypto PBKDF2 derivation and AES-GCM static IV routines
+│   │   ├── csvParser.js              # RFC 4180 CSV tokenizer and ING/KBC bank statement parser
+│   │   ├── duplicateDetector.js      # Category and amount cent matching engine for duplicate detection
 │   │   └── stores.js                 # Svelte writable stores and localStorage bindings
 │   ├── test/
-│   │   ├── components/               # 22 Svelte UI component test suites
+│   │   ├── components/               # 23 Svelte UI component test suites
 │   │   ├── setup.js                  # JSDOM polyfills (WebCrypto, Canvas, matchMedia)
-│   │   └── *.test.js                 # 17 domain and mathematical unit test suites
+│   │   └── *.test.js                 # 19 domain and mathematical unit test suites
 │   ├── App.svelte                    # Root layout shell, sidebar navigation, privacy shield
 │   ├── app.css                       # Tailwind layers and root variables
 │   └── main.js                       # App mount point and theme listener
@@ -253,6 +257,22 @@ Clients connect to `/ws/finance` upon authentication. When any household user mo
 ### 6.7 `DocsHub.svelte` (In-App Interactive Documentation Hub)
 - Fully browsable in-app technical reference suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) mirroring repo architecture documentation.
 
+### 6.8 `BankCsvImportModal.svelte` & `csvParser.js` (Bank Statement CSV Importer)
+- **RFC 4180 CSV Tokenizer**: Robust CSV parser supporting quoted strings, multiline descriptions, and UTF-8 BOM headers.
+- **ING Belgium Statement Dialect**: Extracts clean beneficiary names from Debit Mastercard, Bancontact payments, SEPA Direct Debits (`Domiciliëring in euro`), SEPA credit transfers, and fee notices.
+- **KBC Bank Selector**: Integrated bank selection menu with upcoming parser notice.
+- **Dual-Stream Classification**: Positive transactions are routed as `Income` with categories loaded from `$incomeCategories`; negative transactions are routed as `Expense` with categories from `$splits`.
+- **Beneficiary Auto-Cascading**: Assigning a category to any row automatically cascades the category to all other rows sharing the same beneficiary within the same transaction type.
+- **Mandatory Category Assignment**: Strict validation prevents importing uncategorized rows; silent fallback to `'OTHER'` is prohibited. Amber visual indicators and an alert filter highlight missing assignments.
+- **Micro-Expense Bundling**: One-click action to bundle expenses under €5.00 into a consolidated `"Other expenses (bundled)"` entry.
+- **Dual-Stream Commit**: Saves expenses in batch via `POST /expenses/batch` (`createExpensesBatch`) and income via `POST /income` (`createIncome`).
+
+### 6.9 `duplicateDetector.js` & `DuplicatePromptModal.svelte` (Duplicate Expense Detection)
+- **Matching Engine**: Compares prospective expenses against all decrypted ledger entries in `$expenses` by category (case-insensitive) and exact cent amount (`cost_cents`).
+- **Interactive Modal Prompt**: Displays `"This expense might already have been entered: [matching entry(s)] Do you still want to add it? (Yes / No)"` whenever matching transactions exist.
+- **Manual Entry Guard (`ExpenseForm.svelte`)**: Intercepts form submission before sending POST requests, presenting matching existing entries with payer and date metadata.
+- **Batch CSV Import Guard (`BankCsvImportModal.svelte`)**: Displays inline `⚠️ Duplicate match` badges in the review table, and prompts user upon import with options to `"Yes, Add Anyway"`, `"No, Skip Duplicates"` (excluding duplicates from the import batch), or `"No, Cancel"`.
+
 ---
 
 ## 7. 7-Domain Personalization & Settings Engine
@@ -372,7 +392,7 @@ Authoritative client-side validation rules matching backend schema constraints:
 
 ## 9. Automated Testing & Verification
 
-The frontend test suite contains **343 tests across 39 test files** using Vitest and JSDOM:
+The frontend test suite contains **384 tests across 43 test files** using Vitest and JSDOM:
 
 ### Test Execution Commands
 - **Primary Host CLI**:
@@ -390,14 +410,18 @@ The frontend test suite contains **343 tests across 39 test files** using Vitest
   ```
 
 ### Test Scope and Coverage
-- **Unit & Mathematical Suites (17 files)**:
+- **Unit & Mathematical Suites (19 files)**:
   - Cryptographic key derivation, AES-GCM static IV determinism, Base64URL encoding (`crypto.test.js`)
-  - HTTP error translation and status propagation (`api.test.js`)
+  - Bank statement CSV parsing, beneficiary extraction, and credit/debit tokenization (`csvParser.test.js`)
+  - Category and cent amount duplicate detection matching (`duplicateDetector.test.js`)
+  - HTTP error translation, batch expense encryption, and status propagation (`api.test.js`)
   - Float cent conversion, currency display, and Largest Remainder splits (`numerical_precision.test.js`)
   - 7-domain personas and device profile persistence (`customization_personas.test.js`, `device_profiles.test.js`)
   - Historical reconciliation month locking (`reconciliation_locking.test.js`)
   - Multi-currency symbols and formatting (`multicurrency.test.js`)
-- **Component & Integration Suites (22 files)**:
+- **Component & Integration Suites (24 files)**:
+  - Bank CSV import modal workflow, category auto-cascading, micro-expense bundling, and duplicate skipping (`BankCsvImportModal.test.js`)
+  - Duplicate expense interception and confirmation modal (`ExpenseForm.test.js`)
   - Full UI scenario verification with synthetic identities `Alice` & `Bob` and `test-master-passphrase` (`ScenariosFrontendUI.test.js`)
   - Multi-joint accounts and monthly deposit execution (`JointAccountTab.test.js`, `MultiHouseholdCouples.test.js`)
   - SCD2 split agreement timeline trays and override badges (`SplitManager.test.js`)
