@@ -63,6 +63,7 @@ def decrypt_text(ciphertext: str, key: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 import uuid
+import shutil
 
 @pytest_asyncio.fixture
 async def test_db(tmp_path: Path) -> AsyncGenerator[aiosqlite.Connection, None]:
@@ -85,3 +86,34 @@ async def client(test_db: aiosqlite.Connection) -> AsyncGenerator[AsyncClient, N
         yield ac
     app.dependency_overrides.clear()
     app.state.testing = False
+
+@pytest_asyncio.fixture
+async def integration_db(tmp_path: Path) -> AsyncGenerator[aiosqlite.Connection, None]:
+    """Provision an isolated copy of backend/tests/test.db per integration test."""
+    test_db_source = Path(__file__).parent / "test.db"
+    if not test_db_source.exists():
+        from tests.generate_test_db import populate_test_db
+        await populate_test_db(test_db_source)
+
+    db_file = tmp_path / f"test_integration_{uuid.uuid4().hex}.db"
+    shutil.copyfile(test_db_source, db_file)
+    async with aiosqlite.connect(db_file) as conn:
+        conn.row_factory = aiosqlite.Row
+        await conn.execute("PRAGMA journal_mode=WAL;")
+        await conn.execute("PRAGMA foreign_keys=ON;")
+        yield conn
+
+@pytest_asyncio.fixture
+async def integration_client(integration_db: aiosqlite.Connection) -> AsyncGenerator[AsyncClient, None]:
+    """FastAPI AsyncClient dependency-overridden with the populated integration_db."""
+    async def override_get_db():
+        yield integration_db
+
+    app.dependency_overrides[get_db] = override_get_db
+    app.state.testing = True
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as ac:
+        yield ac
+    app.dependency_overrides.clear()
+    app.state.testing = False
+

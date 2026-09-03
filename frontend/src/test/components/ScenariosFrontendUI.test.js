@@ -443,9 +443,9 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
   // SCENARIO 4: Overlapping Category Split Overrides & Timeline Priority
   // ═══════════════════════════════════════════════════════════════════════════
   describe('Scenario 4: Overlapping Category Split Overrides & Timeline Precedence', () => {
-    it('executes full UI authentication (salt: zinajim3303), overlapping overrides, and multi-month debt settlement', async () => {
+    it('executes full UI authentication (salt: test-master-passphrase), overlapping overrides, and multi-month debt settlement', async () => {
       // ── 1. Master Passphrase Authentication UI ─────────────────────────────
-      const salt = 'zinajim3303';
+      const salt = 'test-master-passphrase';
       const key = await deriveKey(salt);
       const validMagic = await encryptText('FinanceTrackerAuth', key);
 
@@ -484,16 +484,16 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
       cryptoKey.set(key);
       selectedMonth.set('2026-08');
 
-      // ── 2. Household Members (Zina & Jim) in UserManager UI ─────────────────
+      // ── 2. Household Members (Alice & Bob) in UserManager UI ─────────────────
       const householdUsers = [
-        { name: 'Zina', color: '#ff7800', is_active: 1 },
-        { name: 'Jim', color: '#26a269', is_active: 1 },
+        { name: 'Alice', color: '#6366f1', is_active: 1 },
+        { name: 'Bob', color: '#3b82f6', is_active: 1 },
       ];
       users.set(householdUsers);
 
       const { unmount: unmountUsers } = render(UserManager);
-      expect(screen.getByText('Zina')).toBeInTheDocument();
-      expect(screen.getByText('Jim')).toBeInTheDocument();
+      expect(screen.getByText('Alice')).toBeInTheDocument();
+      expect(screen.getByText('Bob')).toBeInTheDocument();
       unmountUsers();
 
       // ── 3. Overlapping Split Overrides on GROCERIES in SplitManager UI ──────
@@ -501,8 +501,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
         {
           category: 'GROCERIES',
           allocations: [
-            { user_name: 'Zina', pct: 50 },
-            { user_name: 'Jim', pct: 50 }
+            { user_name: 'Alice', pct: 50 },
+            { user_name: 'Bob', pct: 50 }
           ],
           agreements: [
             {
@@ -513,8 +513,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
               is_active: true,
               note: 'Baseline Ongoing',
               allocations: [
-                { user_name: 'Zina', pct: 50 },
-                { user_name: 'Jim', pct: 50 }
+                { user_name: 'Alice', pct: 50 },
+                { user_name: 'Bob', pct: 50 }
               ]
             },
             {
@@ -525,8 +525,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
               is_active: true,
               note: 'Summer Host Month',
               allocations: [
-                { user_name: 'Zina', pct: 20 },
-                { user_name: 'Jim', pct: 80 }
+                { user_name: 'Alice', pct: 20 },
+                { user_name: 'Bob', pct: 80 }
               ]
             },
             {
@@ -537,8 +537,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
               is_active: true,
               note: 'Private Event Week',
               allocations: [
-                { user_name: 'Zina', pct: 100 },
-                { user_name: 'Jim', pct: 0 }
+                { user_name: 'Alice', pct: 100 },
+                { user_name: 'Bob', pct: 0 }
               ]
             }
           ]
@@ -566,10 +566,10 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
 
       // ── 4. Chronological Expenses across Overlapping Windows in ExpenseList UI ──
       const scenario4Expenses = [
-        { id: 301, name: 'Weekly Farmers Market', cost_cents: 10000, cost: 100.00, expense_date: '2026-08-05', who_paid: 'Jim', category: 'GROCERIES', is_joint: 0 },
-        { id: 302, name: 'Party Supplies & Catered Dinner', cost_cents: 20000, cost: 200.00, expense_date: '2026-08-12', who_paid: 'Jim', category: 'GROCERIES', is_joint: 0 },
-        { id: 303, name: 'Bulk Pantry Restock', cost_cents: 15000, cost: 150.00, expense_date: '2026-08-25', who_paid: 'Zina', category: 'GROCERIES', is_joint: 0 },
-        { id: 304, name: 'September Welcome Dinner', cost_cents: 8000, cost: 80.00, expense_date: '2026-09-02', who_paid: 'Jim', category: 'GROCERIES', is_joint: 0 },
+        { id: 301, name: 'Weekly Farmers Market', cost_cents: 10000, cost: 100.00, expense_date: '2026-08-05', who_paid: 'Bob', category: 'GROCERIES', is_joint: 0 },
+        { id: 302, name: 'Party Supplies & Catered Dinner', cost_cents: 20000, cost: 200.00, expense_date: '2026-08-12', who_paid: 'Bob', category: 'GROCERIES', is_joint: 0 },
+        { id: 303, name: 'Bulk Pantry Restock', cost_cents: 15000, cost: 150.00, expense_date: '2026-08-25', who_paid: 'Alice', category: 'GROCERIES', is_joint: 0 },
+        { id: 304, name: 'September Welcome Dinner', cost_cents: 8000, cost: 80.00, expense_date: '2026-09-02', who_paid: 'Bob', category: 'GROCERIES', is_joint: 0 },
       ];
       expenses.set(scenario4Expenses);
 
@@ -581,10 +581,10 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
 
       // ── 5. Payback & Settlement Verification in PaybackVisual UI ────────────
       // August 2026 Calculations:
-      // Expense 1 (Aug 5):  Jim paid €100 -> Jim funded +€100, owes €80 (80%), Zina owes €20 (20%) -> Jim net +€20, Zina net -€20
-      // Expense 2 (Aug 12): Jim paid €200 -> Jim funded +€200, owes €0 (0%), Zina owes €200 (100%) -> Jim net +€200, Zina net -€200
-      // Expense 3 (Aug 25): Zina paid €150 -> Zina funded +€150, owes €30 (20%), Jim owes €120 (80%) -> Zina net +€120, Jim net -€120
-      // Cumulative August: Jim net = +20 + 200 - 120 = +€100.00; Zina net = -20 - 200 + 120 = -€100.00
+      // Expense 1 (Aug 5):  Bob paid €100 -> Bob funded +€100, owes €80 (80%), Alice owes €20 (20%) -> Bob net +€20, Alice net -€20
+      // Expense 2 (Aug 12): Bob paid €200 -> Bob funded +€200, owes €0 (0%), Alice owes €200 (100%) -> Bob net +€200, Alice net -€200
+      // Expense 3 (Aug 25): Alice paid €150 -> Alice funded +€150, owes €30 (20%), Bob owes €120 (80%) -> Alice net +€120, Bob net -€120
+      // Cumulative August: Bob net = +20 + 200 - 120 = +€100.00; Alice net = -20 - 200 + 120 = -€100.00
       const augustPaybacks = {
         month: '2026-08',
         settled: false,
@@ -593,37 +593,37 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
           {
             category: 'GROCERIES',
             total_amount: 450.00,
-            per_user_paid: { Jim: 300.00, Zina: 150.00 },
-            per_user_share_pct: { Jim: 44.44, Zina: 55.56 },
-            net_per_user: { Jim: 100.00, Zina: -100.00 }
+            per_user_paid: { Bob: 300.00, Alice: 150.00 },
+            per_user_share_pct: { Bob: 44.44, Alice: 55.56 },
+            net_per_user: { Bob: 100.00, Alice: -100.00 }
           }
         ],
         net_balances: {
-          Jim: 100.00,
-          Zina: -100.00
+          Bob: 100.00,
+          Alice: -100.00
         },
         debts: [
-          { from_user: 'Zina', to_user: 'Jim', amount: 100.00 }
+          { from_user: 'Alice', to_user: 'Bob', amount: 100.00 }
         ]
       };
       paybacks.set(augustPaybacks);
 
       const { unmount: unmountAugPayback } = render(PaybackVisual);
-      expect(screen.getAllByText(/Zina/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Jim/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Alice/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Bob/i).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/100\.00/i).length).toBeGreaterThan(0);
 
       // Assert Invariants for August
-      expect(augustPaybacks.net_balances.Jim).toBe(100.00);
-      expect(augustPaybacks.net_balances.Zina).toBe(-100.00);
-      expect(augustPaybacks.debts[0].from_user).toBe('Zina');
-      expect(augustPaybacks.debts[0].to_user).toBe('Jim');
+      expect(augustPaybacks.net_balances.Bob).toBe(100.00);
+      expect(augustPaybacks.net_balances.Alice).toBe(-100.00);
+      expect(augustPaybacks.debts[0].from_user).toBe('Alice');
+      expect(augustPaybacks.debts[0].to_user).toBe('Bob');
       expect(augustPaybacks.debts[0].amount).toBe(100.00);
       unmountAugPayback();
 
       // September 2026 Calculations:
       // Both overrides expired -> Baseline 50/50
-      // Expense 4 (Sep 2): Jim paid €80 -> Jim funded +€80, owes €40, Zina owes €40 -> Jim net +€40.00, Zina net -€40.00
+      // Expense 4 (Sep 2): Bob paid €80 -> Bob funded +€80, owes €40, Alice owes €40 -> Bob net +€40.00, Alice net -€40.00
       selectedMonth.set('2026-09');
       const septemberPaybacks = {
         month: '2026-09',
@@ -633,17 +633,17 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
           {
             category: 'GROCERIES',
             total_amount: 80.00,
-            per_user_paid: { Jim: 80.00, Zina: 0.00 },
-            per_user_share_pct: { Jim: 50.0, Zina: 50.0 },
-            net_per_user: { Jim: 40.00, Zina: -40.00 }
+            per_user_paid: { Bob: 80.00, Alice: 0.00 },
+            per_user_share_pct: { Bob: 50.0, Alice: 50.0 },
+            net_per_user: { Bob: 40.00, Alice: -40.00 }
           }
         ],
         net_balances: {
-          Jim: 40.00,
-          Zina: -40.00
+          Bob: 40.00,
+          Alice: -40.00
         },
         debts: [
-          { from_user: 'Zina', to_user: 'Jim', amount: 40.00 }
+          { from_user: 'Alice', to_user: 'Bob', amount: 40.00 }
         ]
       };
       paybacks.set(septemberPaybacks);
@@ -660,7 +660,7 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
   // ═══════════════════════════════════════════════════════════════════════════
   describe('Scenario 5: Split Override on Category Linked to Household Joint Account', () => {
     it('executes UI verification for joint vs out-of-pocket expenses with 75/25 override', async () => {
-      const salt = 'zinajim3303';
+      const salt = 'test-master-passphrase';
       const key = await deriveKey(salt);
       authSalt.set(salt);
       cryptoKey.set(key);
@@ -668,14 +668,14 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
 
       // ── 1. Household Users & Joint Account Setup in UI ──────────────────────
       const householdUsers = [
-        { name: 'Zina', color: '#ff7800', is_active: 1 },
-        { name: 'Jim', color: '#26a269', is_active: 1 },
+        { name: 'Alice', color: '#6366f1', is_active: 1 },
+        { name: 'Bob', color: '#3b82f6', is_active: 1 },
       ];
       users.set(householdUsers);
 
       jointAccountEnabled.set(true);
       const mockJointAccounts = [
-        { id: 1, name: 'Household Joint Account', balance_cents: 500000, safety_margin_pct: 10, deposit_split_mode: 'manual', member_names: ['Zina', 'Jim'] }
+        { id: 1, name: 'Couple AB Joint', balance_cents: 500000, safety_margin_pct: 10, deposit_split_mode: 'manual', member_names: ['Alice', 'Bob'] }
       ];
       jointAccounts.set(mockJointAccounts);
       jointAccount.set(mockJointAccounts[0]);
@@ -684,7 +684,7 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
       jointCategories.set(['HOME IMPROVEMENT']);
 
       const { unmount: unmountJoint } = render(JointAccountTab);
-      expect(screen.getAllByText(/Household Joint Account/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Couple AB Joint/i).length).toBeGreaterThan(0);
       unmountJoint();
 
       // ── 2. Category HOME IMPROVEMENT with Active 75/25 Override in SplitManager UI ──
@@ -692,8 +692,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
         {
           category: 'HOME IMPROVEMENT',
           allocations: [
-            { user_name: 'Zina', pct: 50 },
-            { user_name: 'Jim', pct: 50 }
+            { user_name: 'Alice', pct: 50 },
+            { user_name: 'Bob', pct: 50 }
           ],
           agreements: [
             {
@@ -704,8 +704,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
               is_active: true,
               note: 'Baseline Ongoing',
               allocations: [
-                { user_name: 'Zina', pct: 50 },
-                { user_name: 'Jim', pct: 50 }
+                { user_name: 'Alice', pct: 50 },
+                { user_name: 'Bob', pct: 50 }
               ]
             },
             {
@@ -716,8 +716,8 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
               is_active: true,
               note: 'Custom Renovation Split',
               allocations: [
-                { user_name: 'Zina', pct: 75 },
-                { user_name: 'Jim', pct: 25 }
+                { user_name: 'Alice', pct: 75 },
+                { user_name: 'Bob', pct: 25 }
               ]
             }
           ]
@@ -733,10 +733,10 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
 
       // ── 3. Log Personal vs Joint Expenses in ExpenseList UI ──────────────────
       const scenario5Expenses = [
-        // Expense 1: Personal out-of-pocket payment by Jim (is_joint = 0) -> subject to 75/25 override
-        { id: 401, name: 'Custom Bookshelf Unit', cost_cents: 40000, cost: 400.00, expense_date: '2026-08-18', who_paid: 'Jim', category: 'HOME IMPROVEMENT', is_joint: 0 },
+        // Expense 1: Personal out-of-pocket payment by Bob (is_joint = 0) -> subject to 75/25 override
+        { id: 401, name: 'Custom Bookshelf Unit', cost_cents: 40000, cost: 400.00, expense_date: '2026-08-18', who_paid: 'Bob', category: 'HOME IMPROVEMENT', is_joint: 0 },
         // Expense 2: Direct Joint Account Card payment (is_joint = 1) -> excluded from peer-to-peer paybacks
-        { id: 402, name: 'Painting Supplies', cost_cents: 15000, cost: 150.00, expense_date: '2026-08-20', who_paid: 'Jim', category: 'HOME IMPROVEMENT', is_joint: 1, joint_account_id: 1 }
+        { id: 402, name: 'Painting Supplies', cost_cents: 15000, cost: 150.00, expense_date: '2026-08-20', who_paid: 'Alice', category: 'HOME IMPROVEMENT', is_joint: 1, joint_account_id: 1 }
       ];
       expenses.set(scenario5Expenses);
 
@@ -747,9 +747,9 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
 
       // ── 4. Verify Payback Settlements in PaybackVisual UI ───────────────────
       // Calculations:
-      // Expense 1: Jim paid €400 -> Jim funded +€400, owes €100 (25%), Zina owes €300 (75%) -> Jim net +€300.00, Zina net -€300.00
+      // Expense 1: Bob paid €400 -> Bob funded +€400, owes €100 (25%), Alice owes €300 (75%) -> Bob net +€300.00, Alice net -€300.00
       // Expense 2: Paid by Joint Account -> €150 excluded from peer-to-peer payback ledger
-      // Total Payback: Zina pays Jim €300.00
+      // Total Payback: Alice pays Bob €300.00
       const scenario5Paybacks = {
         month: '2026-08',
         settled: false,
@@ -758,31 +758,31 @@ describe('End-to-End Comprehensive Frontend UI Scenario Validations', () => {
           {
             category: 'HOME IMPROVEMENT',
             total_amount: 400.00,
-            per_user_paid: { Jim: 400.00, Zina: 0.00 },
-            per_user_share_pct: { Jim: 25.0, Zina: 75.0 },
-            net_per_user: { Jim: 300.00, Zina: -300.00 }
+            per_user_paid: { Bob: 400.00, Alice: 0.00 },
+            per_user_share_pct: { Bob: 25.0, Alice: 75.0 },
+            net_per_user: { Bob: 300.00, Alice: -300.00 }
           }
         ],
         net_balances: {
-          Jim: 300.00,
-          Zina: -300.00
+          Bob: 300.00,
+          Alice: -300.00
         },
         debts: [
-          { from_user: 'Zina', to_user: 'Jim', amount: 300.00 }
+          { from_user: 'Alice', to_user: 'Bob', amount: 300.00 }
         ]
       };
       paybacks.set(scenario5Paybacks);
 
       const { unmount: unmountPaybacks } = render(PaybackVisual);
-      expect(screen.getAllByText(/Zina/i).length).toBeGreaterThan(0);
-      expect(screen.getAllByText(/Jim/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Alice/i).length).toBeGreaterThan(0);
+      expect(screen.getAllByText(/Bob/i).length).toBeGreaterThan(0);
       expect(screen.getAllByText(/300\.00/i).length).toBeGreaterThan(0);
 
       // Assert Invariants
-      expect(scenario5Paybacks.net_balances.Jim).toBe(300.00);
-      expect(scenario5Paybacks.net_balances.Zina).toBe(-300.00);
-      expect(scenario5Paybacks.debts[0].from_user).toBe('Zina');
-      expect(scenario5Paybacks.debts[0].to_user).toBe('Jim');
+      expect(scenario5Paybacks.net_balances.Bob).toBe(300.00);
+      expect(scenario5Paybacks.net_balances.Alice).toBe(-300.00);
+      expect(scenario5Paybacks.debts[0].from_user).toBe('Alice');
+      expect(scenario5Paybacks.debts[0].to_user).toBe('Bob');
       expect(scenario5Paybacks.debts[0].amount).toBe(300.00);
       unmountPaybacks();
     });

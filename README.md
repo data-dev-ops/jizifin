@@ -115,9 +115,9 @@ The application features full-stack automated test suites ensuring zero regressi
 
 ### 1. Backend Test Suite & Integration Scenarios (Pytest)
 - **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** **328 passed tests** across 17 test modules, including:
-  - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, and graph-decomposed couple debt isolation.
-  - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_multi_household_couples.py`, etc.
+- **Coverage:** **339 passed tests** across 20 test modules, including:
+  - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, graph-decomposed couple debt isolation, and SCD2 category split overrides with timeline precedence.
+  - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_category_rename_delete.py`, `test_scd2_category_splits.py`, `test_multi_household_couples.py`, etc.
 
 ```bash
 # Run full backend test suite with coverage:
@@ -132,11 +132,11 @@ docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/test
 
 ### 2. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Coverage:** **312 passed tests** across 36 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, etc.), form validations, and user workflows.
+- **Coverage:** **342 passed tests** across 39 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:
-npm --prefix frontend test
+npm --prefix frontend test -- --run
 
 # Generate frontend lcov coverage:
 npm --prefix frontend run test:coverage
@@ -147,7 +147,7 @@ docker run --rm \
   -v $(pwd)/frontend/index.html:/app/index.html \
   -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js \
   -v $(pwd)/frontend/vite.config.js:/app/vite.config.js \
-  jizifin-frontend-test npm test
+  jizifin-frontend-test npm test -- --run
 ```
 
 ---

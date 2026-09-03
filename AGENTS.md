@@ -1,492 +1,289 @@
 # 🤖 SYSTEM CAPROM: FinanceTracker LLM Agent Directives
 
-**TARGET:** Gemini Pro / Advanced LLM Agent
-**CONTEXT:** Monorepo Personal Finance Tracker (Multi-user Household)
-**PRIME DIRECTIVE:** Strictly adhere to the technical stack, execution paths, and database schemas defined below. Prioritize zero-regression, ANSI-compliant SQL, and flat Svelte component design.
+**TARGET:** Gemini Pro / Advanced LLM Agent  
+**CONTEXT:** Monorepo Personal Finance Tracker (Multi-user Household)  
+**PRIME DIRECTIVE:** Strictly adhere to the technical stack, execution paths, and database schemas defined below. Prioritize zero-regression, ANSI-compliant SQL, flat Svelte component design, and deterministic cryptographic integrity.
 
 ---
 
-## ⚙️ 1. ENVIRONMENT & EXECUTION
-Standard tooling paths and execution commands for development, testing, and cluster orchestration:
+## ⚙️ 1. MULTI-SYSTEM ENVIRONMENT & EXECUTION STEERING
 
-- **Python Runtime:** Python 3.14+
-- **Dependency Manager:** `uv` (uv 0.11+ or compatible)
-- **Node Runtime:** Node.js (v20+ or v24+)
-- **NPM:** `npm`
+Agents work across varied host systems, sandboxes, and CI environments. Always use this prioritized execution strategy:
 
-**Execution Commands:**
-- Backend Dev Server: `uv run --directory backend uvicorn app.main:app --reload --port 8000`
-- Add Python Package: `uv add --directory backend <package>`
-- Backend Full Test Suite & Coverage: `uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term`
-- Backend Integration Scenarios: `uv run --directory backend pytest tests/test_scenarios_integration.py`
-- Frontend Dev Server: `npm --prefix frontend run dev`
-- Frontend Install: `npm --prefix frontend install <package>`
-- Frontend Test Suite: `npm --prefix frontend test`
-- Frontend Test Coverage: `npm --prefix frontend run test:coverage`
-- Full-Stack Coverage & Sonar: `./scripts/run-tests-and-sonar.sh`
-- **Docker Execution Commands (Clean Host Environment):**
-  - Run Backend Test Suite in Docker: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
-  - Run Integration Scenarios in Docker: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py`
-  - Run Frontend Test Suite in Docker: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test`
-- **Docker Compose Cluster:** Orchestrates `backend`, `frontend`, `caddy`, and local `sonarqube` containers via `docker-compose.yml`. Run `docker compose up --build -d` from the root to start the full stack. Production deployment explicitly starts `backend frontend caddy` only.
+### Tooling & Execution Priority
+1. **Primary Host CLI**: Use local tools when available on `PATH` and permitted by environment policies:
+   - Python / UV: `uv run --directory backend ...`
+   - Node / NPM: `npm --prefix frontend ...`
+2. **NVM / Custom Node Fallback**: If `npm` or `node` is missing from the non-interactive subshell `PATH`, resolve Node via installed NVM paths (e.g., `~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -1)/bin/npm`).
+3. **Docker Container Fallback (Clean Host / Sandbox Bound)**: If host tools are unavailable or commands hit sandbox permission deny rules, execute test and build commands inside the pre-built Docker containers:
+   - Backend Container: `jizifin-backend-test`
+   - Frontend Container: `jizifin-frontend-test`
+4. **Cluster Orchestration**: Multi-container stack (`backend`, `frontend`, `caddy`, `sonarqube`) runs via `docker compose`. Ignore `sonarqube` unless requested
+
+### Execution Commands Reference
+
+| Task | Host CLI Command | Docker Container Fallback |
+| :--- | :--- | :--- |
+| **Backend Tests (Full)** | `uv run --directory backend pytest` | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest` |
+| **Backend Integration Scenarios** | `uv run --directory backend pytest tests/test_scenarios_integration.py` | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py` |
+| **Backend Dev Server** | `uv run --directory backend uvicorn app.main:app --reload --port 8000` | `docker compose up backend` |
+| **Frontend Tests (Full)** | `npm --prefix frontend test -- --run` | `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run` |
+| **Frontend Dev Server** | `npm --prefix frontend run dev` | `docker compose up frontend` |
+| **Full Stack Cluster** | `docker compose up --build -d` | `docker compose up -d backend frontend caddy` (production) |
+| **Sonar & Full Coverage** | `./scripts/run-tests-and-sonar.sh` | Local SonarQube on `http://localhost:9000` |
 
 ---
 
 ## 🏗️ 2. ARCHITECTURAL BOUNDARIES & CRYPTOGRAPHIC DESIGN
 
 ### 🖥️ Backend: FastAPI / Python 3.14 / SQLite
-- **Validation:** Strict Pydantic v2 schemas for all requests, responses, and analytics objects.
-- **Database Connection:** Driven by `aiosqlite`. Every connection is initialized with WAL mode (`PRAGMA journal_mode=WAL;`) and foreign keys enabled (`PRAGMA foreign_keys=ON;`).
-- **Querying:** No ORMs. All endpoints write native, optimized, ANSI-compliant SQL directly in their logic.
-- **Data Types:** Currency is represented exclusively as `INTEGER` cents at the database layer. Decimals (cents/100.0) are calculated and exposed only at the presentation and response layers. Dates are formatted as `TEXT` (YYYY-MM-DD).
-- **Realtime Ticketing:** Native `fastapi.WebSocket` implementation. Fan-out broadcast pattern handles `expense_created` notifications to keep connected clients updated in real time.
+- **Validation:** Strict Pydantic v2 schemas for all requests, responses, and analytics.
+- **Database Driver:** `aiosqlite` with WAL mode (`PRAGMA journal_mode=WAL;`) and foreign keys enforced (`PRAGMA foreign_keys=ON;`).
+- **Querying:** No ORMs. All endpoints write native, optimized, ANSI-compliant SQL directly.
+- **Currency & Dates:** Currency is represented strictly as `INTEGER` cents at the database layer (decimals `cents / 100.0` exposed only at presentation layer). Dates are `TEXT` formatted as `YYYY-MM-DD`.
+- **Realtime Broadcast:** Native `fastapi.WebSocket` fan-out broadcasting live ledger events on `/ws/finance`.
 
 ### 🌐 Frontend: Vanilla Svelte / Tailwind CSS / Chart.js
 - **State Management:** Svelte writable stores (`stores.js`) serve as the reactive data bridge for local client state.
-- **Styling:** Exclusively utility-first Tailwind CSS. Scoped `<style>` blocks are prohibited unless strictly necessary (e.g., canvas or keyframes that cannot be handled via standard Tailwind classes).
-- **Visualization:** Raw Chart.js rendered on `<canvas>` elements. Updates are triggered reactively via `chart.update()` inside WebSocket ticker payloads. No external heavy wrappers.
+- **Styling:** Exclusively utility-first Tailwind CSS. Scoped `<style>` blocks are prohibited unless strictly necessary (e.g., canvas or keyframes).
+- **Visualization:** Raw Chart.js rendered on `<canvas>` elements, reactively updated via `chart.update()`. No heavy component wrappers.
+- **Error Handling:** Central API helper `request()` in `frontend/src/lib/api.js` throws explicit `Error` objects on non-2xx status codes; Svelte components catch and bind `err.message` to local reactive error banners.
 
-### 🔒 Client-Server Cryptographic Split
-To maintain zero-knowledge privacy for the household financial history, data is encrypted before sending it to the server. The cryptographic tasks are split between client and server as follows:
+### 🔒 Client-Server Cryptographic Split (Zero-Knowledge Privacy)
+To maintain zero-knowledge privacy for household finances, sensitive data is encrypted before leaving the client:
 
 1. **Client-Side Cryptography (`crypto.js`)**:
-   - **Key Derivation:** Derives a 256-bit AES-GCM `CryptoKey` from the user's master passphrase using the browser's Web Crypto API with PBKDF2, 100,000 iterations, SHA-256, and a static salt `"jizifin-salt-pbkdf2"`.
-   - **Encryption/Decryption:** Encrypts sensitive fields (using `encryptText`) before dispatching POST/PUT payloads, converting the binary ciphertext to a Base64URL string (stripping padding). Decrypts received data (using `decryptText`) before updating Svelte stores.
-   - **Static IV:** AES-GCM encryption uses a static 12-byte IV `[106, 105, 122, 105, 102, 105, 110, 45, 99, 114, 121, 112]` (equivalent to `"jizifin-cryp"`).
-
+   - **Key Derivation:** Derives a 256-bit AES-GCM `CryptoKey` from the user passphrase using PBKDF2 (100,000 iterations, SHA-256, static salt `"jizifin-salt-pbkdf2"`).
+   - **Static IV:** AES-GCM uses static 12-byte IV `[106, 105, 122, 105, 102, 105, 110, 45, 99, 114, 121, 112]` (`"jizifin-cryp"`). Ciphertext is encoded to Base64URL (no padding).
+   - **Encryption/Decryption:** Payload fields are encrypted via `encryptText` before POST/PUT and decrypted via `decryptText` before updating stores.
 2. **Server-Side Cryptography (`crypto_utils.py`)**:
-   - **Database Backups:** Serves bulk database export (`/auth/export`) and import (`/auth/import`) endpoints. Using the Python `cryptography` library, it derives the key using the exact same PBKDF2 parameters and salt.
-   - **Bulk Processing:** For exports, it takes a copy of the database and decrypts sensitive columns in-place on the filesystem temporarily before streaming it to the user. For imports, it encrypts the uploaded plaintext database in-place on the server before replacing the active database file. The database is never kept in plaintext on the server's persistent disk.
-
-3. **Deterministic AES-GCM Implications**:
-   - **Queryability & Referential Integrity:** Because the encryption is deterministic (static IV), the exact same plaintext string always encrypts to the exact same ciphertext Base64URL string. This allows the backend to perform exact matches (`who_paid = ?`), enforce `PRIMARY KEY` uniqueness (e.g. `splits.category`), group records (`GROUP BY category`), and validate foreign keys (e.g. `expenses.who_paid` matching `users.name`).
-   - **Security Weakness:** The use of a static IV breaks the semantic security of AES-GCM. It exposes the ciphertexts to frequency analysis and XOR pattern/replay leakages if an attacker obtains the database file.
-   - **Encrypted Columns:** `users.name`, `splits.category`, `income_categories.category`, `projects.name`, `expenses.name`, `expenses.who_paid`, `expenses.category`, `expense_overrides.user_name`, `income.name`, `income.who`, `income.category`, `recurring_expenses.name`, `recurring_expenses.who_paid`, `recurring_expenses.category`, `budgets.category`, `split_allocations.category`, `split_allocations.user_name`, `tags.name`, `tags.description`, `joint_account.name`, `joint_account_deposits.user_name`, `joint_account_corrections.note`, `jobs.name`, `jobs.who`, `jobs.notes`, `salary_overrides.user_name`, `salary_overrides.note`.
-   - **Plaintext Columns:** Numeric amounts (cents), dates, integer primary/foreign keys, and the `settlements` table.
-
-### 🚨 Coding Style Conventions & Deviations
-- **API Error Handling Flow**:
-  - `frontend/src/lib/api.js` utilizes a central `request()` helper that throws an explicit `Error` object on non-2xx HTTP response codes (propagating status and response body).
-  - Svelte components (such as `Login.svelte`, `ExpenseForm.svelte`, or `IncomeTab.svelte`) call api methods inside `try...catch` blocks and assign `err.message` to local reactive error variables (e.g., `formError`, `jobError`) to render alert blocks in the user interface.
-
----
-
-## 🗄️ 3. DATABASE SCHEMA & LOGIC CONSTRAINTS
-
-### Database Tables (SQLite v4 Schema)
-All database interactions are defined in `backend/app/database.py`. The tables are:
-
-1. **`app_config`** (Key-value store for app-wide settings)
-   - `key` (TEXT PRIMARY KEY)
-   - `value` (TEXT NOT NULL) — stores the encrypted magic word `magic_word` to validate passphrases.
-
-2. **`users`** (Household members)
-   - `name` (TEXT PRIMARY KEY, CHECK(length(name) <= 256)) — Encrypted.
-   - `color` (TEXT NOT NULL DEFAULT '#6366f1')
-   - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
-   - `created_at` (TEXT NOT NULL DEFAULT (datetime('now')))
-
-3. **`splits`** (Category registry)
-   - `category` (TEXT PRIMARY KEY, CHECK(length(category) <= 256)) — Encrypted.
-
-4. **`income_categories`** (Income category registry)
-   - `category` (TEXT PRIMARY KEY, CHECK(length(category) <= 256)) — Encrypted.
-   - No FK from `income.category` — historical entries survive category deletion intentionally.
-
-5. **`projects`** (Target budget goals)
-   - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-   - `name` (TEXT NOT NULL UNIQUE CHECK(length(name) <= 256)) — Encrypted.
-   - `target_cents` (INTEGER NOT NULL CHECK(target_cents > 0))
-   - `target_date` (TEXT NOT NULL CHECK(target_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-
-6. **`tags`** (Open-ended label tags)
-   - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-   - `name` (TEXT NOT NULL UNIQUE CHECK(length(name) <= 256)) — Encrypted.
-   - `color` (TEXT NOT NULL DEFAULT '#f59e0b')
-   - `description` (TEXT CHECK(length(description) <= 512)) — Encrypted.
-   - `created_at` (TEXT NOT NULL DEFAULT (datetime('now')))
-   - `is_joint` (INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)))
-   - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
-
-7. **`expenses`** (Core expense ledger)
-   - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-   - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
-   - `cost_cents` (INTEGER NOT NULL CHECK(cost_cents > 0))
-   - `expense_date` (TEXT NOT NULL CHECK(expense_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-   - `who_paid` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE) — Encrypted.
-   - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE) — Encrypted.
-   - `project_id` (INTEGER REFERENCES projects(id) ON DELETE SET NULL)
-   - `tag_id` (INTEGER REFERENCES tags(id) ON DELETE SET NULL)
-   - `is_joint` (INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))) — 1 if paid directly by joint account
-
-8. **`expense_overrides`** (Per-expense override split allocations)
-   - `expense_id` (INTEGER NOT NULL REFERENCES expenses(id) ON DELETE CASCADE)
-   - `user_name` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-   - `pct` (REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0))
-   - *Primary Key*: `(expense_id, user_name)`
-
-9. **`income`** (Append-only ledger for one-off bonuses, gifts, tax returns)
-   - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-   - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
-   - `amount_cents` (INTEGER NOT NULL CHECK(amount_cents > 0))
-   - `who` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE) — Encrypted.
-   - `category` (TEXT NOT NULL CHECK(length(category) <= 256)) — Encrypted.
-   - `income_date` (TEXT NOT NULL CHECK(income_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-   - `is_joint` (INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1))) — 1 if deposited to joint account
-   - *Indexes*: `idx_income_who_date` on `(who, income_date DESC)`
-
-10. **`recurring_expenses`** (Templates for automated expenses)
-    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-    - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
-    - `cost_cents` (INTEGER NOT NULL CHECK(cost_cents > 0))
-    - `who_paid` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE) — Encrypted.
-    - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE) — Encrypted.
-    - `day_of_month` (INTEGER NOT NULL CHECK(day_of_month >= 1 AND day_of_month <= 31))
-    - `is_joint` (INTEGER NOT NULL DEFAULT 0 CHECK(is_joint IN (0, 1)))
-
-11. **`budgets`** (Monthly limit configuration)
-    - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `month` (TEXT NOT NULL CHECK(month = 'ALL' OR month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'))
-    - `limit_cents` (INTEGER NOT NULL CHECK(limit_cents >= 0))
-    - *Primary Key*: `(category, month)`
-
-12. **`settlements`** (Month locking logs)
-    - `month` (TEXT PRIMARY KEY CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'))
-    - `settled_at` (TEXT NOT NULL)
-    - `net_balance_transferred_cents` (INTEGER NOT NULL)
-
-13. **`split_agreements`** (SCD2 category split timeline and temporary overrides)
-    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-    - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `start_date` (TEXT NOT NULL CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-    - `end_date` (TEXT CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-    - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
-    - `note` (TEXT CHECK(note IS NULL OR length(note) <= 512)) — Encrypted.
-    - `created_at` (TEXT NOT NULL DEFAULT (datetime('now')))
-    - *Indexes*: `idx_split_agreements_cat_dates` on `(category, start_date DESC)`
-
-14. **`split_allocations`** (Split allocations linked to split agreements)
-    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-    - `agreement_id` (INTEGER REFERENCES split_agreements(id) ON DELETE CASCADE)
-    - `category` (TEXT NOT NULL REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `user_name` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `pct` (REAL NOT NULL CHECK(pct >= 0.0 AND pct <= 100.0))
-    - *Indexes*: `idx_split_allocations_agreement` on `(agreement_id)`, `idx_split_allocations_category` on `(category)`
-
-15. **`joint_account`** (Singleton joint account config — id always 1)
-    - `id` (INTEGER PRIMARY KEY CHECK(id = 1))
-    - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
-    - `balance_cents` (INTEGER NOT NULL DEFAULT 0)
-    - `safety_margin_pct` (INTEGER NOT NULL DEFAULT 10 CHECK(0..100))
-    - `deposit_split_mode` (TEXT NOT NULL DEFAULT 'even' CHECK IN ('salary','even','manual'))
-    - `expected_total_cents` (INTEGER, nullable — overrides per-cat sum when set)
-
-15. **`joint_account_categories`** (Categories paid from joint account)
-    - `category` (TEXT PRIMARY KEY REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE)
-
-16. **`joint_account_deposits`** (Per-user monthly deposit config)
-    - `user_name` (TEXT PRIMARY KEY REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `amount_cents` (INTEGER NOT NULL DEFAULT 0 CHECK >= 0)
-    - `day_of_month` (INTEGER NOT NULL DEFAULT 1 CHECK 1..31)
-
-17. **`joint_account_expected_costs`** (Per-category expected monthly cost)
-    - `category` (TEXT PRIMARY KEY REFERENCES splits(category) ON UPDATE CASCADE ON DELETE CASCADE)
-    - `expected_cents` (INTEGER NOT NULL CHECK >= 0)
-
-18. **`joint_account_corrections`** (Signed balance corrections — deposits and withdrawals)
-    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-    - `amount_cents` (INTEGER NOT NULL — positive = top-up, negative = withdrawal)
-    - `correction_date` (TEXT NOT NULL GLOB YYYY-MM-DD)
-    - `note` (TEXT CHECK(length <= 512)) — Encrypted, nullable.
-
-19. **`jobs`** (Employment streams, contracts, and regular income timelines)
-    - `id` (INTEGER PRIMARY KEY AUTOINCREMENT)
-    - `name` (TEXT NOT NULL CHECK(length(name) <= 256)) — Encrypted.
-    - `who` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE) — Encrypted.
-    - `amount_cents` (INTEGER NOT NULL CHECK(amount_cents > 0))
-    - `frequency` (TEXT NOT NULL DEFAULT 'monthly' CHECK(frequency IN ('monthly', 'weekly', 'biweekly', 'annual')))
-    - `start_date` (TEXT NOT NULL CHECK(start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-    - `end_date` (TEXT CHECK(end_date IS NULL OR end_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'))
-    - `notes` (TEXT CHECK(notes IS NULL OR length(notes) <= 512)) — Encrypted.
-    - `is_active` (INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)))
-    - *Indexes*: `idx_jobs_who_dates` on `(who, start_date DESC)`
-
-20. **`salary_overrides`** (Month-specific salary overrides for sickness, leave, overtime)
-    - `user_name` (TEXT NOT NULL REFERENCES users(name) ON UPDATE CASCADE ON DELETE CASCADE) — Encrypted.
-    - `month` (TEXT NOT NULL CHECK(month GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]'))
-    - `amount_cents` (INTEGER NOT NULL CHECK(amount_cents >= 0))
-    - `note` (TEXT CHECK(note IS NULL OR length(note) <= 512)) — Encrypted.
-    - *Primary Key*: `(user_name, month)`
-
-### Database Views (Read-Only)
-Views are dropped and recreated on startup to reflect any schema modifications:
-
-1. **`view_monthly_total`** (Total month spending)
-   ```sql
-   CREATE VIEW view_monthly_total AS
-   SELECT
-       COALESCE(ROUND(SUM(cost_cents) / 100.0, 2), 0.0) AS total_amount,
-       COUNT(*)                                           AS expense_count,
-       strftime('%Y-%m', 'now')                          AS month
-   FROM expenses
-   WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')
-   ```
-
-2. **`view_monthly_by_category`** (Total month spending grouped by category)
-   ```sql
-   CREATE VIEW view_monthly_by_category AS
-   SELECT
-       category,
-       ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
-       COUNT(*)                           AS expense_count
-   FROM   expenses
-   WHERE  strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')
-   GROUP  BY category
-   ```
-
-3. **`view_expenses_by_month_category`** (Monthly spending grouped by month YYYY-MM and category)
-   ```sql
-   CREATE VIEW view_expenses_by_month_category AS
-   SELECT
-       strftime('%Y-%m', expense_date)   AS month,
-       category,
-       ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
-       COUNT(*)                           AS expense_count
-   FROM   expenses
-   GROUP  BY strftime('%Y-%m', expense_date), category
-   ```
-
-4. **`view_monthly_by_payer`** (Total month spending grouped by payer)
-   ```sql
-   CREATE VIEW view_monthly_by_payer AS
-   SELECT
-       who_paid,
-       ROUND(SUM(cost_cents) / 100.0, 2) AS total_amount,
-       COUNT(*)                           AS expense_count
-   FROM   expenses
-   WHERE  strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now')
-   GROUP  BY who_paid
-   ```
-
-5. **`view_project_summary`** (Aggregated total spent cents per project)
-   ```sql
-   CREATE VIEW view_project_summary AS
-   SELECT
-       p.id,
-       p.name,
-       p.target_cents,
-       p.target_date,
-       COALESCE(SUM(e.cost_cents), 0) AS total_spent_cents,
-       COUNT(e.id)                     AS expense_count
-   FROM projects p
-   LEFT JOIN expenses e ON e.project_id = p.id
-   GROUP BY p.id, p.name, p.target_cents, p.target_date
-   ```
-
-6. **`view_tag_totals`** (All-time tag spending aggregates)
-   ```sql
-   CREATE VIEW view_tag_totals AS
-   SELECT
-       t.id,
-       t.name,
-       t.color,
-       t.description,
-       t.is_joint,
-       t.is_active,
-       COALESCE(ROUND(SUM(e.cost_cents) / 100.0, 2), 0.0) AS total_amount,
-       COUNT(e.id)                                          AS expense_count,
-       MIN(e.expense_date)                                  AS first_date,
-       MAX(e.expense_date)                                  AS last_date
-   FROM tags t
-   LEFT JOIN expenses e ON e.tag_id = t.id
-   GROUP BY t.id, t.name, t.color, t.description, t.is_joint, t.is_active
-   ```
-
-7. **`view_joint_account_monthly`** (Joint-account category spending by month)
-   ```sql
-   CREATE VIEW view_joint_account_monthly AS
-   SELECT
-       strftime('%Y-%m', e.expense_date)   AS month,
-       e.category,
-       ROUND(SUM(e.cost_cents) / 100.0, 2) AS total_amount,
-       COUNT(*)                             AS expense_count
-   FROM expenses e
-   INNER JOIN joint_account_categories jac ON jac.category = e.category
-   GROUP BY strftime('%Y-%m', e.expense_date), e.category
-   ```
-
-### Complex Domain Logic
-
-- **Exact Hare-Niemeyer / Largest Remainder Distribution (`allocate_cents_largest_remainder`)**:
-  Computes exact integer cent allocations for any positive, zero, or negative expense/refund:
-  1. Computes exact floating-point cent shares: `share = total_cents * pct / total_pct`.
-  2. Uses mathematical floor `math.floor(share)` (not integer truncation toward zero) to ensure correct negative quotient floor assignment on credit memos and store refunds.
-  3. Computes remainder: `remainder = share - floor_share`.
-  4. Distributes remaining cents (`total_cents - sum(floor_shares)`) to users ordered by descending remainder.
-  5. **Deterministic Salted Tie-Breaker**: For users with identical fractional remainders, tie-breaking order is determined by SHA-256 hash of `f"{tx_salt}:{user}"` (where `tx_salt` is expense ID, date, or category), eliminating lexicographical alphabetical drift over hundreds of transactions.
-
-- **Tag Active Timeline Window Enforcement (`POST /expenses`, `PUT /expenses`, `PUT /tags/{id}`)**:
-  1. If an expense is associated with a `tag_id`, the system validates that `tag.start_date <= expense.expense_date <= tag.end_date`. If out of bounds, the endpoint returns `HTTP 422 Unprocessable Content`.
-  2. When updating a tag's active timeline (`PUT /tags/{id}`), the backend queries all existing assigned expenses. If any expense would fall outside the proposed `[start_date, end_date]` window, the update is rejected with `HTTP 422` and a descriptive violation message.
-
-- **Project Settlement & Point-in-Time Equity Balance Sheets (`GET /projects/{id}/settlement`)**:
-  Calculates cumulative multi-tenant project equity positions:
-  1. Computes `effective_funding_cents` per participant:
-     - For direct personal payments: `cost_cents` credited to `who_paid`.
-     - For joint account payments (`is_joint = 1`): distributes project payment according to historical monthly deposit proportions (`joint_account_deposits`) of the joint account members for that expense's month.
-  2. Computes `assigned_liability_cents` per participant: splits total project expenses equally (or according to project member configuration) using the Largest Remainder algorithm.
-  3. Calculates `net_balance_cents = effective_funding_cents - assigned_liability_cents`.
-  4. Runs greedy debt simplification to produce minimal participant-to-participant reimbursement transfers (`debts`).
-
-- **Jobs & Income Analytics (`/analytics/income-by-person`, `/income/latest-salary`, `/jobs`)**:
-  Calculates effective monthly base salary per active household member for a target month `YYYY-MM`:
-  1. Finds all active jobs where `start_date <= '{target_month}-31'` AND (`end_date IS NULL` OR `end_date >= '{target_month}-01'`) AND `is_active = 1`.
-  2. Normalizes frequencies:
-     - `monthly`: `amount_cents`
-     - `weekly`: `round(amount_cents * 52 / 12)`
-     - `biweekly`: `round(amount_cents * 26 / 12)`
-     - `annual`: `round(amount_cents / 12)`
-  3. If a user has no jobs configured in the DB, it falls back to the legacy historical `SALARY` append-only entry carry-forward.
-  4. Sums all one-off non-salary income logged for that month (`BONUS`, `GIFT`, etc.) to produce the total income per person and effective salary ratios.
-
-- **Paybacks Calculation & Graph Decomposition (`/analytics/paybacks`)**:
-  Computes payback balances based on individual transactions:
-  1. **Joint account exclusion:** Expenses whose category is assigned to the joint account are excluded entirely from payback calculations (loaded from `joint_account_categories`).
-  2. It reads the effective split override if present, falling back to split allocations, and finally to an equal split.
-  3. Resolves personal-pay categories (`PERSONAL COST`, `LEISURE`, `GIFT`) by renaming them dynamically to include the payer name and assigning them a 100% split share to the payer.
-  4. Accumulates the net balance per user in cents (positive represents overpayment, negative represents debt).
-  5. **Special Deduction Rule:** Subtracts the smaller of Jane's "Combined Fixed" payment and John's "Apartment" payment from John's net balance, and adds it to Jane's net balance (simulating Jane paying John).
-  6. **Connected-Component Graph Isolation**: Partitions household members into disjoint connected subgraphs based on transaction split participation before running greedy debt simplification, ensuring debts within couples or subgroups never cross over into unrelated household tenants.
-
----
-
-## 📂 4. REPO TOPOLOGY
-
-### Monorepo Map
-
-#### Root Configuration Files & Workflow Automation
-- **`docker-compose.yml`**: Multi-container architecture orchestrating `backend`, `frontend`, `caddy`, and local `sonarqube`.
-- **`sonar-project.properties`**: SonarQube static code analysis configuration.
-- **`scripts/run-tests-and-sonar.sh`**: Helper script generating full-stack coverage reports for local SonarQube ingest.
-- **`.github/workflows/ci.yml`**: Continuous Integration workflow running Vitest and Pytest test coverage suites.
-- **`.github/workflows/deploy.yml`**: Continuous deployment workflow for DigitalOcean droplet deployments.
-- **`Caddyfile`**: Routes requests for `jizifin.duckdns.org` (HTTPS/TLS) and local `http://localhost`, proxying `/api/*` to backend and other paths to frontend.
-- **`PROJECT.md`**: Project requirements and boundaries.
-- **`AGENTS.md`**: System caprom directives for LLM agents and developers.
-- **`README.md`**: General setup, features, and test guide.
-
-#### Backend Application (`backend/`)
-- **`backend/Dockerfile`**: Configures Python 3.14 environment, installs dependencies via `uv`, exposes port 8000.
-- **`backend/pyproject.toml`**: Stores Python project metadata and dependencies.
-- **`backend/uv.lock`**: Lockfile securing exact Python package versions.
-- **`backend/finance.db`**: Local SQLite database instance (at rest).
-- **`backend/app/__init__.py`**: Initialises the `app` package.
-- **`backend/app/main.py`**: Declares FastAPI routes, lifespan hooks, WebSocket connection manager for `/ws/finance`, job CRUD endpoints, and financial analytics.
-- **`backend/app/models.py`**: Pydantic v2 schemas representing input/output models for all endpoints.
-- **`backend/app/database.py`**: Database pool configuration, WAL mode, foreign keys, table and view initializations.
-- **`backend/app/crypto_utils.py`**: Server-side cryptography routines executing PBKDF2 key derivation and AES-GCM bulk encryption/decryption for database backups.
-- **`backend/tests/`**: Pytest test suite containing 328 tests (`test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, etc.).
-
-#### Frontend Application (`frontend/`)
-- **`frontend/Dockerfile`**: Configures Node.js container and exposes Vite port 5173.
-- **`frontend/package.json`**: Manages node dependencies and scripts.
-- **`frontend/tailwind.config.js`**: Utility-first Tailwind styling tokens.
-- **`frontend/vite.config.js`**: Vite configuration defining dev proxying and build parameters.
-- **`frontend/src/main.js`**: Hooks the Svelte application into the DOM.
-- **`frontend/src/App.svelte`**: Main application shell, tab routing, sidebar, selected month switcher, top-bar privacy shield toggle, and dynamic accessibility classes.
-- **`frontend/src/lib/api.js`**: Central API integration with transparent AES-GCM encryption/decryption on all transaction, salary override, and job requests.
-- **`frontend/src/lib/crypto.js`**: Client-side WebCrypto PBKDF2 and AES-GCM encryption routines with static IV.
-- **`frontend/src/lib/stores.js`**: Reactive Svelte writable stores (`jobs`, `incomeEntries`, `expenses`, `users`, `splits`, `projects`, `tags`, `jointAccount`, `deviceProfile`, `experienceTier`, `privacyShield`, etc.).
-- **`frontend/src/lib/AnalyticsSummary.svelte`**: Monthly totals summary, category spending doughnut chart, whole-unit rounding, and privacy-shielded balances.
-- **`frontend/src/lib/BudgetManager.svelte`**: Monthly category budget limit configuration.
-- **`frontend/src/lib/ExpenseForm.svelte`**: Forms for logging/editing expenses with split allocations, tag selection, smart form memory, and conditional project/joint fields.
-- **`frontend/src/lib/ExpenseList.svelte`**: List of the month's expenses with search & filtering, configurable row density (`minimal`, `compact`, `detailed`), inline quick tag assignment popover, comprehensive Edit Expense modal, and inline deletion confirmations.
-- **`frontend/src/lib/IncomeChart.svelte`**: Monthly income visualization with base salary vs one-off breakdown.
-- **`frontend/src/lib/IncomeTab.svelte`**: Unified Income & Employment panel — monthly summary cards with period-specific salary override adjustments, employment streams list with rate/frequency badges, 1-click raise/promotion/leave adjustments, one-off income ledger, and category manager navigation.
-- **`frontend/src/lib/JointAccountTab.svelte`**: Joint account management panel — balance overview, category assignment, deposit schedules, expected costs, balance corrections, and settlement.
-- **`frontend/src/lib/Login.svelte`**: Master passphrase authentication and database backup import/export.
-- **`frontend/src/lib/PaybackVisual.svelte`**: Payback debt visualizer and settlement month locking.
-- **`frontend/src/lib/ProjectsTab.svelte`**: Target budget goals with lifecycle filter (`active`, `in_progress`, `all`), estimated completion timelines, and expense form project selector toggle.
-- **`frontend/src/lib/QueryConsole.svelte`**: SQL query console with client-side output decryption.
-- **`frontend/src/lib/RealtimeChart.svelte`**: WebSocket live expense ticker chart.
-- **`frontend/src/lib/RecurringManager.svelte`**: Automated recurring expense templates.
-- **`frontend/src/lib/SettingsTab.svelte`**: Central 7-domain Settings & Personalization panel — device display profiles (desktop vs mobile), 1-click workflow presets, appearance & stealth privacy shield, accessibility scaling, household members, feature modules, view depth filters, rapid logging accelerators, modular dashboard widgets, and decrypted SQLite database export.
-- **`frontend/src/lib/SplitManager.svelte`**: Percentage split allocation manager with dynamic salary ratio resets.
-- **`frontend/src/lib/TagsTab.svelte`**: Open-ended event tag manager with spending charts.
-- **`frontend/src/lib/UserManager.svelte`**: Household member configuration and color palette management.
-- **`frontend/vitest.config.js`**: Vitest test configuration with JSDOM and Svelte testing plugins.
-- **`frontend/src/test/`**: Vitest test suite with 36 test files and 312+ tests.
-
----
-
-## 🐳 5. SETUP & CLUSTER INSTRUCTIONS
-
-The application runs as a cluster coordinated via `docker-compose.yml` in a shared bridge network (`app-network`). Caddy handles routing and TLS termination:
+   - Manages bulk database export (`/auth/export`) and import (`/auth/import`). Uses the Python `cryptography` library with identical PBKDF2 salt and static IV.
+   - Decrypts database copies in-place on the server filesystem temporarily during export streaming, and re-encrypts imported databases before replacing active storage. Plaintext is never persisted on disk.
+3. **Deterministic AES-GCM Querying Rules**:
+   - **Valid on Encrypted Columns**: Exact matches (`col = ?`, `IN (...)`), equality joins (`ON a.col = b.col`), `GROUP BY`, and foreign key cascades.
+   - **FORBIDDEN on Encrypted Columns**: Range filters (`<`, `>`, `BETWEEN`), `LIKE` wildcards, and text collation `ORDER BY`.
+   - **Plaintext Columns**: Amounts (`cost_cents`, `amount_cents`), dates (`expense_date`, `start_date`), IDs, flags (`is_joint`, `is_active`), and `settlements`.
 
 ```
-          Public Traffic (HTTP / HTTPS)
-                    │
-                    ▼
-       ┌───────────────────────────┐
-       │   Caddy (Reverse Proxy)   │
-       │   Ports: 80 / 443         │
-       └─────────────┬─────────────┘
-                     │
-         ┌───────────┴───────────┐
-         ▼                       ▼
-┌──────────────────┐   ┌──────────────────┐
-│     frontend     │   │     backend      │
-│   Port: 5173     │   │    Port: 8000    │
-└──────────────────┘   └──────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        COLUMN ENCRYPTION MATRIX                        │
+├───────────────────────────────────┬────────────────────────────────────┤
+│ ENCRYPTED (Base64URL)             │ PLAINTEXT                          │
+├───────────────────────────────────┼────────────────────────────────────┤
+│ users.name                        │ All *_cents (cost, amount, target) │
+│ splits.category                   │ All dates (YYYY-MM-DD, month)      │
+│ income_categories.category        │ All integer IDs and foreign keys   │
+│ projects.name                     │ Boolean flags (is_joint, is_active)│
+│ expenses.name, who_paid, category │ colors (#hex)                      │
+│ income.name, who, category        │ settlements table                  │
+│ recurring_expenses.name, who, cat │ day_of_month, frequencies          │
+│ jobs.name, who, notes             │ percentages (pct, REAL)            │
+│ split_allocations.category, user  │ safety_margin_pct                  │
+│ tags.name, description            │ deposit_split_mode                 │
+│ joint_accounts.name               │ magic_word (app_config)            │
+│ joint_account_deposits.user_name  │                                    │
+│ joint_account_corrections.note    │                                    │
+│ salary_overrides.user_name, note  │                                    │
+└───────────────────────────────────┴────────────────────────────────────┘
 ```
 
-### Caddy Reverse Proxy & TLS Configuration
-1. **Host Entry Point:** Caddy binds to ports `80` and `443` on the host. It auto-provisions and maintains SSL certificates for `jizifin.duckdns.org` over HTTPS, while serving `http://localhost` and `http://127.0.0.1` over HTTP without TLS for local development.
-2. **Backend API Routing:** All requests starting with `/api/*` have their prefix stripped by Caddy's `handle_path` block and are proxied to `http://backend:8000`.
-3. **Frontend Routing:** All other paths are proxied to `http://frontend:5173`, serving the Svelte single page application.
-4. **WebSocket Support:** Transparent HTTP connection upgrading forwards WebSocket traffic to `/ws/finance`.
+---
+
+## 🌟 3. COMPREHENSIVE FEATURE OVERVIEW
+
+The application provides the following core capabilities:
+
+1. **Multi-User & Co-Housing Support**:
+   - Houses multiple members and independent couples under one instance.
+   - Dynamic user configuration with custom colors and active/inactive status.
+   - Connected-component graph isolation ensures debt settlements between couples do not cross over into unrelated household tenants.
+2. **Multi-Joint Accounts**:
+   - Multiple isolated joint accounts (`joint_accounts`, `joint_account_members`) with independent balances, safety margins, and category bindings.
+   - Expenses and recurring commitments can be charged directly to a specific joint account (`is_joint = 1`, `joint_account_id`).
+   - Per-account monthly deposit schedules (`joint_account_deposits`), monthly execution tracking (`joint_account_monthly_deposits`), and signed balance corrections (`joint_account_corrections`).
+   - Direct joint expenses are automatically excluded from peer-to-peer payback debt calculations.
+3. **Category Management & SCD2 Split Agreements**:
+   - Dynamic category registry with renaming cascades across all referencing tables (`ON UPDATE CASCADE`) and delete protection (blocked with HTTP 409 if referenced).
+   - Slowly Changing Dimensions Type 2 (SCD2) category split agreements (`split_agreements`, `split_allocations`) supporting date-bounded overrides. Overrides take precedence over baseline agreements during their active window.
+4. **Jobs & Period-Specific Salary Adjustments**:
+   - Employment contracts (`jobs`) tracking regular income streams with normalized frequencies (`monthly`, `weekly`, `biweekly`, `annual`) and start/end dates.
+   - Month-specific salary overrides (`salary_overrides`) for temporary unpaid leave, sickness, or overtime, dynamically adjusting proportional split ratios for target periods without mutating underlying contracts.
+5. **Project Multi-User Membership & Settlement**:
+   - Target budget goals (`projects`) with user membership tracking (`project_users`).
+   - Dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), evaluating effective funding (direct personal + joint proportion) against assigned liability.
+6. **Dynamic Tag Timelines & Boundary Enforcement**:
+   - Event and label tags (`tags`) with active date windows (`start_date`, `end_date`).
+   - Strict timeline window validation on expense creation/update (`HTTP 422` if expense falls outside tag bounds).
+   - Rejection of tag timeline shrinkage if existing assigned expenses would be orphaned outside proposed dates.
+7. **Core Ledger & Recurring Commitments**:
+   - Expense tracking with smart form memory, search & filtering, inline tag assignment, and comprehensive edit modals.
+   - Automated recurring expense templates (`recurring_expenses`) with day-of-month and frequency scheduling.
+   - Month-locking settlements (`settlements`) to seal historical periods.
+8. **7-Domain Personalization & Settings**:
+   - Independent Desktop vs Mobile display profiles saved in `localStorage`.
+   - 1-Click functional presets: `Streamlined`, `High Legibility`, `Standard / Balanced`, and `Detailed / Power User`.
+   - Public stealth privacy shield (frosted-glass blur with hover peek).
+   - Custom currency symbol presets (€, $, £, CHF, ¥, kr), whole-unit rounding, and configurable row density (`minimal`, `compact`, `detailed`).
+9. **Interactive Documentation Hub (DocsHub)**:
+   - In-app technical and user documentation suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) backed by repository markdown guides.
+10. **Database Migration Resilience**:
+    - Automatic in-memory/import schema migration via `ensure_column` and dynamic table updaters, guaranteeing legacy backups import cleanly with backfilled defaults.
 
 ---
 
-## 📝 6. DOCUMENTATION MAINTENANCE & COMPLIANCE
+## 🗄️ 4. DATABASE SCHEMA & QUERY OPTIMIZATION
 
-Whenever developer workflows, directory layouts, database schemas, or architectural boundaries change, BOTH `AGENTS.md` and `README.md` must be updated to keep documents aligned and prevent AI hallucinations.
+Authoritative schema definitions, migrations, and view initializations reside in `backend/app/database.py`.
+
+### Database Table Catalog (24 Tables)
+
+| Table | Purpose | Primary Key | Key Foreign Keys | Encrypted Columns |
+| :--- | :--- | :--- | :--- | :--- |
+| `app_config` | App key-value configuration | `key` | None | `value` (magic_word) |
+| `users` | Household members | `name` | None | `name` |
+| `splits` | Expense category registry | `category` | None | `category` |
+| `income_categories` | Income category registry | `category` | None (historical survival) | `category` |
+| `projects` | Budget milestone targets | `id` (AUTO) | None | `name` |
+| `project_users` | Multi-user project members | `(project_id, user_name)` | `projects(id)`, `users(name)` | `user_name` |
+| `tags` | Event & label tags with timeline | `id` (AUTO) | None | `name`, `description` |
+| `expenses` | Core expense ledger | `id` (AUTO) | `users(name)`, `splits(category)`, `projects(id)`, `tags(id)`, `joint_accounts(id)` | `name`, `who_paid`, `category` |
+| `expense_overrides` | Per-expense custom split overrides | `(expense_id, user_name)` | `expenses(id)`, `users(name)` | `user_name` |
+| `income` | Append-only income ledger | `id` (AUTO) | `users(name)` | `name`, `who`, `category` |
+| `jobs` | Employment contracts & regular income | `id` (AUTO) | `users(name)` | `name`, `who`, `notes` |
+| `salary_overrides` | Month-specific salary adjustments | `(user_name, month)` | `users(name)` | `user_name`, `note` |
+| `recurring_expenses` | Automated expense templates | `id` (AUTO) | `users(name)`, `splits(category)`, `joint_accounts(id)` | `name`, `who_paid`, `category` |
+| `budgets` | Monthly category spending limits | `(category, month)` | `splits(category)` | `category` |
+| `settlements` | Monthly reconciliation & lock log | `month` | None | Plaintext |
+| `split_agreements` | SCD2 category split timelines | `id` (AUTO) | `splits(category)` | `category`, `note` |
+| `split_allocations` | User percentage shares per agreement | `id` (AUTO) | `split_agreements(id)`, `splits(category)`, `users(name)` | `category`, `user_name` |
+| `joint_accounts` | Multi-joint account registry | `id` (AUTO) | None | `name` |
+| `joint_account_members`| Joint account participant roster | `(account_id, user_name)` | `joint_accounts(id)`, `users(name)` | `user_name` |
+| `joint_account` | Singleton backwards-compat table | `id = 1` | None | `name` |
+| `joint_account_categories` | Categories paid from joint accounts | `(category, account_id)` | `splits(category)`, `joint_accounts(id)` | `category` |
+| `joint_account_deposits` | Monthly user deposit schedules | `(user_name, account_id)` | `users(name)`, `joint_accounts(id)` | `user_name` |
+| `joint_account_monthly_deposits` | Deposit execution & payment log | `(month, user_name, account_id)` | `users(name)`, `joint_accounts(id)` | `user_name` |
+| `joint_account_expected_costs` | Expected monthly cost per category | `(category, account_id)` | `splits(category)`, `joint_accounts(id)` | `category` |
+| `joint_account_corrections` | Signed balance corrections | `id` (AUTO) | `joint_accounts(id)` | `note` |
+
+### Database Views Catalog (9 Read-Only Views)
+Recreated on application startup to guarantee schema alignment:
+
+1. `view_monthly_total`: Current month's aggregated spending total (`cost_cents / 100.0`) and transaction count.
+2. `view_monthly_by_category`: Current month spending grouped by category.
+3. `view_monthly_by_payer`: Current month spending grouped by `who_paid`.
+4. `view_expenses_by_month_category`: Monthly spending grouped by `(YYYY-MM, category)`.
+5. `view_project_summary`: Target vs aggregated total spent cents per project.
+6. `view_tag_totals`: All-time spending aggregates, transaction counts, and active date bounds per tag.
+7. `view_joint_account_monthly`: Joint account monthly spending grouped by `(month, category, account_id)`.
+8. `view_current_split_allocations`: Active category split allocations resolved from SCD2 agreements for current date.
+9. `view_split_agreements_active`: Active category split agreement timelines ordered by start date.
+
+### Query Performance & Execution Plan (EQP) Optimization
+The `jizifin-query-optimizer` skill defines indexing standards to guarantee high throughput and zero table scans:
+- **Canonical Indexes**:
+  - `idx_expenses_date_id` on `expenses (expense_date DESC, id DESC)`
+  - `idx_expenses_who_date` on `expenses (who_paid, expense_date DESC)`
+  - `idx_expenses_category_date` on `expenses (category, expense_date DESC)`
+  - `idx_expenses_project_id` on `expenses (project_id) WHERE project_id IS NOT NULL`
+  - `idx_expenses_tag_id` on `expenses (tag_id) WHERE tag_id IS NOT NULL`
+  - `idx_expenses_joint_date` on `expenses (is_joint, expense_date DESC)`
+  - `idx_income_who_date` on `income (who, income_date DESC)`
+  - `idx_jobs_who_dates` on `jobs (who, start_date, end_date)`
+  - `idx_split_agreements_cat_dates` on `split_agreements (category, start_date, end_date)`
+  - `idx_split_allocations_agreement` on `split_allocations (agreement_id)`
+  - `idx_split_allocations_category` on `split_allocations (category)`
+- **SARGability Rule**: Avoid calling SQL functions on index columns (e.g. use `WHERE expense_date >= 'YYYY-MM-01' AND expense_date <= 'YYYY-MM-31'` instead of `WHERE strftime('%Y-%m', expense_date) = ...`).
 
 ---
 
-## 🚨 7. LLM CODE GENERATION RULES & ZERO-REGRESSION POLICY
+## 🧮 5. COMPLEX DOMAIN LOGIC & INVARIANTS
 
-1. **MANDATORY INTEGRATION TEST EXECUTION (CRITICAL DIRECTIVE)**:
-   - Financial arithmetic balance and settlement accuracy are the absolute most crucial invariants of this application.
-   - For **ANY** code modification, feature addition, schema migration, bug fix, or refactor, the LLM agent **MUST ALWAYS run the integration test suite** (`tests/test_scenarios_integration.py` and all 328 backend tests) AND the frontend test suite (312 tests).
-   - Never mark a coding task as done without executing these test suites and verifying a 100% pass rate with zero regressions.
-   - **Test Execution Commands**:
-     - *Local CLI*:
-       ```bash
-       uv run --directory backend pytest
-       npm --prefix frontend test
-       ```
-     - *Docker (Clean Host Environment)*:
-       ```bash
-       docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest
-       docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test
-       ```
-2. **Mathematical Precision Invariants**:
-   - Never truncate float basis points or percentages to integers with `int()`, `Math.round()`, or `parseInt()`. Always preserve float precision (`AllocationEntry.pct` float, `toFixed(4)`).
-   - In Largest Remainder distributions (`allocate_cents_largest_remainder`), always use `math.floor()` to preserve zero-sum invariants on signed values (positive transactions, zero, and negative refunds/credit memos).
-3. **Minimize Context Overhead**: Output ONLY the modified functions or cleanly marked diff blocks.
-4. **Flat Component Composition**: Avoid deep component nesting trees in Svelte.
-5. **Zero Deprecation**: Use stable, established APIs.
-6. **Data Layer Integrity**: Currency is stored exclusively as `INTEGER` cents. Decimals are computed and exposed only at the presentation and response layers.
-7. **SOLID Principles**: Target single-responsibility functions and classes.
+### 1. Signed Hare-Niemeyer / Largest Remainder Distribution (`allocate_cents_largest_remainder`)
+Computes exact integer cent allocations for positive expenses, zero values, and negative credit memos/refunds:
+1. Calculates exact float cent shares: `share = total_cents * pct / total_pct`.
+2. Computes base cent shares using mathematical floor: `floor_share = math.floor(share)` (essential for correct negative quotient assignments on refunds).
+3. Evaluates fractional remainder: `remainder = share - floor_share`.
+4. Distributes remaining cents (`total_cents - sum(floor_shares)`) to users in descending order of remainder.
+5. **Deterministic Salted Tie-Breaker**: For users with identical fractional remainders, tie-breaking order is determined by SHA-256 hash of `f"{tx_salt}:{user}"` (using expense ID, date, or category), eliminating alphabetical drift across hundreds of transactions.
+
+### 2. Payback Calculation & Graph Decomposition (`/analytics/paybacks`)
+1. **Joint Account Exclusion**: Direct joint account transactions (`is_joint = 1`) and categories assigned to joint accounts are excluded from peer reimbursement calculations.
+2. **Allocation Resolution**: Evaluates per-expense overrides (`expense_overrides`), then active SCD2 split agreements (`split_agreements`), falling back to baseline splits or equal distribution.
+3. **Personal-Pay Categories**: Categories designated for personal spend (`PERSONAL COST`, `LEISURE`, `GIFT`) are dynamically remapped to the payer with 100% liability.
+4. **Special Deduction Rule**: Evaluates the smaller of Jane's "Combined Fixed" and John's "Apartment" payments, adjusting net positions to simulate direct reimbursement.
+5. **Connected-Component Graph Isolation**: Partitions members into disjoint connected subgraphs based on transaction splits before executing greedy debt simplification, ensuring debts do not cross outside participating groups.
+
+### 3. Tag Active Window Validation (`POST /expenses`, `PUT /expenses`, `PUT /tags/{id}`)
+- Validates that `tag.start_date <= expense.expense_date <= tag.end_date`. Violations return `HTTP 422 Unprocessable Content`.
+- Updating a tag timeline validates all currently assigned expenses; if any expense would fall outside the proposed window, the update is rejected with `HTTP 422`.
+
+### 4. Jobs & Salary Override Analytics (`/income/latest-salary`, `/analytics/income-by-person`)
+- Evaluates active contracts in `jobs` during target month `YYYY-MM` (`start_date <= '{month}-31'` and `end_date IS NULL OR end_date >= '{month}-01'`).
+- Normalizes frequencies: `monthly` (`cents`), `weekly` (`round(cents * 52 / 12)`), `biweekly` (`round(cents * 26 / 12)`), `annual` (`round(cents / 12)`).
+- Month-specific overrides in `salary_overrides` take precedence over contract amounts for that specific month.
+- Falls back to legacy historical `SALARY` append entries only if user has no configured jobs.
+
+---
+
+## 📂 6. REPO TOPOLOGY
+
+```
+jizifin/
+├── backend/
+│   ├── app/
+│   │   ├── main.py            # FastAPI endpoints, lifespan, WebSockets, analytics
+│   │   ├── database.py        # Schema DDL, migrations, views, connection pool
+│   │   ├── models.py          # Pydantic v2 validation models
+│   │   └── crypto_utils.py    # Server-side PBKDF2/AES-GCM backup streaming
+│   ├── docs/                  # Backend technical documentation markdown
+│   ├── tests/                 # Pytest test suite (339 tests, 20 test files)
+│   ├── pyproject.toml         # Python project configuration and dependencies
+│   └── Dockerfile             # Python 3.14 container definition
+├── frontend/
+│   ├── src/
+│   │   ├── lib/
+│   │   │   ├── api.js         # Central client API with automatic AES-GCM encryption
+│   │   │   ├── crypto.js      # WebCrypto PBKDF2 and AES-GCM static IV routines
+│   │   │   ├── stores.js      # Reactive Svelte writable stores
+│   │   │   ├── docs/          # In-app interactive documentation components
+│   │   │   └── *.svelte       # Feature tab and management components
+│   │   ├── App.svelte         # Main application shell, tabs, privacy shield
+│   │   └── main.js            # DOM mount point
+│   ├── docs/                  # Frontend technical documentation markdown
+│   ├── src/test/              # Vitest test suite (342 tests, 39 test files)
+│   ├── package.json           # Node scripts and dependencies
+│   └── Dockerfile             # Vite / Node container definition
+├── docs/                      # General and getting-started documentation
+├── scripts/                   # Test automation and SonarQube runner scripts
+├── docker-compose.yml         # Local and production multi-container orchestration
+└── Caddyfile                  # Reverse proxy, TLS termination, and WebSocket routing
+```
+
+---
+
+## 🚨 7. ZERO-REGRESSION POLICY & MANDATORY VERIFICATION
+
+### Critical Invariant: Zero Regression Verification
+Any code modification, schema adjustment, feature addition, or refactor **must verify 100% test passage across both backend and frontend suites**:
+
+- **Backend Test Suite (339 Tests across 20 test files)**:
+  - *Host CLI*: `uv run --directory backend pytest`
+  - *Docker Fallback*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
+- **Frontend Test Suite (342 Tests across 39 test files)**:
+  - *Host CLI*: `npm --prefix frontend test -- --run`
+  - *Docker Fallback*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
+
+### Mathematical & Architectural Code Generation Rules
+1. **Never Truncate Floating-Point Percentages**: Keep basis-point precision (`AllocationEntry.pct` float, `toFixed(4)`). Never coerce to integer with `int()` or `Math.round()`.
+2. **Integer Cent Database Boundary**: Stored values are always `INTEGER` cents. Currency formatting (`cents / 100.0`) occurs exclusively at presentation/response boundaries.
+3. **Signed Math Floor**: Always use `math.floor()` in Largest Remainder distribution to guarantee zero-sum invariants on negative refunds.
+4. **Flat Component Composition**: Keep Svelte components modular and avoid deep hierarchical prop drilling.
+5. **Documentation Synchronization**: When schema, indexes, endpoints, or workflows change, update `AGENTS.md` and `README.md` in tandem.
 
 ---
 
 ## 🛡️ 8. PERMISSION HANDLING & SANDBOX RECOVERY PROTOCOL
 
-1. **Immediate Boundary Recognition**: If a command returns a system protection boundary error, treat it as an immutable constraint and pivot inside workspace bounds.
-2. **Execution Discipline**: All command working directories (`Cwd`) and file read/writes MUST remain strictly inside the project root.
-3. **No `cd` Commands**: Never execute `cd` commands in `run_command`. Set `Cwd` explicitly in tool parameters.
-4. **Tooling Enforcement**: Use standard package managers:
-   - Python / UV: `uv`
-   - Node / NPM: `npm`
+1. **System Boundary Recognition**: If a terminal command returns a sandbox deny or protection boundary error, pivot immediately to workspace bounds or Docker container execution.
+2. **No `cd` Commands**: Never execute `cd` commands in `run_command`. Always specify the working directory via the `Cwd` parameter.
+3. **Workspace Enclosure**: All commands, scripts, and file modifications must remain strictly confined to the project root.
