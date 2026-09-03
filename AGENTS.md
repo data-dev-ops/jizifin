@@ -250,7 +250,7 @@ jizifin/
 │   │   ├── App.svelte         # Main application shell, tabs, privacy shield
 │   │   └── main.js            # DOM mount point
 │   ├── docs/                  # Frontend technical documentation markdown
-│   ├── src/test/              # Vitest test suite (342 tests, 39 test files)
+│   ├── src/test/              # Vitest test suite (343 tests, 39 test files)
 │   ├── package.json           # Node scripts and dependencies
 │   └── Dockerfile             # Vite / Node container definition
 ├── docs/                      # General and getting-started documentation
@@ -269,7 +269,7 @@ Any code modification, schema adjustment, feature addition, or refactor **must v
 - **Backend Test Suite (339 Tests across 20 test files)**:
   - *Host CLI*: `uv run --directory backend pytest`
   - *Docker Fallback*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
-- **Frontend Test Suite (342 Tests across 39 test files)**:
+- **Frontend Test Suite (343 Tests across 39 test files)**:
   - *Host CLI*: `npm --prefix frontend test -- --run`
   - *Docker Fallback*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
 

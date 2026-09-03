@@ -132,7 +132,7 @@ docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/test
 
 ### 2. Frontend Test Suite (Vitest)
 - **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Coverage:** **342 passed tests** across 39 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
+- **Coverage:** **343 passed tests** across 39 test files covering encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
 
 ```bash
 # Run Vitest test suite:

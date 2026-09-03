@@ -71,7 +71,7 @@ Directory: `backend/tests/`
   - `test_spec_financial_cases.py` (102 tests): Exhaustive financial edge cases & boundary conditions
   - `test_splits_allocations.py` (16 tests): Basis-point proportional allocations, validation
 
-### Frontend Test Suite (342 Tests / 39 Test Files)
+### Frontend Test Suite (343 Tests / 39 Test Files)
 Directory: `frontend/src/test/`
 
 - **Core & Domain Logic Suites (17 files)**:

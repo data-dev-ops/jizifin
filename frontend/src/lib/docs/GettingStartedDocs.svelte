@@ -285,7 +285,7 @@
             </h2>
           </div>
           <p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            At month end, navigate to the <strong>Paybacks</strong> tab:
+            At month end, navigate to the <strong>Dashboard</strong> tab and select the <strong>Reimbursements & Settle Up</strong> subtab (or choose the <strong>Complete Overview</strong> option):
           </p>
           <ul class="list-disc list-inside text-xs text-neutral-600 dark:text-neutral-400 space-y-1">
             <li>View simplified reimbursement transfers computed via graph reduction.</li>

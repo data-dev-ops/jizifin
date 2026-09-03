@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { render, screen } from '@testing-library/svelte';
+import { render, screen, fireEvent } from '@testing-library/svelte';
 import AnalyticsSummary from '../../lib/AnalyticsSummary.svelte';
 import { analytics, users, currencySymbol, currencyPrecisionMode } from '../../lib/stores.js';
 
@@ -75,5 +75,25 @@ describe('AnalyticsSummary.svelte — Monthly Summary & Category Breakdown', () 
     render(AnalyticsSummary);
 
     expect(screen.getAllByText(`${symbol}250.00`).length).toBeGreaterThan(0);
+  });
+
+  it('renders all subtabs concurrently when Complete Overview is selected', async () => {
+    analytics.set({
+      monthly_total: { total_amount: 100.0, expense_count: 1, month: '2026-07' },
+      by_payer: [{ who_paid: 'John', total_amount: 100.0, expense_count: 1 }],
+      by_category: [{ category: 'GROCERIES', total_amount: 100.0, expense_count: 1 }],
+    });
+
+    render(AnalyticsSummary);
+
+    const completeBtn = screen.getByText('Complete Overview');
+    expect(completeBtn).toBeInTheDocument();
+
+    await fireEvent.click(completeBtn);
+
+    expect(screen.getByRole('heading', { name: /Financial Pulse & Spend/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Reimbursements & Settle Up/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Category Budgets & Health/i })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: /Live Timeline & Projects/i })).toBeInTheDocument();
   });
 });

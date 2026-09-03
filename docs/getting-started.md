@@ -110,7 +110,7 @@ Follow the 8 setup steps below to configure your household.
 
 ## Step 8: Month-End Settlement and Debt Simplification
 
-1. Navigate to the **Paybacks** tab at the end of the month.
+1. Navigate to the **Dashboard** tab and select the **Reimbursements & Settle Up** subtab (or choose the **Complete Overview** option) at the end of the month.
 2. View the **Settlement Summary**:
    - Jizifin aggregates all personal payments, split allocations, and overrides.
    - Graph simplification computes the minimum number of reimbursement transfers required to settle all debts.

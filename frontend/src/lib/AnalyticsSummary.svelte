@@ -12,7 +12,7 @@
    *     - 📈 Cash Flow & Projections (Live timeline, income chart, savings projects)
    */
 
-  import { onMount, onDestroy } from 'svelte';
+  import { onMount, onDestroy, tick } from 'svelte';
   import {
     analytics,
     users,
@@ -41,7 +41,18 @@
   import IncomeChart from './IncomeChart.svelte';
 
   // ── Active Dashboard Subtab ────────────────────────────────────────────────
-  let activeSubtab = 'pulse'; // 'pulse' | 'settle' | 'joint' | 'budgets' | 'projections'
+  let activeSubtab = 'pulse'; // 'pulse' | 'settle' | 'joint' | 'budgets' | 'projections' | 'complete'
+
+  function switchSubtab(subtab) {
+    activeSubtab = subtab;
+    if (subtab === 'pulse' || subtab === 'complete') {
+      tick().then(() => {
+        if (doughnutCanvas && (!chartInstance || !chartInstance.canvas?.ownerDocument)) {
+          createChart(currentChartType);
+        }
+      });
+    }
+  }
 
   // ── Chart configuration & state ───────────────────────────────────────────
   let doughnutCanvas;
@@ -110,7 +121,7 @@
   }
 
   function updateChart() {
-    if (!chartInstance) return;
+    if (!chartInstance || !chartInstance.canvas?.ownerDocument) return;
     const { labels, data, colors } = getChartData();
     chartInstance.data.labels = labels;
     chartInstance.data.datasets[0].data = data;
@@ -346,7 +357,7 @@
 
   // Re-apply theme colours to existing chart instead of destroying and recreating it.
   // Full recreate is only needed for chart-type changes.
-  $: if ($theme && chartInstance) {
+  $: if ($theme && chartInstance && chartInstance.canvas?.ownerDocument) {
     const isDark = getIsDark();
     const gridColor = isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)';
     const tickColor = isDark ? '#9ca3af' : '#64748b';
@@ -502,7 +513,7 @@
   <div class="flex items-center gap-2 overflow-x-auto border-b border-neutral-200 dark:border-neutral-800 pb-3 scrollbar-none">
     <button
       type="button"
-      on:click={() => (activeSubtab = 'pulse')}
+      on:click={() => switchSubtab('pulse')}
       class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'pulse' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>📊</span>
@@ -511,7 +522,7 @@
 
     <button
       type="button"
-      on:click={() => (activeSubtab = 'settle')}
+      on:click={() => switchSubtab('settle')}
       class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'settle' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>⚖️</span>
@@ -521,7 +532,7 @@
     {#if $jointAccountEnabled}
       <button
         type="button"
-        on:click={() => (activeSubtab = 'joint')}
+        on:click={() => switchSubtab('joint')}
         class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'joint' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
       >
         <span>🏦</span>
@@ -531,7 +542,7 @@
 
     <button
       type="button"
-      on:click={() => (activeSubtab = 'budgets')}
+      on:click={() => switchSubtab('budgets')}
       class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'budgets' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>🎯</span>
@@ -540,19 +551,34 @@
 
     <button
       type="button"
-      on:click={() => (activeSubtab = 'projections')}
+      on:click={() => switchSubtab('projections')}
       class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'projections' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
     >
       <span>📈</span>
       <span>Live Timeline & Projects</span>
+    </button>
+
+    <button
+      type="button"
+      on:click={() => switchSubtab('complete')}
+      class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all flex items-center gap-1.5 cursor-pointer whitespace-nowrap {activeSubtab === 'complete' ? 'bg-indigo-600 text-white shadow-xs' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
+    >
+      <span>🌐</span>
+      <span>Complete Overview</span>
     </button>
   </div>
 
   <!-- ── 3. SUBTAB CONTENTS ───────────────────────────────────────────────── -->
 
   <!-- ═══ SUBTAB 1: Financial Pulse & Spend ═════════════════════════════════ -->
-  {#if activeSubtab === 'pulse'}
+  {#if activeSubtab === 'pulse' || activeSubtab === 'complete'}
     <div class="space-y-6 animate-fadeIn">
+      {#if activeSubtab === 'complete'}
+        <div class="flex items-center gap-2 pt-2 border-b border-neutral-200/80 dark:border-neutral-800/80 pb-2">
+          <span class="text-sm">📊</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">Financial Pulse & Spend</h2>
+        </div>
+      {/if}
 
       <!-- High-Level Financial Pulse KPI Cards -->
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -804,15 +830,27 @@
   {/if}
 
   <!-- ═══ SUBTAB 2: Reimbursements & Settle Up ══════════════════════════════ -->
-  {#if activeSubtab === 'settle'}
+  {#if activeSubtab === 'settle' || activeSubtab === 'complete'}
     <div class="space-y-6 animate-fadeIn">
+      {#if activeSubtab === 'complete'}
+        <div class="flex items-center gap-2 pt-6 border-b border-neutral-200/80 dark:border-neutral-800/80 pb-2">
+          <span class="text-sm">⚖️</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">Reimbursements & Settle Up</h2>
+        </div>
+      {/if}
       <PaybackVisual />
     </div>
   {/if}
 
   <!-- ═══ SUBTAB 3: Joint Account & Deposit Adjustments ═════════════════════ -->
-  {#if activeSubtab === 'joint' && $jointAccountEnabled}
+  {#if (activeSubtab === 'joint' || activeSubtab === 'complete') && $jointAccountEnabled}
     <div class="space-y-6 animate-fadeIn">
+      {#if activeSubtab === 'complete'}
+        <div class="flex items-center gap-2 pt-6 border-b border-neutral-200/80 dark:border-neutral-800/80 pb-2">
+          <span class="text-sm">🏦</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">Joint Account & Deposits</h2>
+        </div>
+      {/if}
       {#if $jointDashboard || $jointAccount}
         {@const dash = $jointDashboard}
         {@const ja = $jointAccount}
@@ -880,8 +918,14 @@
   {/if}
 
   <!-- ═══ SUBTAB 4: Category Budgets & Health ════════════════════════════════ -->
-  {#if activeSubtab === 'budgets'}
+  {#if activeSubtab === 'budgets' || activeSubtab === 'complete'}
     <div class="space-y-6 animate-fadeIn">
+      {#if activeSubtab === 'complete'}
+        <div class="flex items-center gap-2 pt-6 border-b border-neutral-200/80 dark:border-neutral-800/80 pb-2">
+          <span class="text-sm">🎯</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">Category Budgets & Health</h2>
+        </div>
+      {/if}
       <div class="card p-5 sm:p-6 space-y-4">
         <div class="flex items-center justify-between">
           <div>
@@ -938,8 +982,14 @@
   {/if}
 
   <!-- ═══ SUBTAB 5: Live Timeline & Projects ════════════════════════════════ -->
-  {#if activeSubtab === 'projections'}
+  {#if activeSubtab === 'projections' || activeSubtab === 'complete'}
     <div class="space-y-6 animate-fadeIn">
+      {#if activeSubtab === 'complete'}
+        <div class="flex items-center gap-2 pt-6 border-b border-neutral-200/80 dark:border-neutral-800/80 pb-2">
+          <span class="text-sm">📈</span>
+          <h2 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">Live Timeline & Projects</h2>
+        </div>
+      {/if}
 
       <!-- Live Expense Timeline Chart -->
       <div class="card p-5 sm:p-6 space-y-4">

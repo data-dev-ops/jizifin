@@ -211,36 +211,46 @@ Clients connect to `/ws/finance` upon authentication. When any household user mo
 
 ## 6. Component Architecture & Deep-Dive
 
-### 6.1 `SplitManager.svelte` (Category Registry & SCD2 Timeline Agreements)
+### 6.1 `AnalyticsSummary.svelte` & `PaybackVisual.svelte` (Dashboard Command Center & Subtabs)
+- **Subtab Architecture**:
+  - `Financial Pulse & Spend`: High-level KPI summary cards, payer distributions, multi-style spending charts (doughnut, bar, polarArea, pie), and category breakdown table.
+  - `Reimbursements & Settle Up` (`PaybackVisual.svelte`): Graph-reduced minimal reimbursement debt transfers and month-locking reconciliation settlements (`Lock and Settle Month`).
+  - `Joint Account & Deposits`: Health indicators, expected vs actual category costs, deposit schedules, and payment execution status (`paid`, `overdue`, `pending`).
+  - `Category Budgets & Health`: Live monthly category budget caps, percent-used progress bars, and over-budget warnings.
+  - `Live Timeline & Projects`: Real-time expense transaction velocity ticker and project completion progress.
+  - `Complete Overview` (`complete`): Consolidated overview rendering all subtab modules concurrently in a scrollable, unified command center.
+- **Global Scope Switcher**: Top-level multi-select filter (`ALL`, individual users, or joint accounts).
+
+### 6.2 `SplitManager.svelte` (Category Registry & SCD2 Timeline Agreements)
 - **Category Registry**: Manages expense categories with real-time percentage allocation sliders.
 - **Renaming Cascades**: Renaming a category cascades across referencing tables without breaking historical expenses.
 - **SCD2 Timeline Tray**: Collapsible tray on each category card displaying historical, active, and scheduled split overrides.
 - **Active Override Badge**: Real-time visual badge (`⚡ Override Active (YYYY-MM)`) signaling when a date-bounded override is in effect.
 
-### 6.2 `JointAccountTab.svelte` (Multi-Joint Accounts & Deposit Execution)
+### 6.3 `JointAccountTab.svelte` (Multi-Joint Accounts & Deposit Execution)
 - **Multi-Account Switcher**: Tab bar switching between multiple isolated joint accounts (`Couple AB Joint`, `Couple CD Joint`).
 - **Deposit Execution & Tracking**: Real-time monthly deposit schedule tracking (`paid`, `paid_diverted`, `overdue`, `pending`) with 1-click "Mark as Paid" actions.
 - **Signed Corrections**: Audit log for manual top-ups (+) and withdrawals (-).
 - **Settlement Engine**: Reconciles surplus/deficit via direct reimbursement or automated next-month deposit adjustments.
 
-### 6.3 `ProjectsTab.svelte` (Milestone Budgets & Point-in-Time Settlement Sheets)
+### 6.4 `ProjectsTab.svelte` (Milestone Budgets & Point-in-Time Settlement Sheets)
 - **Multi-User Membership (`project_users`)**: Specific household participants assignable to each project.
 - **Burndown Analytics**: Target savings goals, completion estimates, and monthly funding velocity.
 - **Point-in-Time Settlement Sheet (`GET /projects/{id}/settlement`)**: Decomposes joint-account contributions into participant equity shares (e.g. 60/40), balancing effective funding against assigned liability and routing minimal debt transfers.
 
-### 6.4 `ExpenseForm.svelte` & `ExpenseList.svelte` (Ledger Engine)
+### 6.5 `ExpenseForm.svelte` & `ExpenseList.svelte` (Ledger Engine)
 - **Form Memory & Search**: Smart form memory recalling recent categories, payers, and tags.
 - **Tag Timeline Validation**: Dynamic inline feedback preventing submission if an expense date falls outside the selected tag's active window.
 - **Split Percentage Overrides**: Optional per-transaction split override modal.
 - **Direct Joint Flag**: Checkbox assigning expenses directly to a joint account (`is_joint = 1`), automatically excluding them from peer-to-peer payback calculations.
 
-### 6.5 `SettingsTab.svelte` (7-Domain Personalization & Backups)
+### 6.6 `SettingsTab.svelte` (7-Domain Personalization & Backups)
 - **Device Profiles**: Independent Desktop vs Mobile tab visibility profiles.
 - **1-Click Functional Presets**: Instantly toggles between `Streamlined`, `High Legibility`, `Standard / Balanced`, and `Detailed / Power User`.
 - **Privacy Shield**: Frosted-glass blur obscuring sensitive balances in public spaces with hover-peek.
 - **Database Backup & Streaming**: Encrypted `.db` export and seamless import with schema migration.
 
-### 6.6 `DocsHub.svelte` (In-App Interactive Documentation Hub)
+### 6.7 `DocsHub.svelte` (In-App Interactive Documentation Hub)
 - Fully browsable in-app technical reference suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) mirroring repo architecture documentation.
 
 ---
@@ -362,7 +372,7 @@ Authoritative client-side validation rules matching backend schema constraints:
 
 ## 9. Automated Testing & Verification
 
-The frontend test suite contains **342 tests across 39 test files** using Vitest and JSDOM:
+The frontend test suite contains **343 tests across 39 test files** using Vitest and JSDOM:
 
 ### Test Execution Commands
 - **Primary Host CLI**:
