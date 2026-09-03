@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, fireEvent, screen } from '@testing-library/svelte';
 import PaybackVisual from '../../lib/PaybackVisual.svelte';
-import { paybacks, settlements, selectedMonth, users } from '../../lib/stores.js';
+import { paybacks, settlements, selectedMonth, users, drilldownTarget } from '../../lib/stores.js';
 import * as api from '../../lib/api.js';
 
 describe('PaybackVisual.svelte — Payback & Settlement Summary', () => {
@@ -96,5 +96,38 @@ describe('PaybackVisual.svelte — Payback & Settlement Summary', () => {
 
     expect(screen.getByText('✔️ Month Settled')).toBeInTheDocument();
     expect(screen.getByText(new RegExp(`${settledMonth} was locked on ${settledAt}`, 'i'))).toBeInTheDocument();
+  });
+
+  it('opens category drilldown when clicking a category adjustment card', async () => {
+    let currentDrilldown = null;
+    const unsub = drilldownTarget.subscribe((v) => { currentDrilldown = v; });
+
+    paybacks.set({
+      rows: [
+        {
+          category: 'GROCERIES',
+          total_amount: 100.0,
+          per_user_paid: { John: 80.0, Jane: 20.0 },
+          per_user_share_pct: { John: 50.0, Jane: 50.0 },
+          net_per_user: { John: 30.0, Jane: -30.0 },
+        },
+      ],
+      debts: [],
+      month: '2026-07',
+    });
+
+    render(PaybackVisual);
+
+    const categoryCard = screen.getByRole('button', { name: /View overview of expenses for GROCERIES/i });
+    expect(categoryCard).toBeInTheDocument();
+
+    await fireEvent.click(categoryCard);
+
+    expect(currentDrilldown).not.toBeNull();
+    expect(currentDrilldown.type).toBe('category-adjustment');
+    expect(currentDrilldown.title).toBe('GROCERIES');
+    expect(currentDrilldown.data.row.category).toBe('GROCERIES');
+
+    unsub();
   });
 });

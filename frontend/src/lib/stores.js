@@ -23,7 +23,7 @@
  * jointDashboard    → JointAccountDashboardResponse | null
  */
 
-import { writable } from 'svelte/store';
+import { writable, derived } from 'svelte/store';
 
 /**
  * Helper: writable store that reads/writes a boolean to localStorage.
@@ -168,6 +168,49 @@ export const dashboardScope = persistedString('dashboardScope', 'ALL');
  * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents, member_names }
  */
 export const jointAccount = writable(null);
+
+/**
+ * Parse dashboard scope string into an array of tokens.
+ * E.g. "USER:John,USER:Jane" -> ["USER:John", "USER:Jane"], "ALL" -> ["ALL"]
+ */
+export function parseDashboardScope(scopeStr) {
+  if (!scopeStr || scopeStr === 'ALL') return ['ALL'];
+  const parts = scopeStr.split(',').map((s) => s.trim()).filter(Boolean);
+  return parts.length > 0 ? parts : ['ALL'];
+}
+
+/**
+ * Resolve user names from dashboard scope tokens.
+ * Returns Array of usernames or null if whole household / everyone ('ALL').
+ */
+export function resolveScopedUsers(tokens, jointAccountsList = [], singletonJointAccount = null) {
+  if (!tokens || tokens.includes('ALL')) return null;
+  const userSet = new Set();
+  for (const token of tokens) {
+    if (token.startsWith('USER:')) {
+      userSet.add(token.slice(5));
+    } else if (token.startsWith('JOINT:')) {
+      const jId = parseInt(token.slice(6), 10);
+      const targetJa = (jointAccountsList || []).find((a) => a.id === jId) || (singletonJointAccount?.id === jId ? singletonJointAccount : null);
+      if (targetJa?.member_names?.length) {
+        targetJa.member_names.forEach((m) => userSet.add(m));
+      }
+    }
+  }
+  return userSet.size > 0 ? Array.from(userSet) : null;
+}
+
+/**
+ * Derived store representing the active dashboard user scope as an array of user names,
+ * or null if everyone/household ('ALL') is selected.
+ */
+export const scopedUsers = derived(
+  [dashboardScope, jointAccounts, jointAccount],
+  ([$scope, $jointAccounts, $jointAccount]) => {
+    const tokens = parseDashboardScope($scope);
+    return resolveScopedUsers(tokens, $jointAccounts, $jointAccount);
+  }
+);
 
 /**
  * Encrypted category strings assigned to the joint account.
@@ -698,6 +741,16 @@ export function initDeviceProfiles() {
   loadDeviceProfile(detected);
 }
 
+/**
+ * Active dashboard drilldown target.
+ * Structure: { type: 'category' | 'category-adjustment' | 'payer' | 'budget' | 'project' | 'joint-spent' | 'income' | 'monthly-total', title: string, data?: any } | null
+ */
+export const drilldownTarget = writable(null);
 
+export function openDrilldown(type, title, data = {}) {
+  drilldownTarget.set({ type, title, data });
+}
 
-
+export function closeDrilldown() {
+  drilldownTarget.set(null);
+}

@@ -33,12 +33,14 @@
     privacyShield,
     currencyPrecisionMode,
     dashboardWidgets,
+    openDrilldown,
   } from './stores.js';
   import { fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics } from './api.js';
   import Chart from 'chart.js/auto';
   import PaybackVisual from './PaybackVisual.svelte';
   import RealtimeChart from './RealtimeChart.svelte';
   import IncomeChart from './IncomeChart.svelte';
+  import DrilldownModal from './DrilldownModal.svelte';
 
   // ── Active Dashboard Subtab ────────────────────────────────────────────────
   let activeSubtab = 'pulse'; // 'pulse' | 'settle' | 'joint' | 'budgets' | 'projections' | 'complete'
@@ -172,6 +174,23 @@
             ticks: { color: isDark ? '#9ca3af' : '#64748b', font: { family: 'Plus Jakarta Sans, Inter, system-ui, sans-serif', size: 11 } },
           },
         } : undefined,
+        onClick: (event, elements, chart) => {
+          if (!elements || elements.length === 0) return;
+          const index = elements[0].index;
+          const currentLabels = chart?.data?.labels || chartInstance?.data?.labels || getChartData().labels || [];
+          const label = currentLabels[index];
+          if (!label) return;
+          if (chartMetric === 'category') {
+            openDrilldown('category', label);
+          } else if (chartMetric === 'payer') {
+            openDrilldown('payer', label);
+          }
+        },
+        onHover: (event, elements) => {
+          if (event.native?.target) {
+            event.native.target.style.cursor = elements.length ? 'pointer' : 'default';
+          }
+        },
         plugins: {
           legend: isBar || isHorizontalBar ? { display: false } : {
             position: 'bottom',
@@ -584,11 +603,21 @@
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
 
         <!-- 1. Total Household Income -->
-        <div class="card p-4 sm:p-5 flex flex-col justify-between">
+        <div
+          class="card p-4 sm:p-5 flex flex-col justify-between hover:border-indigo-300 dark:hover:border-indigo-700/60 hover:shadow-md transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+          role="button"
+          tabindex="0"
+          on:click={() => openDrilldown('income', 'Household Income')}
+          on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('income', 'Household Income'); } }}
+          aria-label="View household income breakdown"
+        >
           <div>
             <div class="flex items-center justify-between gap-2 mb-2">
-              <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Household Income</p>
-              <span class="badge-indigo">Income</span>
+              <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Household Income</p>
+              <div class="flex items-center gap-1">
+                <span class="badge-indigo">Income</span>
+                <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+              </div>
             </div>
             <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
               <span class:privacy-masked={$privacyShield}>{hasIncomeData ? fmt(totalIncomeEuros, true) : '—'}</span>
@@ -609,11 +638,21 @@
 
         <!-- 2. Monthly Total Spend (Matches test expectations) -->
         {#if $dashboardWidgets.monthlyTotal !== false}
-          <div class="card p-4 sm:p-5 flex flex-col justify-between">
+          <div
+            class="card p-4 sm:p-5 flex flex-col justify-between hover:border-amber-300 dark:hover:border-amber-700/60 hover:shadow-md transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-500"
+            role="button"
+            tabindex="0"
+            on:click={() => openDrilldown('monthly-total', `Monthly Total (${$selectedMonth})`)}
+            on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('monthly-total', `Monthly Total (${$selectedMonth})`); } }}
+            aria-label="View all monthly expenses"
+          >
             <div>
               <div class="flex items-center justify-between gap-2 mb-2">
-                <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Monthly Total</p>
-                <span class="badge-amber">Expenses</span>
+                <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider group-hover:text-amber-600 dark:group-hover:text-amber-400 transition-colors">Monthly Total</p>
+                <div class="flex items-center gap-1">
+                  <span class="badge-amber">Expenses</span>
+                  <span class="text-xs text-amber-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+                </div>
               </div>
               <p class="font-bold text-neutral-900 dark:text-white tabular-nums truncate text-[clamp(1.25rem,3.5vw,1.75rem)]">
                 <span class:privacy-masked={$privacyShield}>{fmt(total, true)}</span>
@@ -675,12 +714,23 @@
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {#each payerRows as row}
             {@const color = userColor(row.who_paid)}
-            <div class="card p-4 sm:p-5 transition-all hover:border-neutral-300 dark:hover:border-neutral-700" style="border-color:{color}50">
+            <div
+              class="card p-4 sm:p-5 transition-all hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-md cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              style="border-color:{color}50"
+              role="button"
+              tabindex="0"
+              on:click={() => openDrilldown('payer', row.who_paid)}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('payer', row.who_paid); } }}
+              aria-label="View expenses paid by {row.who_paid}"
+            >
               <div class="flex items-center justify-between gap-2 mb-2">
                 <p class="text-xs font-semibold uppercase tracking-wider" style="color:{color}">{row.who_paid}</p>
-                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background-color:{color}15; color:{color}; border:1px solid {color}40">
-                  {pct(row.total_amount, total)} of total
-                </span>
+                <div class="flex items-center gap-1">
+                  <span class="text-[10px] font-bold px-2 py-0.5 rounded-full" style="background-color:{color}15; color:{color}; border:1px solid {color}40">
+                    {pct(row.total_amount, total)} of total
+                  </span>
+                  <span class="text-xs font-bold opacity-0 group-hover:opacity-100 transition-opacity" style="color:{color}">›</span>
+                </div>
               </div>
               <p class="font-bold tabular-nums truncate text-[clamp(1.25rem,4vw,1.875rem)]" style="color:{color}">
                 <span class:privacy-masked={$privacyShield}>{fmt(row.total_amount, true)}</span>
@@ -795,7 +845,10 @@
         <!-- Right: Category Spend Breakdown Table -->
         <div class="lg:col-span-2 card p-5 space-y-3">
           <div class="flex items-center justify-between">
-            <h3 class="text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">Categories ({categories.length})</h3>
+            <div>
+              <h3 class="text-xs font-bold text-neutral-700 dark:text-neutral-300 uppercase tracking-wider">Categories ({categories.length})</h3>
+              <p class="text-[10px] text-neutral-400 mt-0.5">Click any category for user breakdown & expenses</p>
+            </div>
             <input
               type="text"
               bind:value={categoryFilterText}
@@ -807,12 +860,20 @@
           <div class="space-y-2 max-h-[300px] overflow-y-auto pr-1">
             {#each filteredCategoryRows as row, i}
               {@const share = total > 0 ? (row.total_amount / total) * 100 : 0}
-              <div class="p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800/80 space-y-1.5">
+              <div
+                class="p-2.5 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800/80 space-y-1.5 hover:border-indigo-300 dark:hover:border-indigo-700/60 hover:bg-neutral-100/70 dark:hover:bg-neutral-900/80 transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                role="button"
+                tabindex="0"
+                on:click={() => openDrilldown('category', row.category)}
+                on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category', row.category); } }}
+                aria-label="View user breakdown and expenses for {row.category}"
+              >
                 <div class="flex items-center justify-between text-xs">
                   <div class="flex items-center gap-1.5 min-w-0">
                     <span class="w-2.5 h-2.5 rounded-full flex-none" style="background:{PALETTE[i % PALETTE.length]}"></span>
-                    <span class="text-neutral-800 dark:text-neutral-200 font-medium truncate">{row.category}</span>
+                    <span class="text-neutral-800 dark:text-neutral-200 font-medium truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</span>
                     <span class="text-[10px] text-neutral-500">({row.expense_count})</span>
+                    <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold ml-0.5">›</span>
                   </div>
                   <span class="text-neutral-900 dark:text-white font-bold tabular-nums">{fmt(row.total_amount)}</span>
                 </div>
@@ -876,8 +937,18 @@
           {#if dash}
             <!-- Projected vs Actual Progress Cards -->
             <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              <div class="card-sub space-y-1 p-4">
-                <p class="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Spent ({dash.month})</p>
+              <div
+                class="card-sub space-y-1 p-4 hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                role="button"
+                tabindex="0"
+                on:click={() => openDrilldown('joint-spent', `${ja ? ja.name : 'Joint Account'} Spend`, { jointAccount: ja })}
+                on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('joint-spent', `${ja ? ja.name : 'Joint Account'} Spend`, { jointAccount: ja }); } }}
+                aria-label="View joint expenses"
+              >
+                <div class="flex items-center justify-between">
+                  <p class="text-[11px] font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">Spent ({dash.month})</p>
+                  <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+                </div>
                 <p class="text-xl font-bold text-neutral-900 dark:text-white tabular-nums">{fmt(dash.actual_total_cents / 100)}</p>
                 <p class="text-[11px] text-neutral-500">Target: {fmt(dash.expected_total_cents / 100)}</p>
               </div>
@@ -944,9 +1015,19 @@
               {@const isStanding = !row.budget_month || row.budget_month === 'ALL'}
               {@const remainingCents = Math.max(0, row.limit_cents - row.actual_cents)}
 
-              <div class="card-sub p-3.5 space-y-2">
+              <div
+                class="card-sub p-3.5 space-y-2 hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                role="button"
+                tabindex="0"
+                on:click={() => openDrilldown('budget', row.category, { row })}
+                on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('budget', row.category, { row }); } }}
+                aria-label="View expenses for budget {row.category}"
+              >
                 <div class="flex items-start justify-between gap-1">
-                  <p class="text-xs text-neutral-800 dark:text-neutral-300 font-semibold uppercase truncate">{row.category}</p>
+                  <div class="flex items-center gap-1 min-w-0">
+                    <p class="text-xs text-neutral-800 dark:text-neutral-300 font-semibold uppercase truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</p>
+                    <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+                  </div>
                   {#if isStanding}
                     <span class="text-[9px] font-semibold uppercase tracking-wide text-neutral-600 dark:text-neutral-400 bg-neutral-200 dark:bg-neutral-800 rounded px-1.5 py-0.5 leading-none">standing</span>
                   {:else}
@@ -1030,10 +1111,20 @@
             {#each $projects as project (project.id)}
               {@const progress = Math.min(100, Math.round((project.total_spent_cents / project.target_cents) * 100))}
               {@const isComplete = project.total_spent_cents >= project.target_cents}
-              <div class="card-sub p-3.5 flex items-center gap-4">
+              <div
+                class="card-sub p-3.5 flex items-center gap-4 hover:border-indigo-300 dark:hover:border-indigo-700/60 transition-all cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+                role="button"
+                tabindex="0"
+                on:click={() => openDrilldown('project', project.name, { project })}
+                on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('project', project.name, { project }); } }}
+                aria-label="View expenses for project {project.name}"
+              >
                 <div class="flex-1 min-w-0">
                   <div class="flex justify-between items-baseline mb-1">
-                    <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate">{project.name}</span>
+                    <div class="flex items-center gap-1.5 truncate">
+                      <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{project.name}</span>
+                      <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+                    </div>
                     <span class="text-xs tabular-nums {isComplete ? 'text-emerald-600 dark:text-emerald-400 font-bold' : 'text-neutral-500 dark:text-neutral-400'} ml-2 flex-none">{progress}%</span>
                   </div>
                   <div class="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
@@ -1057,5 +1148,8 @@
 
     </div>
   {/if}
+
+  <!-- Interactive Drilldown Modal -->
+  <DrilldownModal />
 
 </div>

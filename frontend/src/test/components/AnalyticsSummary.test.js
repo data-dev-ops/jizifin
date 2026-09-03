@@ -96,4 +96,53 @@ describe('AnalyticsSummary.svelte — Monthly Summary & Category Breakdown', () 
     expect(screen.getByRole('heading', { name: /Category Budgets & Health/i })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: /Live Timeline & Projects/i })).toBeInTheDocument();
   });
+
+  it('opens category drill-down modal when clicking a category row in breakdown table', async () => {
+    analytics.set({
+      monthly_total: { total_amount: 100.0, expense_count: 1, month: '2026-07' },
+      by_payer: [{ who_paid: 'John', total_amount: 100.0, expense_count: 1 }],
+      by_category: [{ category: 'GROCERIES', total_amount: 100.0, expense_count: 1 }],
+    });
+
+    render(AnalyticsSummary);
+
+    const groceryRow = screen.getByRole('button', { name: /View user breakdown and expenses for GROCERIES/i });
+    expect(groceryRow).toBeInTheDocument();
+
+    await fireEvent.click(groceryRow);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'GROCERIES' })).toBeInTheDocument();
+  });
+
+  it('correctly aligns category drill-down when categories update on month or user change', async () => {
+    analytics.set({
+      monthly_total: { total_amount: 100.0, expense_count: 1, month: '2026-07' },
+      by_payer: [{ who_paid: 'John', total_amount: 100.0, expense_count: 1 }],
+      by_category: [{ category: 'GROCERIES', total_amount: 100.0, expense_count: 1 }],
+    });
+
+    render(AnalyticsSummary);
+
+    expect(screen.getByRole('button', { name: /View user breakdown and expenses for GROCERIES/i })).toBeInTheDocument();
+
+    // Now month or user changes to August with different categories
+    analytics.set({
+      monthly_total: { total_amount: 250.0, expense_count: 2, month: '2026-08' },
+      by_payer: [{ who_paid: 'Jane', total_amount: 250.0, expense_count: 2 }],
+      by_category: [
+        { category: 'TRAVEL', total_amount: 150.0, expense_count: 1 },
+        { category: 'DINING', total_amount: 100.0, expense_count: 1 },
+      ],
+    });
+
+    const travelRow = await screen.findByRole('button', { name: /View user breakdown and expenses for TRAVEL/i });
+    expect(travelRow).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /View user breakdown and expenses for GROCERIES/i })).not.toBeInTheDocument();
+
+    await fireEvent.click(travelRow);
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'TRAVEL' })).toBeInTheDocument();
+  });
 });

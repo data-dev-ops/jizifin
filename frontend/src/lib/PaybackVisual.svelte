@@ -8,7 +8,7 @@
    *  - Month lock / settlement banner
    */
 
-  import { paybacks, settlements, selectedMonth, users, currencySymbol, paybackDisplayMode } from './stores.js';
+  import { paybacks, settlements, selectedMonth, users, currencySymbol, paybackDisplayMode, openDrilldown } from './stores.js';
   import { createSettlement, fetchSettlements } from './api.js';
 
   let settling = false;
@@ -148,7 +148,7 @@
     <div class="flex items-center justify-between mb-5">
       <div>
         <h4 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Category Adjustments</h4>
-        <p class="text-xs text-neutral-500 mt-0.5">Per-category actual spend vs. agreed shares</p>
+        <p class="text-xs text-neutral-500 mt-0.5">Per-category actual spend vs. agreed shares &middot; Click any category to view underlying expenses</p>
       </div>
     </div>
 
@@ -173,10 +173,20 @@
             {@const catUsers = Object.keys(row.per_user_paid ?? {})}
             {@const totalPaid = catUsers.reduce((s, u) => s + (row.per_user_paid[u] ?? 0), 0)}
 
-            <div class="border-b border-neutral-200 dark:border-neutral-800/60 pb-4 last:border-0 last:pb-0">
+            <div
+              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-4 last:border-0 last:pb-0 p-2.5 -mx-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              role="button"
+              tabindex="0"
+              on:click={() => openDrilldown('category-adjustment', row.category, { row })}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', row.category, { row }); } }}
+              aria-label="View overview of expenses for {row.category}"
+            >
               <!-- Row header -->
               <div class="flex items-baseline justify-between mb-2">
-                <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100">{row.category}</span>
+                <div class="flex items-center gap-1.5">
+                  <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</span>
+                  <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
+                </div>
                 <span class="text-xs text-neutral-500 tabular-nums">{fmt(row.total_amount)}</span>
               </div>
 
@@ -220,12 +230,23 @@
           {#each $paybacks.rows as row}
             {@const catUsers = Object.keys(row.per_user_paid ?? {})}
 
-            <div class="border-b border-neutral-200 dark:border-neutral-800/60 pb-5 last:border-0 last:pb-0">
+            <div
+              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-5 last:border-0 last:pb-0 p-3 -mx-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
+              role="button"
+              tabindex="0"
+              on:click={() => openDrilldown('category-adjustment', row.category, { row })}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', row.category, { row }); } }}
+              aria-label="View overview of expenses for {row.category}"
+            >
               <!-- Row header -->
               <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div>
-                  <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100">{row.category}</span>
-                  <span class="text-xs text-neutral-500 ml-2">Total: {fmt(row.total_amount)}</span>
+                <div class="flex items-center gap-2">
+                  <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</span>
+                  <span class="text-xs text-neutral-500 ml-1">Total: {fmt(row.total_amount)}</span>
+                  <span class="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ml-2">
+                    <span>View expenses</span>
+                    <span>›</span>
+                  </span>
                 </div>
               </div>
 
