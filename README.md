@@ -121,15 +121,14 @@ The application features full-stack automated test suites ensuring zero regressi
   - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, graph-decomposed couple debt isolation, and SCD2 category split overrides with timeline precedence.
   - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_category_rename_delete.py`, `test_scd2_category_splits.py`, `test_multi_household_couples.py`, etc.
 
+See [.agents/rules/](file:///home/jim/Documents/jizifin/.agents/rules/) for full workspace execution rules and cross-platform instructions.
+
 ```bash
-# Run full backend test suite with coverage:
-uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
-
-# Run integration scenario tests specifically:
-uv run --directory backend pytest tests/test_scenarios_integration.py
-
-# Run backend tests inside Docker container:
+# Universal (Primary): Run backend tests inside Docker container:
 docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest
+
+# Secondary: Run full backend test suite on host (if uv/Python 3.14 installed):
+uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
 ```
 
 ### 2. Frontend Test Suite (Vitest)
@@ -137,19 +136,16 @@ docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/test
 - **Coverage:** **384 passed tests** across 43 test files covering bank statement CSV parsing (`csvParser.test.js`), duplicate detection matching (`duplicateDetector.test.js`), bank statement import modal workflows (`BankCsvImportModal.test.js`), duplicate prompt interception (`ExpenseForm.test.js`), encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
 
 ```bash
-# Run Vitest test suite:
-npm --prefix frontend test -- --run
-
-# Generate frontend lcov coverage:
-npm --prefix frontend run test:coverage
-
-# Run frontend tests inside Docker container:
+# Universal (Primary): Run frontend tests inside Docker container:
 docker run --rm \
   -v $(pwd)/frontend/src:/app/src \
   -v $(pwd)/frontend/index.html:/app/index.html \
   -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js \
   -v $(pwd)/frontend/vite.config.js:/app/vite.config.js \
   jizifin-frontend-test npm test -- --run
+
+# Secondary: Run Vitest test suite on host (if Node/npm installed):
+npm --prefix frontend test -- --run
 ```
 
 ---

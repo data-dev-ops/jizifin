@@ -4,10 +4,10 @@
 - **Backend**: FastAPI / Python 3.14 / SQLite (`aiosqlite` WAL mode) / `pytest` + `httpx` test harness in `backend/tests/`
 - **Frontend**: Svelte / Tailwind CSS / Chart.js / `vitest` + JSDOM test suite in `frontend/src/test/`
 - **Cryptography**: AES-GCM 256-bit with PBKDF2 (100,000 iterations, SHA-256, static salt `"jizifin-salt-pbkdf2"`, static IV `"jizifin-cryp"`)
-- **Execution Strategy**:
-  1. Primary Host CLI (`uv run --directory backend ...` / `npm --prefix frontend ...`)
-  2. NVM fallback for Node/NPM
-  3. Pre-built Docker test containers (`jizifin-backend-test`, `jizifin-frontend-test`)
+- **Execution Strategy** (see [.agents/rules/](file:///home/jim/Documents/jizifin/.agents/rules/)):
+  1. Universal Default (All Platforms): Pre-built Docker test containers (`jizifin-backend-test`, `jizifin-frontend-test`) with live volume mounting
+  2. Secondary Convenience: Local Host CLI (`uv run --directory backend ...` / `npm --prefix frontend test -- --run`) when present on PATH
+  3. Cluster Orchestration: Docker Compose multi-container stack (`backend`, `frontend`, `caddy`)
 
 ---
 

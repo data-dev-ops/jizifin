@@ -9,7 +9,7 @@ import {
   prepareExpensesForImport,
   prepareTransactionsForImport,
 } from '../lib/csvParser.js';
-import fs from 'node:fs';
+import realIngCsv from './fixtures/ing_statement_sample.csv?raw';
 
 describe('csvParser - Low-level helpers', () => {
   it('parses basic CSV lines and strips BOM', () => {
@@ -73,8 +73,7 @@ describe('csvParser - ING Beneficiary Extraction', () => {
 });
 
 describe('csvParser - Real ING CSV parsing', () => {
-  const samplePath = '/home/jim/Downloads/1788460118117.csv';
-  const csvContent = fs.readFileSync(samplePath, 'utf8');
+  const csvContent = realIngCsv;
 
   it('parses the real ING statement export accurately', () => {
     const result = parseBankCsv(csvContent, 'ING', 'Jim');

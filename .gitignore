@@ -54,6 +54,5 @@ Thumbs.db
 
 # Sonar / Build
 .scannerwork/
-.agents/
 target/
 

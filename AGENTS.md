@@ -8,29 +8,35 @@
 
 ## ⚙️ 1. MULTI-SYSTEM ENVIRONMENT & EXECUTION STEERING
 
-Agents work across varied host systems, sandboxes, and CI environments. Always use this prioritized execution strategy:
+Agents work across varied host systems, sandboxes, and CI environments. To eliminate host dependency drift, missing executables (e.g. `npm: command not found`), and PATH inconsistencies across Linux, macOS, and Windows/WSL2, **Docker containers are the primary, default execution standard**. Full workspace rules are defined under [.agents/rules/](file:///home/jim/Documents/jizifin/.agents/rules/).
 
 ### Tooling & Execution Priority
-1. **Primary Host CLI**: Use local tools when available on `PATH` and permitted by environment policies:
-   - Python / UV: `uv run --directory backend ...`
-   - Node / NPM: `npm --prefix frontend ...`
-2. **NVM / Custom Node Fallback**: If `npm` or `node` is missing from the non-interactive subshell `PATH`, resolve Node via installed NVM paths (e.g., `~/.nvm/versions/node/$(ls ~/.nvm/versions/node 2>/dev/null | tail -1)/bin/npm`).
-3. **Docker Container Fallback (Clean Host / Sandbox Bound)**: If host tools are unavailable or commands hit sandbox permission deny rules, execute test and build commands inside the pre-built Docker containers:
+1. **Priority 1 (Universal Default - All Platforms)**: Pre-built Docker test containers with live volume mounting. This guarantees identical Python 3.14 / Node 22 runtime parity without requiring host tooling:
    - Backend Container: `jizifin-backend-test`
    - Frontend Container: `jizifin-frontend-test`
-4. **Cluster Orchestration**: Multi-container stack (`backend`, `frontend`, `caddy`, `sonarqube`) runs via `docker compose`. Ignore `sonarqube` unless requested
+2. **Priority 2 (Secondary Convenience Only)**: Local host CLI (`uv run ...`, `npm ...`) **only** when verified present on `PATH` in the current shell. Never hardcode user-specific paths (e.g., `~/.nvm/...`).
+3. **Cluster Orchestration**: Multi-container stack (`backend`, `frontend`, `caddy`, `sonarqube`) runs via `docker compose`. Ignore `sonarqube` unless requested.
+
+### One-Time Test Container Build (Fresh Clone / Dependency Update)
+```bash
+docker build -t jizifin-backend-test -f backend/Dockerfile.test backend/
+docker build -t jizifin-frontend-test frontend/
+```
 
 ### Execution Commands Reference
 
-| Task | Host CLI Command | Docker Container Fallback |
+| Task | Universal Docker Command (Primary) | Host CLI (Secondary Convenience) |
 | :--- | :--- | :--- |
-| **Backend Tests (Full)** | `uv run --directory backend pytest` | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest` |
-| **Backend Integration Scenarios** | `uv run --directory backend pytest tests/test_scenarios_integration.py` | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py` |
-| **Backend Dev Server** | `uv run --directory backend uvicorn app.main:app --reload --port 8000` | `docker compose up backend` |
-| **Frontend Tests (Full)** | `npm --prefix frontend test -- --run` | `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run` |
-| **Frontend Dev Server** | `npm --prefix frontend run dev` | `docker compose up frontend` |
-| **Full Stack Cluster** | `docker compose up --build -d` | `docker compose up -d backend frontend caddy` (production) |
+| **Backend Tests (Full)** | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest` | `uv run --directory backend pytest` |
+| **Backend Integration Scenarios** | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py` | `uv run --directory backend pytest tests/test_scenarios_integration.py` |
+| **Backend Dev Server** | `docker compose up backend` | `uv run --directory backend uvicorn app.main:app --reload --port 8000` |
+| **Frontend Tests (Full)** | `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run` | `npm --prefix frontend test -- --run` |
+| **Frontend Dev Server** | `docker compose up frontend` | `npm --prefix frontend run dev` |
+| **Full Stack Cluster** | `docker compose up -d backend frontend caddy` | `docker compose up --build -d` (production) |
 | **Sonar & Full Coverage** | `./scripts/run-tests-and-sonar.sh` | Local SonarQube on `http://localhost:9000` |
+
+*Note for Windows PowerShell*: Replace `$(pwd)` with `${PWD}` (e.g. `-v ${PWD}/backend/app:/app/app`).
+*Note on Vitest*: Always include `-- --run` to prevent Vitest from hanging in interactive watch mode.
 
 ---
 
@@ -271,14 +277,15 @@ jizifin/
 ## 🚨 7. ZERO-REGRESSION POLICY & MANDATORY VERIFICATION
 
 ### Critical Invariant: Zero Regression Verification
-Any code modification, schema adjustment, feature addition, or refactor **must verify 100% test passage across both backend and frontend suites**:
+Running full test suites is mandatory **only** when modifying application source code, API models, database schemas/migrations, or core dependencies. **DO NOT run test suites** when the user requests documentation updates, markdown edits, git commits, repository rule adjustments, or local exploration/inspection.
 
+When required, verify 100% test passage across both suites:
 - **Backend Test Suite (342 Tests across 21 test files)**:
-  - *Host CLI*: `uv run --directory backend pytest`
-  - *Docker Fallback*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
+  - *Universal Docker (Primary)*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
+  - *Host CLI (Secondary)*: `uv run --directory backend pytest`
 - **Frontend Test Suite (384 Tests across 43 test files)**:
-  - *Host CLI*: `npm --prefix frontend test -- --run`
-  - *Docker Fallback*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
+  - *Universal Docker (Primary)*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
+  - *Host CLI (Secondary)*: `npm --prefix frontend test -- --run`
 
 ### Mathematical & Architectural Code Generation Rules
 1. **Never Truncate Floating-Point Percentages**: Keep basis-point precision (`AllocationEntry.pct` float, `toFixed(4)`). Never coerce to integer with `int()` or `Math.round()`.
