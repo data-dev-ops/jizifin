@@ -13,6 +13,12 @@
 	import security_headers
 	encode zstd gzip
 
+	# Block scanner probes and sensitive paths at proxy level
+	@blocked {
+		path /.env* /proc/* *.php *.sql /.git*
+	}
+	respond @blocked 404
+
 	handle_path /api/* {
 		reverse_proxy backend:8000
 	}
@@ -26,7 +32,7 @@
 	}
 }
 
-jizifin.duckdns.org {
+http://finance.jizihome.com, https://finance.jizihome.com, jizifin.duckdns.org {
 	import app_routes
 }
 
@@ -34,4 +40,3 @@ localhost, http://localhost, http://127.0.0.1 {
 	tls internal
 	import app_routes
 }
-

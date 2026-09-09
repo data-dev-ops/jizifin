@@ -543,6 +543,7 @@ ALLOWED_ORIGINS = [
     "http://127.0.0.1:8000",
     "http://127.0.0.1",
     "https://jizifin.duckdns.org",
+    "https://finance.jizihome.com",
 ]
 env_origins = os.getenv("ALLOWED_ORIGINS")
 if env_origins:

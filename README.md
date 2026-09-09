@@ -150,11 +150,22 @@ npm --prefix frontend test -- --run
 
 ---
 
-## 🔍 SonarQube & CI/CD Pipelines
+## 🛠️ Developer CLI & Makefile Commands
 
-- **Local SonarQube Analysis:** Run `./scripts/run-tests-and-sonar.sh` to generate frontend and backend coverage reports and ingest them into local SonarQube (`http://localhost:9000`).
-- **GitHub CI (`.github/workflows/ci.yml`)**: Runs frontend and backend test suites on every `push` and `pull_request`, opening an issue on failures and uploading coverage reports to SonarQube.
-- **DigitalOcean Continuous Deployment (`.github/workflows/deploy.yml`)**: Automates live server deployment via `docker compose up --build -d backend frontend caddy`.
+A unified [Makefile](file:///home/jim/Documents/jizifin/Makefile) is provided for easy local and remote operations:
+
+| Command | Action | Description |
+| :--- | :--- | :--- |
+| `make help` | Help overview | Displays all available targets and descriptions. |
+| `make build` | Build Production | Builds multi-stage production images (Nginx frontend + Python backend). |
+| `make run` / `make up` | Start Production | Starts `backend`, `frontend`, and `caddy` in background. |
+| `make dev` | Start Development | Starts dev stack with hot-reloading and live code volume mounting. |
+| `make full` | Start Stack + SonarQube | Starts all services plus SonarQube via Compose profile `full`. |
+| `make stop` / `make down` | Stop Stack | Stops all active containers. |
+| `make clean` | Clean Workspace | Stops containers and purges build/test caches (`coverage`, `__pycache__`, etc.). |
+| `make test` | Run All Tests | Executes both backend (pytest) and frontend (vitest) test suites. |
+| `make logs` | Stream Logs | Streams unified log output from all services. |
+| `make deploy-macbook` | Deploy to MacBook | Pulls latest commit and triggers production rebuild on MacBook server. |
 
 ---
 
