@@ -225,7 +225,7 @@
     }
 
     // Check for potential duplicate expense (matching category and amount)
-    const matches = findMatchingExpenses(payload, $expenses);
+    const matches = findMatchingExpenses(payload, $expenses, $selectedMonth);
     if (matches.length > 0) {
       pendingPayload = payload;
       duplicateItems = [{ prospective: payload, matches }];

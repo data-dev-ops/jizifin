@@ -193,6 +193,19 @@ logger = logging.getLogger(__name__)
 # Recurring expense helper & scheduler
 # ---------------------------------------------------------------------------
 
+def _effective_due_day(day_of_month: int, target_month: str) -> int:
+    """
+    Clamps a configured due day (1-31) to the last day of target_month ('YYYY-MM').
+    E.g. 31 in February (28 days) resolves to 28; values past month end mean 'last day'.
+    """
+    import calendar
+    try:
+        y, m = map(int, target_month.split("-"))
+        return min(day_of_month, calendar.monthrange(y, m)[1])
+    except Exception:
+        return day_of_month
+
+
 def calculate_recurring_occurrences(
     frequency: str,
     start_date_str: str,
@@ -327,14 +340,37 @@ def allocate_cents_largest_remainder(
     return {u: share * sign for u, share in floor_shares.items()}
 
 
-async def process_recurring_expenses() -> None:
+RECURRING_GRACE_DAYS = 7
+
+
+async def process_recurring_expenses(grace_days: int = RECURRING_GRACE_DAYS) -> int:
     """
-    Daily cron: insert expense rows for every recurring_expenses whose
-    schedule matches today. Broadcasts a WS tick for each insertion.
+    Insert expense rows for every active recurring template for each occurrence
+    in the catch-up window [min(first of current month, today - grace_days), today].
+    The grace period extends the window into the previous month so downtime that
+    spans a month rollover is still recovered. Occurrences already logged
+    (same name, date, payer, cost, category) are skipped, so this is idempotent
+    and safe to run on every start-up and from the daily cron.
+
+    Returns the number of expenses inserted and broadcasts a WS event for each.
     """
+    from datetime import timedelta as _td
+
     today = _date.today()
     today_str = today.isoformat()
-    target_month = today_str[:7]
+    window_start = min(today.replace(day=1), today - _td(days=max(grace_days, 0)))
+    window_start_str = window_start.isoformat()
+
+    # Months touched by the window (at most the grace span, typically 1-2)
+    months: list[str] = []
+    y, m = window_start.year, window_start.month
+    while (y, m) <= (today.year, today.month):
+        months.append(f"{y:04d}-{m:02d}")
+        m += 1
+        if m > 12:
+            y, m = y + 1, 1
+
+    inserted: list[tuple[aiosqlite.Row, str]] = []
 
     async with aiosqlite.connect(DB_PATH) as conn:
         await conn.execute("PRAGMA journal_mode=WAL;")
@@ -350,26 +386,28 @@ async def process_recurring_expenses() -> None:
         ) as cur:
             templates = await cur.fetchall()
 
-        due = []
+        due: list[tuple[aiosqlite.Row, str]] = []
         for rec in templates:
-            dates = calculate_recurring_occurrences(
-                frequency=rec["frequency"] or "monthly",
-                start_date_str=rec["start_date"] or "2026-01-01",
-                end_date_str=rec["end_date"],
-                day_of_month=rec["day_of_month"],
-                target_month=target_month,
-            )
-            if today_str in dates:
-                due.append(rec)
+            for month in months:
+                dates = calculate_recurring_occurrences(
+                    frequency=rec["frequency"] or "monthly",
+                    start_date_str=rec["start_date"] or "2026-01-01",
+                    end_date_str=rec["end_date"],
+                    day_of_month=rec["day_of_month"],
+                    target_month=month,
+                )
+                for d in dates:
+                    if window_start_str <= d <= today_str:
+                        due.append((rec, d))
 
-        for rec in due:
+        for rec, exp_date in due:
             async with conn.execute(
                 """
                 SELECT id FROM expenses
                 WHERE name = ? AND expense_date = ? AND who_paid = ? AND cost_cents = ? AND category = ?
                 LIMIT 1
                 """,
-                (rec["name"], today_str, rec["who_paid"], rec["cost_cents"], rec["category"]),
+                (rec["name"], exp_date, rec["who_paid"], rec["cost_cents"], rec["category"]),
             ) as check_cur:
                 exists = await check_cur.fetchone()
             if exists:
@@ -379,27 +417,30 @@ async def process_recurring_expenses() -> None:
             ja_id = rec["joint_account_id"] if rec["is_joint"] else None
             await conn.execute(
                 "INSERT INTO expenses (name, cost_cents, expense_date, who_paid, category, is_joint, joint_account_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                (rec["name"], rec["cost_cents"], today_str, rec["who_paid"], rec["category"], is_joint_val, ja_id),
+                (rec["name"], rec["cost_cents"], exp_date, rec["who_paid"], rec["category"], is_joint_val, ja_id),
             )
             if rec["is_joint"]:
                 target_ja_id = ja_id or 1
                 await conn.execute("UPDATE joint_accounts SET balance_cents = balance_cents - ? WHERE id = ?", (rec["cost_cents"], target_ja_id))
+            inserted.append((rec, exp_date))
 
         await conn.commit()
 
-        for rec in due:
-            await manager.broadcast({
-                "event": "expense_created",
-                "payload": {
-                    "name":         rec["name"],
-                    "cost_cents":   rec["cost_cents"],
-                    "expense_date": today_str,
-                    "who_paid":     rec["who_paid"],
-                    "category":     rec["category"],
-                    "is_joint":     bool(rec["is_joint"]),
-                    "source":       "recurring",
-                },
-            })
+    for rec, exp_date in inserted:
+        await manager.broadcast({
+            "event": "expense_created",
+            "payload": {
+                "name":         rec["name"],
+                "cost_cents":   rec["cost_cents"],
+                "expense_date": exp_date,
+                "who_paid":     rec["who_paid"],
+                "category":     rec["category"],
+                "is_joint":     bool(rec["is_joint"]),
+                "source":       "recurring",
+            },
+        })
+    return len(inserted)
+
 
 
 # ---------------------------------------------------------------------------
@@ -412,6 +453,12 @@ _scheduler = AsyncIOScheduler()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await init_db()
+    # Catch up recurring expenses missed during downtime before serving requests.
+    # Failures must never block application start-up.
+    try:
+        await process_recurring_expenses()
+    except Exception:
+        logging.getLogger(__name__).exception("Start-up recurring expense catch-up failed")
     _scheduler.add_job(
         process_recurring_expenses,
         trigger="cron",
@@ -3700,7 +3747,7 @@ async def _get_monthly_deposits_data(db: DbConnection, target_month: str, accoun
                 status_str = "paid_diverted"
         else:
             if target_month == current_month_str:
-                if current_day < day_m:
+                if current_day < _effective_due_day(day_m, target_month):
                     status_str = "pending"
                 else:
                     status_str = "overdue"
@@ -3870,10 +3917,10 @@ async def get_joint_account_dashboard(db: DbDep, month: str | None = None, accou
         deposit_status = "target_met"
         pending_due_day = None
     else:
-        pending_items = [ud for ud in user_deposits if not ud.is_paid and ud.day_of_month > current_day and target_month == current_month_str]
+        pending_items = [ud for ud in user_deposits if not ud.is_paid and _effective_due_day(ud.day_of_month, target_month) > current_day and target_month == current_month_str]
         if pending_items:
             deposit_status = "pending"
-            pending_due_day = min(ud.day_of_month for ud in pending_items)
+            pending_due_day = min(_effective_due_day(ud.day_of_month, target_month) for ud in pending_items)
         else:
             deposit_status = "below_target"
             pending_due_day = None
@@ -4011,7 +4058,11 @@ async def run_query(req: QueryRequest, db: DbDep) -> QueryResponse:
             raw_rows  = raw_rows[:LIMIT]
             columns: list[str] = [d[0] for d in (cur.description or [])]
             rows = [list(r) for r in raw_rows]
+        # Persist INSERT/UPDATE/DELETE statements; without a commit the
+        # connection closes at end of request and the changes are discarded.
+        await db.commit()
     except Exception as exc:
+        await db.rollback()
         raise HTTPException(status_code=400, detail=str(exc))
     return QueryResponse(columns=columns, rows=rows, row_count=len(rows), truncated=truncated)
 

@@ -208,7 +208,7 @@
     const map = new Map();
     for (const tx of transactions) {
       if (tx.include && !tx.isCredit && tx.category && !tx.groupToOther) {
-        const matches = findMatchingExpenses({ category: tx.category, cost_cents: tx.amountCents }, $expenses);
+        const matches = findMatchingExpenses({ category: tx.category, cost_cents: tx.amountCents }, $expenses, $selectedMonth);
         if (matches.length > 0) {
           map.set(tx.id, matches);
         }
@@ -257,7 +257,7 @@
       const duplicateWarnings = [];
       for (const exp of preparedExpenses) {
         if (exp.name.startsWith('Other expenses (')) continue;
-        const matches = findMatchingExpenses(exp, $expenses);
+        const matches = findMatchingExpenses(exp, $expenses, $selectedMonth);
         if (matches.length > 0) {
           duplicateWarnings.push({ prospective: exp, matches });
         }

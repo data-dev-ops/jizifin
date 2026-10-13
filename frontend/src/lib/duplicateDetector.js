@@ -12,9 +12,10 @@
  *
  * @param {Object} prospectiveExpense { category: string, cost_cents: number, id?: number }
  * @param {Array<Object>} existingExpenses List of existing decrypted expenses
+ * @param {string|null} [month] Optional 'YYYY-MM' period; when set, only existing expenses dated in that month are considered
  * @returns {Array<Object>} Matching existing expenses
  */
-export function findMatchingExpenses(prospectiveExpense, existingExpenses = []) {
+export function findMatchingExpenses(prospectiveExpense, existingExpenses = [], month = null) {
   if (!prospectiveExpense || !prospectiveExpense.category || prospectiveExpense.cost_cents === undefined) {
     return [];
   }
@@ -30,6 +31,7 @@ export function findMatchingExpenses(prospectiveExpense, existingExpenses = []) 
     if (!existing || !existing.category || existing.cost_cents === undefined) return false;
     // If editing, don't match the same expense record
     if (prospectiveExpense.id && existing.id === prospectiveExpense.id) return false;
+    if (month && !String(existing.expense_date || '').startsWith(month)) return false;
 
     const existingCategory = String(existing.category).trim().toLowerCase();
     const existingCents = Number(existing.cost_cents);
@@ -45,11 +47,11 @@ export function findMatchingExpenses(prospectiveExpense, existingExpenses = []) 
  * @param {Array<Object>} existingExpenses
  * @returns {Array<{ prospective: Object, matches: Array<Object> }>}
  */
-export function findBatchDuplicateMatches(prospectiveExpenses = [], existingExpenses = []) {
+export function findBatchDuplicateMatches(prospectiveExpenses = [], existingExpenses = [], month = null) {
   const duplicateResults = [];
 
   for (const prospective of prospectiveExpenses) {
-    const matches = findMatchingExpenses(prospective, existingExpenses);
+    const matches = findMatchingExpenses(prospective, existingExpenses, month);
     if (matches.length > 0) {
       duplicateResults.push({
         prospective,
