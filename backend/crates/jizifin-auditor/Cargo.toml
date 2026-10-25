@@ -1,0 +1,17 @@
+[package]
+name = "jizifin-auditor"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+jizifin-domain.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+hex.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
