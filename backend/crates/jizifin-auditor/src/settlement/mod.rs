@@ -9,6 +9,8 @@ mod offsets;
 
 pub use calculator::SettlementCalculator;
 pub use invariants::settlement_invariants;
+pub(crate) use debts::DebtSimplifier;
+pub(crate) use invariants::debts_settle;
 
 use crate::shares::Bucket;
 use jizifin_domain::ids::MemberId;

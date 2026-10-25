@@ -9,7 +9,7 @@ type Ledger = Vec<(MemberId, Cents)>;
 
 /// Matches the largest creditor with the largest debtor until all nets are zero.
 #[derive(Default)]
-pub(super) struct DebtSimplifier;
+pub(crate) struct DebtSimplifier;
 
 impl DebtSimplifier {
     /// Transfers settling every member of `component`.

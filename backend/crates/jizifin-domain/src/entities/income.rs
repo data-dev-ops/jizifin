@@ -1,6 +1,6 @@
-use super::parse_variant;
+use super::{label_of, parse_variant};
 use crate::ids::{JobId, MemberId};
-use crate::{Cents, DomainError, Month};
+use crate::{Cents, Ciphertext, DomainError, Month};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -31,6 +31,11 @@ impl Frequency {
         parse_variant("frequency", raw, &Self::TABLE)
     }
 
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
+    }
+
     /// Payments per year.
     pub fn periods_per_year(self) -> i64 {
         match self {
@@ -57,6 +62,10 @@ pub struct Job {
     pub valid_from: NaiveDate,
     /// Contract end; `None` means ongoing.
     pub valid_to: Option<NaiveDate>,
+    /// Encrypted employer name.
+    pub name: Ciphertext,
+    /// Encrypted notes.
+    pub notes: Option<Ciphertext>,
 }
 
 impl Job {
@@ -75,4 +84,6 @@ pub struct IncomeOverride {
     pub month: Month,
     /// Replacement amount.
     pub amount: Cents,
+    /// Encrypted reason.
+    pub note: Option<Ciphertext>,
 }

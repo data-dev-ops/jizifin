@@ -1,9 +1,12 @@
 //! Jizifin HTTP API. Listens on the port Caddy proxies `/api/*` and `/ws/*` to.
 
+mod auth;
 mod config;
 mod error;
+mod events;
 mod health;
 mod routes;
+mod scheduler;
 mod state;
 
 use config::Config;
@@ -26,6 +29,7 @@ fn init_tracing() {
 
 async fn serve(config: Config) -> Result<(), Box<dyn std::error::Error>> {
     let state = AppState::open(&config.db_path)?;
+    scheduler::spawn(state.clone());
     let listener = tokio::net::TcpListener::bind(&config.bind).await?;
     log_listening(&config);
     axum::serve(listener, routes::router(state)).with_graceful_shutdown(shutdown_signal()).await?;

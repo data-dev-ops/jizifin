@@ -39,12 +39,24 @@ impl Database {
         Ok(self.pool.get()?)
     }
 
-    /// Runs `work` in one transaction; commits and bumps the data version on success.
-    pub fn write<T>(&self, work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>) -> Result<T, StoreError> {
+    /// Runs read-only `work` on a pooled connection.
+    pub fn read<T>(&self, work: impl FnOnce(&duckdb::Connection) -> Result<T, StoreError>) -> Result<T, StoreError> {
+        work(&*self.connection()?)
+    }
+
+    /// Runs `work` in one transaction without bumping the data version.
+    /// Only for bookkeeping that never feeds a calculation (sessions).
+    pub fn write_meta<T>(&self, work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>) -> Result<T, StoreError> {
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let value = work(&tx)?;
         tx.commit()?;
+        Ok(value)
+    }
+
+    /// Runs `work` in one transaction; commits and bumps the data version on success.
+    pub fn write<T>(&self, work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>) -> Result<T, StoreError> {
+        let value = self.write_meta(work)?;
         self.version.bump();
         Ok(value)
     }

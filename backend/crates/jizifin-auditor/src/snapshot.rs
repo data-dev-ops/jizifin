@@ -3,9 +3,9 @@
 use crate::{AuditError, AuditScope};
 use chrono::NaiveDate;
 use jizifin_domain::entities::{
-    Account, Agreement, Budget, Category, Entry, EntryKind, IncomeOverride, Job, Member, OffsetRule, Share,
+    Account, Agreement, Budget, Category, Entry, EntryKind, IncomeOverride, Job, Member, OffsetRule, Project, Share,
 };
-use jizifin_domain::ids::{AccountId, CategoryId, EntryId, MemberId};
+use jizifin_domain::ids::{AccountId, CategoryId, EntryId, MemberId, ProjectId};
 use jizifin_domain::Month;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
@@ -40,6 +40,8 @@ pub struct Snapshot {
     pub offset_rules: Vec<OffsetRule>,
     /// Budgets inside the scope period.
     pub budgets: Vec<Budget>,
+    /// All projects.
+    pub projects: Vec<Project>,
 }
 
 impl Snapshot {
@@ -65,6 +67,11 @@ impl Snapshot {
             .iter()
             .filter(|a| a.category == category && a.covers(date))
             .max_by_key(|a| a.precedence())
+    }
+
+    /// Project by id.
+    pub fn project(&self, id: ProjectId) -> Result<&Project, AuditError> {
+        self.projects.iter().find(|p| p.id == id).ok_or(AuditError::UnknownProject(id))
     }
 
     /// True when any joint account charges `category`.

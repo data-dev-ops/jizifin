@@ -51,10 +51,10 @@ There is one process and one container. The auditor is a component inside the ba
 | Concern | Crate |
 | :--- | :--- |
 | Runtime, HTTP, WebSocket | `tokio`, `axum` 0.8, `tower-http` |
-| DTOs, validation, OpenAPI | `serde`, `garde`, `utoipa` |
+| DTOs, validation | `serde` into domain value types (`Ciphertext`, `Month`, `Cents`) plus `validate()` on input structs |
 | **Database** | **`duckdb = { version = "~1.20000.0", features = ["bundled", "parquet", "json", "r2d2", "chrono", "serde_json"] }`**. This is DuckDB **2.0.0**: since DuckDB 1.5.0 the crate is versioned `1.<major><minor><patch>.x` ([DuckDB 2.0 Rust docs](https://duckdb.org/docs/2.0/clients/rust/overview)). |
 | Pool | `r2d2` (duckdb feature). Every call runs inside `spawn_blocking`, because the driver is synchronous. |
-| Scheduler | `tokio-cron-scheduler` |
+| Scheduler | `tokio` loop: recurring catch-up at start and daily after 00:00 UTC |
 | Crypto | `aes-gcm`, `pbkdf2`, `sha2`, `base64` (`URL_SAFE_NO_PAD`) |
 | Dates, errors, logs | `chrono`, `thiserror`, `tracing` |
 
@@ -89,7 +89,6 @@ backend/
 │   │   ├── cipher.rs            # Ciphertext: Eq/Hash, no Ord
 │   │   └── entities/            # Member, Category, Account, Entry, Agreement, Job …
 │   ├── jizifin-auditor/         # library crate: the Auditor (§4)
-│   ├── jizifin-app/             # use-case services + ports (traits)
 │   ├── jizifin-store/           # DuckDB adapters, migrations/*.sql, SnapshotLoader
 │   ├── jizifin-api/             # bin: router, DTOs, auth, WS hub
 │   ├── jizifin-migrate/         # bin: legacy SQLite → new DuckDB schema
@@ -282,7 +281,7 @@ The browser does four things only:
 | `toMonthlyEquivalent` ×2 | `AnalyticsSummary.svelte`, `IncomeTab.svelte` | Auditor `IncomeResolver` |
 | Deposit targets, expected sums | `JointAccountTab.svelte` | Auditor `DepositProposer`, `JointBalanceCalculator` |
 | Budget progress | `BudgetManager.svelte` | Auditor `BudgetEvaluator` |
-| Allocation totals and validation | `SplitManager.svelte` | `garde` + `PercentTotal` |
+| Allocation totals and validation | `SplitManager.svelte` | `AgreementInput::validate` (shares total 100 ± 1e-4) |
 | Drilldowns, filters, chart datasets | `DrilldownModal`, `ExpenseList`, charts | Repository SQL, `GET /views/*`, keyset pagination |
 | Duplicate detection | `duplicateDetector.js` | `POST /entries/duplicates` (ciphertext + cents equality) |
 | `csvParser.js` | — | `jizifin-wasm` |
@@ -323,6 +322,8 @@ The API moves to a v2 shape that matches the new schema: `/members`, `/categorie
 4. `jizifin-store`: schema, migrations, repositories, `DuckSnapshotLoader`, `UnitOfWork`, `data_version` bump.
 5. `jizifin-auditor`: snapshot, cache, all calculators, `InvariantSet`, `SettlementSealer`, `PeriodGuard`.
 6. `jizifin-api`: v2 routes, WS hub, auth/sessions, backup, `/query` (allow only statements that `json_serialize_sql` reports as `SELECT`).
+   - **Auth contract (new):** the client derives a proof from the passphrase (an AES-GCM ciphertext of a fixed marker). `POST /auth/init` stores only `SHA-256(proof)`; `POST /auth/login` compares hashes and issues a random token that is also stored hashed (`sessions`). `GET /auth/salt` is removed: it used to return the exact login proof to unauthenticated callers.
+   - Uninitialized instances expose only `/health` and `/auth/*`.
 7. `jizifin-migrate`.
 8. `jizifin-wasm` and the thin-frontend rewrite (§6).
 9. Docker, compose, Caddyfile and Makefile (§7, §9).

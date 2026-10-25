@@ -1,6 +1,6 @@
 //! Auditor failures.
 
-use jizifin_domain::ids::AccountId;
+use jizifin_domain::ids::{AccountId, ProjectId};
 use thiserror::Error;
 
 /// Why the Auditor refused to return a value.
@@ -15,4 +15,7 @@ pub enum AuditError {
     /// The requested joint account does not exist.
     #[error("account {0} not found")]
     UnknownAccount(AccountId),
+    /// The requested project does not exist.
+    #[error("project {0} not found")]
+    UnknownProject(ProjectId),
 }

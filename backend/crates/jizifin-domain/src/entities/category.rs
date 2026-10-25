@@ -1,4 +1,4 @@
-use super::parse_variant;
+use super::{label_of, parse_variant};
 use crate::ids::{AgreementId, CategoryId, MemberId};
 use crate::{Ciphertext, DomainError};
 use chrono::NaiveDate;
@@ -21,6 +21,11 @@ impl CategoryKind {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         parse_variant("category kind", raw, &Self::TABLE)
     }
+
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
+    }
 }
 
 /// How the liability of an expense in this category is shared.
@@ -42,6 +47,11 @@ impl PayMode {
     /// Parses the stored label.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         parse_variant("pay mode", raw, &Self::TABLE)
+    }
+
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
     }
 }
 
@@ -78,6 +88,8 @@ pub struct Agreement {
     pub valid_from: NaiveDate,
     /// Last effective day; `None` means open-ended.
     pub valid_to: Option<NaiveDate>,
+    /// Encrypted note.
+    pub note: Option<Ciphertext>,
     /// Member shares.
     pub shares: Vec<Share>,
 }

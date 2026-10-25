@@ -1,12 +1,15 @@
 //! What slice of the ledger a calculation needs.
 
 use chrono::NaiveDate;
-use jizifin_domain::ids::{AccountId, MemberId};
+use jizifin_domain::ids::{AccountId, MemberId, ProjectId};
 use jizifin_domain::{Month, Period};
 use std::collections::BTreeSet;
 
 /// Earliest date the ledger can hold; lower bound for whole-history scopes.
 pub const LEDGER_START: NaiveDate = NaiveDate::from_ymd_opt(1, 1, 1).expect("valid date");
+
+/// Latest date a project scope reaches (entries may be dated in the future).
+pub const PROJECT_HORIZON: NaiveDate = NaiveDate::from_ymd_opt(9999, 12, 31).expect("valid date");
 
 /// Inputs that determine which rows the snapshot loads. Also the cache key.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -19,6 +22,8 @@ pub struct AuditScope {
     pub members: Option<BTreeSet<MemberId>>,
     /// Optional joint account.
     pub account: Option<AccountId>,
+    /// Optional project; restricts entries to the project plus all deposits.
+    pub project: Option<ProjectId>,
     /// Evaluation date, used for due-day status.
     pub as_of: NaiveDate,
 }
@@ -26,7 +31,7 @@ pub struct AuditScope {
 impl AuditScope {
     /// Scope covering exactly one month.
     pub fn month(month: Month, as_of: NaiveDate) -> Self {
-        Self { month, period: month.period(), members: None, account: None, as_of }
+        Self { month, period: month.period(), members: None, account: None, project: None, as_of }
     }
 
     /// Scope covering `months` full months before `month`, plus `month` itself.
@@ -40,6 +45,12 @@ impl AuditScope {
     pub fn account_to_date(month: Month, account: AccountId, as_of: NaiveDate) -> Self {
         let period = Period { from: LEDGER_START, to: month.last_day() };
         Self { period, account: Some(account), ..Self::month(month, as_of) }
+    }
+
+    /// Scope covering a project's whole history up to `as_of`.
+    pub fn project(project: ProjectId, as_of: NaiveDate) -> Self {
+        let period = Period { from: LEDGER_START, to: PROJECT_HORIZON };
+        Self { period, project: Some(project), ..Self::month(Month::of(as_of), as_of) }
     }
 
     /// Restricts the scope to a member set; an empty set means no filter.

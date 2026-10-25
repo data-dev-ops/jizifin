@@ -12,6 +12,7 @@ pub mod error;
 pub mod income;
 pub mod invariant;
 pub mod joint;
+pub mod project;
 pub mod ratios;
 pub mod result;
 pub mod scope;

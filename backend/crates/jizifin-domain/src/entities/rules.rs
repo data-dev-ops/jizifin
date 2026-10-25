@@ -9,6 +9,8 @@ use serde::{Deserialize, Serialize};
 pub struct OffsetRule {
     /// Surrogate key.
     pub id: OffsetRuleId,
+    /// Inactive rules are kept but not applied.
+    pub is_active: bool,
     /// Member whose net position increases.
     pub credit_member: MemberId,
     /// Category paid by the credit member.

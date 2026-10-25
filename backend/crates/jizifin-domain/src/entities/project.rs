@@ -1,6 +1,6 @@
-use super::parse_variant;
+use super::{label_of, parse_variant};
 use crate::ids::{CategoryId, MemberId, ProjectId, TagId};
-use crate::{Cents, DomainError, Month};
+use crate::{Cents, Ciphertext, DomainError, Month};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -22,6 +22,11 @@ impl BudgetSource {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         parse_variant("budget source", raw, &Self::TABLE)
     }
+
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
+    }
 }
 
 /// Monthly spending limit for a category.
@@ -42,6 +47,10 @@ pub struct Budget {
 pub struct Project {
     /// Surrogate key.
     pub id: ProjectId,
+    /// Encrypted name.
+    pub name: Ciphertext,
+    /// Hex colour.
+    pub color: String,
     /// Target amount.
     pub target: Cents,
     /// Participating members.
@@ -53,6 +62,10 @@ pub struct Project {
 pub struct Tag {
     /// Surrogate key.
     pub id: TagId,
+    /// Encrypted name.
+    pub name: Ciphertext,
+    /// Encrypted description.
+    pub description: Option<Ciphertext>,
     /// First allowed date.
     pub valid_from: Option<NaiveDate>,
     /// Last allowed date.

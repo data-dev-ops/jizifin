@@ -4,6 +4,7 @@
 -- Referential integrity is enforced by the repository UnitOfWork until the spike
 -- confirms DuckDB FK behaviour on updates of referenced rows.
 
+-- Holds 'auth_proof_sha256': SHA-256 of the client-derived login proof (never the proof itself).
 CREATE TABLE app_config (
     key   VARCHAR PRIMARY KEY,
     value VARCHAR NOT NULL
@@ -133,6 +134,9 @@ CREATE INDEX idx_entries_date ON entries (entry_date, id);
 CREATE INDEX idx_entries_member_date ON entries (member_id, entry_date);
 CREATE INDEX idx_entries_category_date ON entries (category_id, entry_date);
 CREATE INDEX idx_entries_account_date ON entries (account_id, entry_date);
+CREATE INDEX idx_entries_project ON entries (project_id);
+-- One generated entry per template occurrence: makes the recurring catch-up idempotent.
+CREATE UNIQUE INDEX uq_entries_recurring_date ON entries (recurring_id, entry_date);
 
 CREATE TABLE entry_share_overrides (
     entry_id  BIGINT NOT NULL,

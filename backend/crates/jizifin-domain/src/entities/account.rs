@@ -1,6 +1,6 @@
-use super::parse_variant;
+use super::{label_of, parse_variant};
 use crate::ids::{AccountId, CategoryId, MemberId};
-use crate::{Cents, DomainError};
+use crate::{Cents, Ciphertext, DomainError};
 use serde::{Deserialize, Serialize};
 
 /// How proposed deposits are divided between account members.
@@ -22,6 +22,11 @@ impl DepositMode {
     /// Parses the stored label.
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         parse_variant("deposit mode", raw, &Self::TABLE)
+    }
+
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
     }
 }
 
@@ -50,6 +55,8 @@ pub struct AccountCategory {
 pub struct Account {
     /// Surrogate key.
     pub id: AccountId,
+    /// Encrypted name.
+    pub name: Ciphertext,
     /// Safety margin applied on top of expected costs.
     pub safety_margin_pct: f64,
     /// Deposit division mode.

@@ -50,13 +50,18 @@ impl Invariant<Settlement> for DebtsSettleNet {
         "debts_settle_net"
     }
     fn holds(&self, s: &Settlement, _: &Snapshot) -> bool {
-        let mut rest: BTreeMap<MemberId, Cents> = s.net.clone();
-        for d in &s.debts {
-            *rest.entry(d.from).or_default() += d.amount;
-            *rest.entry(d.to).or_default() -= d.amount;
-        }
-        rest.values().all(|c| c.is_zero())
+        debts_settle(&s.net, &s.debts)
     }
+}
+
+/// True when applying `debts` zeroes every position in `net`.
+pub(crate) fn debts_settle(net: &BTreeMap<MemberId, Cents>, debts: &[super::Debt]) -> bool {
+    let mut rest = net.clone();
+    for d in debts {
+        *rest.entry(d.from).or_default() += d.amount;
+        *rest.entry(d.to).or_default() -= d.amount;
+    }
+    rest.values().all(|c| c.is_zero())
 }
 
 /// No transfer crosses component boundaries.

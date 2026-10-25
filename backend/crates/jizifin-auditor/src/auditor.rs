@@ -6,12 +6,24 @@ use crate::deposit::{self, DepositProposal, DepositProposer};
 use crate::income::{IncomeResolver, MemberIncome};
 use crate::invariant::InvariantSet;
 use crate::joint::{self, JointBalanceCalculator, JointDashboard};
+use crate::project::{self, ProjectSettlement, ProjectSettlementCalculator};
 use crate::ratios::{self, SalaryRatioCalculator, SalaryRatios};
 use crate::settlement::{self, Settlement, SettlementCalculator};
 use crate::{AuditError, AuditScope, AuditedResult, Snapshot, SnapshotLoader};
-use jizifin_domain::ids::{AccountId, MemberId};
+use jizifin_domain::entities::MonthSeal;
+use jizifin_domain::ids::{AccountId, MemberId, ProjectId};
+use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Arc;
+
+/// A sealed month plus whether today's recomputation still matches it.
+#[derive(Clone, Debug, Serialize)]
+pub struct SealedSettlement {
+    /// The stored seal (the authoritative result).
+    pub seal: MonthSeal,
+    /// True when recomputing from current data yields a different settlement.
+    pub drift: bool,
+}
 
 /// Snapshots kept in memory.
 const CACHE_CAPACITY: usize = 64;
@@ -34,6 +46,13 @@ impl Auditor {
         self.audit(&scope, &settlement::settlement_invariants(), |snap| {
             Ok(SettlementCalculator::new(snap, &scope).calculate())
         })
+    }
+
+    /// Re-verifies a seal against current data. The seal stays authoritative.
+    pub fn sealed_settlement(&self, scope: AuditScope, seal: MonthSeal) -> Result<SealedSettlement, AuditError> {
+        let live = serde_json::to_value(&self.settlement(scope)?.value).map_err(|e| AuditError::Load(e.to_string()))?;
+        let stored: serde_json::Value = serde_json::from_str(&seal.result_json).map_err(|e| AuditError::Load(e.to_string()))?;
+        Ok(SealedSettlement { drift: live != stored, seal })
     }
 
     /// Proposed deposits for a joint account. Scope must carry the account.
@@ -63,6 +82,13 @@ impl Auditor {
     /// Whole-percent split proposal from income.
     pub fn salary_ratios(&self, scope: AuditScope) -> Result<AuditedResult<SalaryRatios>, AuditError> {
         self.audit(&scope, &ratios::ratio_invariants(), |snap| Ok(SalaryRatioCalculator::new(snap, &scope).calculate()))
+    }
+
+    /// Project balance sheet. Use [`AuditScope::project`].
+    pub fn project_settlement(&self, scope: AuditScope, id: ProjectId) -> Result<AuditedResult<ProjectSettlement>, AuditError> {
+        self.audit(&scope, &project::project_invariants(), |snap| {
+            Ok(ProjectSettlementCalculator::new(snap, snap.project(id)?).calculate())
+        })
     }
 
     /// Effective income per member.

@@ -1,6 +1,6 @@
-use super::parse_variant;
-use crate::ids::{AccountId, CategoryId, EntryId, MemberId, ProjectId, TagId};
-use crate::{Cents, DomainError};
+use super::{label_of, parse_variant};
+use crate::ids::{AccountId, CategoryId, EntryId, MemberId, ProjectId, RecurringId, TagId};
+use crate::{Cents, Ciphertext, DomainError};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
 
@@ -30,9 +30,14 @@ impl EntryKind {
     pub fn parse(raw: &str) -> Result<Self, DomainError> {
         parse_variant("entry kind", raw, &Self::TABLE)
     }
+
+    /// Stored label.
+    pub fn label(self) -> &'static str {
+        label_of(self, &Self::TABLE)
+    }
 }
 
-/// One row of the unified ledger. Text fields stay in the store; the Auditor needs numbers and keys only.
+/// One row of the unified ledger.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
     /// Surrogate key, also the allocation tie-break seed.
@@ -53,6 +58,12 @@ pub struct Entry {
     pub project: Option<ProjectId>,
     /// Linked tag.
     pub tag: Option<TagId>,
+    /// Template that generated the entry.
+    pub recurring: Option<RecurringId>,
+    /// Encrypted description.
+    pub name: Option<Ciphertext>,
+    /// Encrypted note.
+    pub note: Option<Ciphertext>,
 }
 
 impl Entry {
