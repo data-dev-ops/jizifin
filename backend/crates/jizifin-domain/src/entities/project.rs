@@ -1,5 +1,5 @@
 use super::{label_of, parse_variant};
-use crate::ids::{CategoryId, MemberId, ProjectId, TagId};
+use crate::ids::{BudgetId, CategoryId, MemberId, ProjectId, TagId};
 use crate::{Cents, Ciphertext, DomainError, Month};
 use chrono::NaiveDate;
 use serde::{Deserialize, Serialize};
@@ -29,17 +29,33 @@ impl BudgetSource {
     }
 }
 
-/// Monthly spending limit for a category.
+/// Monthly spending limit for a category over a range of months (SCD2).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Budget {
+    /// Surrogate key.
+    pub id: BudgetId,
     /// Category limited.
     pub category: CategoryId,
-    /// Month the limit applies to.
-    pub month: Month,
-    /// Limit.
+    /// First month the limit applies to.
+    pub valid_from: Month,
+    /// Last month; `None` means standing.
+    pub valid_to: Option<Month>,
+    /// Limit per month.
     pub limit: Cents,
     /// Origin.
     pub source: BudgetSource,
+}
+
+impl Budget {
+    /// True when the limit applies to `month`.
+    pub fn covers(&self, month: Month) -> bool {
+        self.valid_from <= month && self.valid_to.is_none_or(|end| month <= end)
+    }
+
+    /// Precedence key: bounded beats standing, then latest start, then highest id.
+    pub fn precedence(&self) -> (bool, Month, BudgetId) {
+        (self.valid_to.is_some(), self.valid_from, self.id)
+    }
 }
 
 /// A savings or spending target shared by members.
@@ -53,6 +69,8 @@ pub struct Project {
     pub color: String,
     /// Target amount.
     pub target: Cents,
+    /// Target date.
+    pub target_date: Option<NaiveDate>,
     /// Participating members.
     pub members: Vec<MemberId>,
 }
@@ -66,6 +84,8 @@ pub struct Tag {
     pub name: Ciphertext,
     /// Encrypted description.
     pub description: Option<Ciphertext>,
+    /// Hex colour.
+    pub color: String,
     /// First allowed date.
     pub valid_from: Option<NaiveDate>,
     /// Last allowed date.

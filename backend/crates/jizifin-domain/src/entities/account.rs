@@ -59,6 +59,8 @@ pub struct Account {
     pub name: Ciphertext,
     /// Safety margin applied on top of expected costs.
     pub safety_margin_pct: f64,
+    /// Gross expected monthly cost replacing the category sum.
+    pub expected_override: Option<Cents>,
     /// Deposit division mode.
     pub deposit_mode: DepositMode,
     /// Participants.
@@ -68,9 +70,9 @@ pub struct Account {
 }
 
 impl Account {
-    /// Sum of expected category costs.
+    /// Expected monthly cost: the override, else the sum of category expectations.
     pub fn expected_total(&self) -> Cents {
-        self.categories.iter().map(|c| c.expected).sum()
+        self.expected_override.unwrap_or_else(|| self.categories.iter().map(|c| c.expected).sum())
     }
 
     /// True when `category` is charged to this account.

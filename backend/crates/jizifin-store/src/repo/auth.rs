@@ -6,13 +6,6 @@ use duckdb::{Connection, params};
 /// `app_config` key holding the SHA-256 of the client login proof.
 const PROOF_KEY: &str = "auth_proof_sha256";
 
-/// Every table wiped by a reset, children first.
-const ALL_TABLES: &[&str] = &[
-    "month_seals", "offset_rules", "budgets", "income_overrides", "jobs", "entry_share_overrides", "entries",
-    "recurring_templates", "tags", "project_members", "projects", "account_categories", "account_members",
-    "accounts", "agreement_shares", "agreements", "categories", "members", "sessions", "app_config",
-];
-
 /// Instance initialization and proof storage.
 pub struct Auth;
 
@@ -34,7 +27,8 @@ impl Auth {
 
     /// Wipes every table, returning the instance to first boot.
     pub fn reset(conn: &Connection) -> Result<(), StoreError> {
-        ALL_TABLES.iter().try_for_each(|t| conn.execute(&format!("DELETE FROM {t}"), []).map(|_| ()))?;
+        crate::schema::clear(conn)?;
+        conn.execute("DELETE FROM sessions", [])?;
         Ok(())
     }
 }

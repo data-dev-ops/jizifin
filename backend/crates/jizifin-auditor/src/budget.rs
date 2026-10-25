@@ -76,11 +76,21 @@ impl<'a> BudgetEvaluator<'a> {
         Self { snap, month: scope.month }
     }
 
-    /// Status per budget of the month.
+    /// Status per category with a budget effective this month.
     pub fn evaluate(&self) -> Vec<BudgetStatus> {
         let index = SpendIndex::build(self.snap);
-        let budgets = self.snap.budgets.iter().filter(|b| b.month == self.month);
-        budgets.map(|b| Self::status(b, index.spent(b.category, self.month))).collect()
+        self.effective().into_values().map(|b| Self::status(b, index.spent(b.category, self.month))).collect()
+    }
+
+    fn effective(&self) -> BTreeMap<CategoryId, &'a Budget> {
+        let mut chosen: BTreeMap<CategoryId, &'a Budget> = BTreeMap::new();
+        for budget in self.snap.budgets.iter().filter(|b| b.covers(self.month)) {
+            let slot = chosen.entry(budget.category).or_insert(budget);
+            if budget.precedence() > slot.precedence() {
+                *slot = budget;
+            }
+        }
+        chosen
     }
 
     fn status(budget: &Budget, spent: Cents) -> BudgetStatus {

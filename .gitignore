@@ -56,3 +56,7 @@ Thumbs.db
 .scannerwork/
 target/
 
+# DuckDB data directory (database, WAL, backups scratch, lake)
+data/
+*.duckdb
+*.duckdb.wal

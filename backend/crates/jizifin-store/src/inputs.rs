@@ -4,10 +4,11 @@
 use crate::StoreError;
 use chrono::NaiveDate;
 use jizifin_domain::entities::{
-    AccountCategory, AccountMember, CategoryKind, DepositMode, EntryKind, Frequency, PayMode, Recurrence, Share,
+    AccountCategory, AccountMember, BudgetSource, CategoryKind, DepositMode, EntryKind, Frequency, PayMode, Recurrence,
+    Share,
 };
 use jizifin_domain::ids::{AccountId, CategoryId, EntryId, MemberId, ProjectId, TagId};
-use jizifin_domain::{Cents, Ciphertext, Period};
+use jizifin_domain::{Cents, Ciphertext, Month, Period};
 use serde::Deserialize;
 use std::collections::BTreeSet;
 
@@ -16,6 +17,14 @@ const PCT_TOLERANCE: f64 = 1e-4;
 
 fn default_color() -> String {
     "#64748b".into()
+}
+
+fn tag_color() -> String {
+    "#f59e0b".into()
+}
+
+fn manual() -> BudgetSource {
+    BudgetSource::Manual
 }
 
 fn yes() -> bool {
@@ -94,6 +103,9 @@ pub struct AccountInput {
     /// Safety margin in percent.
     #[serde(default)]
     pub safety_margin_pct: f64,
+    /// Gross expected monthly cost replacing the category sum.
+    #[serde(default)]
+    pub expected_override: Option<Cents>,
     /// Deposit division mode.
     pub deposit_mode: DepositMode,
     /// Participants.
@@ -214,6 +226,8 @@ pub struct ProjectInput {
     /// Target amount.
     #[serde(default)]
     pub target: Cents,
+    /// Target date.
+    pub target_date: Option<NaiveDate>,
     /// Participants.
     #[serde(default)]
     pub members: Vec<MemberId>,
@@ -226,6 +240,9 @@ pub struct TagInput {
     pub name: Ciphertext,
     /// Encrypted description.
     pub description: Option<Ciphertext>,
+    /// Hex colour.
+    #[serde(default = "tag_color")]
+    pub color: String,
     /// First allowed date.
     pub valid_from: Option<NaiveDate>,
     /// Last allowed date.
@@ -278,6 +295,33 @@ impl RecurringInput {
         match ok {
             true => Ok(()),
             false => Err(StoreError::Invalid("recurring templates must be expense or income with day 1–31".into())),
+        }
+    }
+}
+
+/// Budget create/replace. `valid_to = None` makes it a standing budget.
+#[derive(Debug, Deserialize)]
+pub struct BudgetInput {
+    /// Category limited.
+    pub category: CategoryId,
+    /// First month.
+    pub valid_from: Month,
+    /// Last month.
+    pub valid_to: Option<Month>,
+    /// Limit per month.
+    pub limit: Cents,
+    /// Origin.
+    #[serde(default = "manual")]
+    pub source: BudgetSource,
+}
+
+impl BudgetInput {
+    /// Range and amount rules.
+    pub fn validate(&self) -> Result<(), StoreError> {
+        let ordered = self.valid_to.is_none_or(|end| end >= self.valid_from);
+        match ordered && !self.limit.is_negative() {
+            true => Ok(()),
+            false => Err(StoreError::Invalid("budget range is inverted or limit is negative".into())),
         }
     }
 }

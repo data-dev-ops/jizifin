@@ -23,16 +23,18 @@ impl Projects {
 
     /// Inserts a project.
     pub fn create(conn: &Connection, input: &ProjectInput) -> Result<ProjectId, StoreError> {
-        let sql = "INSERT INTO projects (name_ct, color, target_cents) VALUES (?, ?, ?) RETURNING id";
-        let id = ProjectId(insert_id(conn, sql, params![input.name.as_str(), input.color, input.target.value()])?);
+        let sql = "INSERT INTO projects (name_ct, color, target_cents, target_date) VALUES (?, ?, ?, ?) RETURNING id";
+        let p = params![input.name.as_str(), input.color, input.target.value(), input.target_date];
+        let id = ProjectId(insert_id(conn, sql, p)?);
         Self::write_members(conn, id, &input.members)?;
         Ok(id)
     }
 
     /// Replaces a project and its members.
     pub fn update(conn: &Connection, id: ProjectId, input: &ProjectInput) -> Result<(), StoreError> {
-        let sql = "UPDATE projects SET name_ct = ?, color = ?, target_cents = ? WHERE id = ?";
-        touch_one(conn, sql, params![input.name.as_str(), input.color, input.target.value(), id.0], "project")?;
+        let sql = "UPDATE projects SET name_ct = ?, color = ?, target_cents = ?, target_date = ? WHERE id = ?";
+        let p = params![input.name.as_str(), input.color, input.target.value(), input.target_date, id.0];
+        touch_one(conn, sql, p, "project")?;
         Self::write_members(conn, id, &input.members)
     }
 

@@ -24,8 +24,8 @@ impl Tags {
     /// Inserts a tag.
     pub fn create(conn: &Connection, input: &TagInput) -> Result<TagId, StoreError> {
         input.validate()?;
-        let sql = "INSERT INTO tags (name_ct, description_ct, valid_from, valid_to) VALUES (?, ?, ?, ?) RETURNING id";
-        let p = params![input.name.as_str(), opt_ct(&input.description), input.valid_from, input.valid_to];
+        let sql = "INSERT INTO tags (name_ct, description_ct, color, valid_from, valid_to) VALUES (?, ?, ?, ?, ?) RETURNING id";
+        let p = params![input.name.as_str(), opt_ct(&input.description), input.color, input.valid_from, input.valid_to];
         insert_id(conn, sql, p).map(TagId)
     }
 
@@ -33,8 +33,8 @@ impl Tags {
     pub fn update(conn: &Connection, id: TagId, input: &TagInput) -> Result<(), StoreError> {
         input.validate()?;
         Self::reject_orphans(conn, id, input)?;
-        let sql = "UPDATE tags SET name_ct = ?, description_ct = ?, valid_from = ?, valid_to = ? WHERE id = ?";
-        let p = params![input.name.as_str(), opt_ct(&input.description), input.valid_from, input.valid_to, id.0];
+        let sql = "UPDATE tags SET name_ct = ?, description_ct = ?, color = ?, valid_from = ?, valid_to = ? WHERE id = ?";
+        let p = params![input.name.as_str(), opt_ct(&input.description), input.color, input.valid_from, input.valid_to, id.0];
         touch_one(conn, sql, p, "tag")
     }
 

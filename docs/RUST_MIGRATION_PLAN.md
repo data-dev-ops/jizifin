@@ -58,7 +58,7 @@ There is one process and one container. The auditor is a component inside the ba
 | Crypto | `aes-gcm`, `pbkdf2`, `sha2`, `base64` (`URL_SAFE_NO_PAD`) |
 | Dates, errors, logs | `chrono`, `thiserror`, `tracing` |
 
-`parquet` and `json` are statically linked. The `sqlite` core extension (migrator only) and `ducklake` (Phase D) are `INSTALL`ed at image build time into a baked extension directory, so nothing is downloaded at runtime.
+`parquet` and `json` are statically linked. `ducklake` (Phase D) will be `INSTALL`ed at image build time into a baked extension directory, so nothing is downloaded at runtime.
 
 ---
 
@@ -228,7 +228,7 @@ The old schema is not kept. The new schema is designed around these principles:
 | `recurring_templates` | `id PK`, `kind`, `amount_cents`, `member_id`, `category_id`, `account_id NULL`, `day_of_month`, `frequency ENUM`, `valid_from`, `valid_to NULL`, `name_ct`, `is_active` | `recurring_expenses` |
 | `jobs` | `id PK`, `member_id`, `name_ct`, `amount_cents`, `frequency ENUM('monthly','weekly','biweekly','annual')`, `valid_from`, `valid_to NULL`, `notes_ct` | same |
 | `income_overrides` | `member_id`, `month DATE` (first day of month), `amount_cents`, `note_ct`, `PK(member_id, month)` | `salary_overrides` |
-| `budgets` | `category_id`, `month DATE`, `limit_cents`, `source ENUM('manual','accepted_proposal')`, `PK(category_id, month)` | `budgets` |
+| `budgets` | `id PK`, `category_id`, `valid_from DATE`, `valid_to DATE NULL` (month starts; NULL = standing), `limit_cents`, `source ENUM('manual','accepted_proposal')` | `budgets` (incl. `'ALL'` rows) |
 | `projects` | `id PK`, `name_ct`, `target_cents`, `color` | same |
 | `project_members` | `project_id`, `member_id` | `project_users` |
 | `tags` | `id PK`, `name_ct`, `description_ct`, `valid_from NULL`, `valid_to NULL` | same |
@@ -244,22 +244,25 @@ That is 20 tables, down from 24. The 9 old views are dropped: contentious result
 
 ### 5.2 Legacy data
 
-`jizifin-migrate` transforms the old schema into the new one. Steps 1–3 run in one pass:
+`jizifin-migrate` (one-shot, deleted after cutover) reads the legacy SQLite file **read-only** through `rusqlite` (no DuckDB `sqlite` extension, so nothing is downloaded) and writes a fresh DuckDB file through the store repositories, so every row passes the same validation as an API write. Everything runs in one transaction; any failure rolls it back.
 
-1. Run `ATTACH 'finance.db' (TYPE sqlite, READ_ONLY)`.
-2. Map the ciphertext keys to new IDs.
-3. Fold `expenses`, `income`, `monthly_deposits` and `corrections` into `entries` with signed amounts.
-4. Re-seal the months from old `settlements` rows: the Auditor computes each settlement and stores it in `month_seals`.
-5. Verify. The migrator prints row counts and per-kind `SUM(amount_cents)` checksums against the source.
+1. Members, categories (personal-pay categories get `pay_mode = 'personal'`), active SCD2 agreements, baseline allocations (as open-ended agreements from `0001-01-01`), accounts (roster ∪ deposit plans, `deposit_split_mode` even/salary/manual → equal/salary_ratio/fixed, gross `expected_total_cents` kept as an override), projects, tags.
+2. `expenses`, non-`SALARY` `income`, paid `joint_account_monthly_deposits` and `joint_account_corrections` become `entries`. Each account gets one opening correction bridging its stored legacy `balance_cents` and the derived balance.
+3. Active jobs copy over; members without any job get monthly jobs from their legacy `SALARY` rows (one job per amount change). Salary overrides, recurring templates (and links to the entries the old scheduler generated, so nothing is regenerated), budgets (`'ALL'` → standing budget), the Jane/John offset rule, and the auth proof (`SHA-256` of the legacy magic word, which is exactly the client's login proof).
+4. Verification before commit: per-kind cent totals (expense, income, deposit) must equal the legacy source.
+5. After commit, the Auditor reseals every month listed in legacy `settlements`.
 
-The migrator is a one-shot tool and is deleted after cutover. `/auth/import` accepts **only** the new Parquet bundle; legacy SQLite backups are not supported. `/auth/export` produces an encrypted Parquet bundle (`EXPORT DATABASE … (FORMAT parquet)`, zipped) after the column decrypt pass.
+`JIZIFIN_PASSPHRASE` is used only to recompute the ciphertext of the names the legacy code hard-coded (`PERSONAL COST`, `LEISURE`, `GIFT`, `Combined Fixed`, `Apartment`, `Jane`, `John`, `SALARY`). It is never stored.
+
+**Backup:** `GET /backup` returns the whole ledger (minus sessions) as one DuckDB file (`COPY FROM DATABASE`). `POST /backup` restores such a file if its `schema_version` matches. The file holds only ciphertext and numbers, so the server never needs the passphrase. Legacy SQLite backups are not accepted; convert them once with the migrator.
 
 ### 5.3 Spike gate (about 1 day; fix within DuckDB, no fallback)
 
 - [ ] Foreign-key behaviour in 2.0 on update/delete of referenced rows. This decides which foreign keys are declared (§5.1).
 - [ ] p95 of `SnapshotLoader` for a one-month scope on 100k entries, with `query_arrow` vs row mapping.
 - [ ] Concurrent write conflicts. Decide between retry-on-conflict and a single writer connection behind a `tokio::Mutex`.
-- [ ] The `sqlite` and `ducklake` extensions load offline in the arm64 image.
+- [ ] The `ducklake` extension loads offline in the arm64 image.
+- [ ] `COPY FROM DATABASE` / `ATTACH` round-trip for backup and restore, including the sequence advance after restore.
 - [ ] Bundled build time with `cargo-chef`.
 
 Every outcome has an in-DuckDB answer: app-level integrity, a single writer, or Arrow loading.

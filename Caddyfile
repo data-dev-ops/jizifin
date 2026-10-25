@@ -19,12 +19,21 @@
 	}
 	respond @blocked 404
 
+	# Requests wait out the few-second backend swap instead of failing with 502.
 	handle_path /api/* {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			lb_try_duration 30s
+			lb_try_interval 250ms
+			health_uri /health
+			health_interval 5s
+		}
 	}
 
 	handle /ws/* {
-		reverse_proxy backend:8000
+		reverse_proxy backend:8000 {
+			lb_try_duration 30s
+			lb_try_interval 250ms
+		}
 	}
 
 	handle {

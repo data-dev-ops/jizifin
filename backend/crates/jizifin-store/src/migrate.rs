@@ -6,6 +6,9 @@ use duckdb::{Transaction, params};
 /// Ordered `(version, sql)` pairs compiled into the binary.
 const MIGRATIONS: &[(i64, &str)] = &[(1, include_str!("../migrations/0001_init.sql"))];
 
+/// Schema version after every migration ran; backups must match it.
+pub(crate) const LATEST_VERSION: i64 = 1;
+
 /// Applies migrations newer than the recorded schema version.
 pub(crate) struct Migrator<'a> {
     db: &'a Database,

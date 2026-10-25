@@ -29,6 +29,16 @@ help: ## Show available commands
 build: ## Build production containers (hardened multi-stage Nginx frontend + FastAPI)
 	$(COMPOSE_PROD) build
 
+.PHONY: deploy-backend
+deploy-backend: ## Build the Rust backend; swap the running container only if the build succeeds
+	$(COMPOSE_PROD) build backend
+	$(COMPOSE_PROD) up -d --no-deps --wait backend
+
+.PHONY: migrate
+migrate: ## One-shot legacy SQLite → DuckDB migration (needs JIZIFIN_PASSPHRASE; legacy file untouched)
+	$(COMPOSE_PROD) build backend
+	$(COMPOSE_PROD) --profile migrate run --rm migrate
+
 .PHONY: build-dev
 build-dev: ## Build development containers
 	$(COMPOSE_DEV) build
@@ -131,4 +141,4 @@ clean-all: clean ## Deep clean including docker volumes and dangling images
 .PHONY: deploy-macbook
 deploy-macbook: ## Deploy latest git commit and rebuild on MacBook server
 	@echo "Deploying to $(MACBOOK_USER)@$(MACBOOK_HOST)..."
-	ssh $(MACBOOK_USER)@$(MACBOOK_HOST) "export PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:\$$HOME/.orbstack/bin:\$$PATH\"; cd $(MACBOOK_PATH) && git pull && docker compose build && docker compose up -d"
+	ssh $(MACBOOK_USER)@$(MACBOOK_HOST) "export PATH=\"/opt/homebrew/bin:/opt/homebrew/sbin:\$$HOME/.orbstack/bin:\$$PATH\"; cd $(MACBOOK_PATH) && git pull && docker compose build && docker compose up -d --wait"

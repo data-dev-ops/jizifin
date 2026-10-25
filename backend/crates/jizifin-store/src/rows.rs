@@ -8,7 +8,7 @@ use jizifin_domain::entities::{
     RecurringTemplate, Share, Tag,
 };
 use jizifin_domain::ids::{
-    AccountId, AgreementId, CategoryId, EntryId, JobId, MemberId, OffsetRuleId, ProjectId, RecurringId, TagId,
+    AccountId, AgreementId, BudgetId, CategoryId, EntryId, JobId, MemberId, OffsetRuleId, ProjectId, RecurringId, TagId,
 };
 use jizifin_domain::{Cents, Ciphertext, DomainError, Month};
 
@@ -21,14 +21,14 @@ pub const ENTRY_COLS: &str =
     "id, kind, entry_date, amount_cents, member_id, category_id, account_id, project_id, tag_id, recurring_id, name_ct, note_ct";
 pub const JOB_COLS: &str = "id, member_id, amount_cents, frequency, valid_from, valid_to, name_ct, notes_ct";
 pub const INCOME_OVERRIDE_COLS: &str = "member_id, month, amount_cents, note_ct";
-pub const ACCOUNT_COLS: &str = "id, name_ct, safety_margin_pct, deposit_mode";
+pub const ACCOUNT_COLS: &str = "id, name_ct, safety_margin_pct, expected_total_cents, deposit_mode";
 pub const ACCOUNT_MEMBER_COLS: &str = "account_id, member_id, fixed_deposit_cents, due_day";
 pub const ACCOUNT_CATEGORY_COLS: &str = "account_id, category_id, expected_cents";
 pub const OFFSET_RULE_COLS: &str =
     "id, is_active, credit_member_id, credit_category_id, debit_member_id, debit_category_id";
-pub const BUDGET_COLS: &str = "category_id, month, limit_cents, source";
-pub const PROJECT_COLS: &str = "id, name_ct, color, target_cents";
-pub const TAG_COLS: &str = "id, name_ct, description_ct, valid_from, valid_to";
+pub const BUDGET_COLS: &str = "id, category_id, valid_from, valid_to, limit_cents, source";
+pub const PROJECT_COLS: &str = "id, name_ct, color, target_cents, target_date";
+pub const TAG_COLS: &str = "id, name_ct, description_ct, color, valid_from, valid_to";
 pub const RECURRING_COLS: &str = "id, kind, amount_cents, member_id, category_id, account_id, day_of_month, \
     frequency, valid_from, valid_to, name_ct, is_active";
 pub const SEAL_COLS: &str = "month, CAST(result_json AS VARCHAR), inputs_hash, sealed_at";
@@ -134,7 +134,8 @@ pub fn account(row: &Row<'_>) -> R<Account> {
         id: AccountId(row.get(0)?),
         name: ct(row, 1)?,
         safety_margin_pct: row.get(2)?,
-        deposit_mode: text(row, 3, DepositMode::parse)?,
+        expected_override: row.get::<_, Option<i64>>(3)?.map(Cents::new),
+        deposit_mode: text(row, 4, DepositMode::parse)?,
         members: Vec::new(),
         categories: Vec::new(),
     })
@@ -168,10 +169,12 @@ pub fn offset_rule(row: &Row<'_>) -> R<OffsetRule> {
 /// [`BUDGET_COLS`]
 pub fn budget(row: &Row<'_>) -> R<Budget> {
     Ok(Budget {
-        category: CategoryId(row.get(0)?),
-        month: Month::of(row.get(1)?),
-        limit: cents(row, 2)?,
-        source: text(row, 3, BudgetSource::parse)?,
+        id: BudgetId(row.get(0)?),
+        category: CategoryId(row.get(1)?),
+        valid_from: Month::of(row.get(2)?),
+        valid_to: row.get::<_, Option<chrono::NaiveDate>>(3)?.map(Month::of),
+        limit: cents(row, 4)?,
+        source: text(row, 5, BudgetSource::parse)?,
     })
 }
 
@@ -182,6 +185,7 @@ pub fn project(row: &Row<'_>) -> R<Project> {
         name: ct(row, 1)?,
         color: row.get(2)?,
         target: cents(row, 3)?,
+        target_date: row.get(4)?,
         members: Vec::new(),
     })
 }
@@ -192,8 +196,9 @@ pub fn tag(row: &Row<'_>) -> R<Tag> {
         id: TagId(row.get(0)?),
         name: ct(row, 1)?,
         description: opt_ct(row, 2)?,
-        valid_from: row.get(3)?,
-        valid_to: row.get(4)?,
+        color: row.get(3)?,
+        valid_from: row.get(4)?,
+        valid_to: row.get(5)?,
     })
 }
 

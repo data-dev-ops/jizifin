@@ -33,8 +33,8 @@ impl Accounts {
     /// Inserts an account with roster and categories.
     pub fn create(conn: &Connection, input: &AccountInput) -> Result<AccountId, StoreError> {
         Self::check(conn, input)?;
-        let sql = "INSERT INTO accounts (name_ct, safety_margin_pct, deposit_mode) VALUES (?, ?, ?) RETURNING id";
-        let id = AccountId(insert_id(conn, sql, params![input.name.as_str(), input.safety_margin_pct, input.deposit_mode.label()])?);
+        let sql = "INSERT INTO accounts (name_ct, safety_margin_pct, expected_total_cents, deposit_mode) VALUES (?, ?, ?, ?) RETURNING id";
+        let id = AccountId(insert_id(conn, sql, Self::params(input))?);
         Self::write_children(conn, id, input)?;
         Ok(id)
     }
@@ -42,8 +42,9 @@ impl Accounts {
     /// Replaces an account and its children.
     pub fn update(conn: &Connection, id: AccountId, input: &AccountInput) -> Result<(), StoreError> {
         Self::check(conn, input)?;
-        let sql = "UPDATE accounts SET name_ct = ?, safety_margin_pct = ?, deposit_mode = ? WHERE id = ?";
-        touch_one(conn, sql, params![input.name.as_str(), input.safety_margin_pct, input.deposit_mode.label(), id.0], "account")?;
+        let sql = "UPDATE accounts SET name_ct = ?, safety_margin_pct = ?, expected_total_cents = ?, deposit_mode = ? WHERE id = ?";
+        let (name, margin, expected, mode) = Self::params(input);
+        touch_one(conn, sql, params![name, margin, expected, mode, id.0], "account")?;
         Self::write_children(conn, id, input)
     }
 
@@ -52,6 +53,10 @@ impl Accounts {
         unreferenced(conn, REFERENCES, id.0, "account")?;
         Self::clear_children(conn, id)?;
         touch_one(conn, "DELETE FROM accounts WHERE id = ?", [id.0], "account")
+    }
+
+    fn params(input: &AccountInput) -> (&str, f64, Option<i64>, &'static str) {
+        (input.name.as_str(), input.safety_margin_pct, input.expected_override.map(|c| c.value()), input.deposit_mode.label())
     }
 
     fn check(conn: &Connection, input: &AccountInput) -> Result<(), StoreError> {

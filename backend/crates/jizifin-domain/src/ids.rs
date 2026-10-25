@@ -20,5 +20,5 @@ macro_rules! id_type {
 
 id_type!(
     MemberId, CategoryId, AgreementId, AccountId, EntryId, RecurringId,
-    JobId, ProjectId, TagId, OffsetRuleId,
+    JobId, ProjectId, TagId, OffsetRuleId, BudgetId,
 );

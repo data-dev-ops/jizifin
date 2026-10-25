@@ -2,20 +2,37 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile
+      dockerfile: Dockerfile.rust
+    image: jizifin-backend:latest
     container_name: finance-tracker-backend
     restart: unless-stopped
     environment:
-      PYTHONUNBUFFERED: "1"
-      PYTHONDONTWRITEBYTECODE: "1"
+      JIZIFIN_BIND: 0.0.0.0:8000
+      JIZIFIN_DB_PATH: /data/finance.duckdb
+      RUST_LOG: info
     volumes:
-      - ./backend/finance.db:/app/finance.db
+      - ./data:/data
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/')"]
+      test: ["CMD", "jizifin-api", "--healthcheck"]
       interval: 30s
       timeout: 3s
       retries: 3
       start_period: 5s
+    networks:
+      - app-network
+
+  # One-shot legacy SQLite → DuckDB migration (Phase C). Never modifies finance.db.
+  #   JIZIFIN_PASSPHRASE=... docker compose --profile migrate run --rm migrate
+  migrate:
+    profiles:
+      - migrate
+    image: jizifin-backend:latest
+    entrypoint: ["jizifin-migrate", "--sqlite", "/legacy/finance.db", "--duckdb", "/data/finance.duckdb"]
+    environment:
+      JIZIFIN_PASSPHRASE: ${JIZIFIN_PASSPHRASE:-}
+    volumes:
+      - ./backend/finance.db:/legacy/finance.db:ro
+      - ./data:/data
     networks:
       - app-network
 

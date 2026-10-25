@@ -1,17 +1,15 @@
 //! `/categories`, `/agreements`, `/budgets`, `/tags`.
 
-use super::query::MonthQuery;
 use super::{Created, Done, created};
 use crate::error::ApiError;
 use crate::state::AppState;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, put};
+use axum::routing::{get, put};
 use axum::{Json, Router};
-use jizifin_domain::Month;
 use jizifin_domain::entities::{Agreement, Budget, Category, Tag};
-use jizifin_domain::ids::{AgreementId, CategoryId, TagId};
-use jizifin_store::inputs::{AgreementInput, CategoryInput, TagInput};
+use jizifin_domain::ids::{AgreementId, BudgetId, CategoryId, TagId};
+use jizifin_store::inputs::{AgreementInput, BudgetInput, CategoryInput, TagInput};
 use jizifin_store::repo::{Agreements, Budgets, Categories, Tags};
 
 /// Catalog routes.
@@ -21,8 +19,8 @@ pub fn routes() -> Router<AppState> {
         .route("/categories/{id}", put(update_category).delete(delete_category))
         .route("/categories/{id}/agreements", get(list_agreements).post(create_agreement))
         .route("/agreements/{id}", put(update_agreement).delete(delete_agreement))
-        .route("/budgets", get(list_budgets).put(upsert_budget))
-        .route("/budgets/{category}/{month}", delete(delete_budget))
+        .route("/budgets", get(list_budgets).post(create_budget))
+        .route("/budgets/{id}", put(update_budget).delete(delete_budget))
         .route("/tags", get(list_tags).post(create_tag))
         .route("/tags/{id}", put(update_tag).delete(delete_tag))
 }
@@ -63,19 +61,21 @@ async fn delete_agreement(State(s): State<AppState>, Path(id): Path<i64>) -> Don
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn list_budgets(State(s): State<AppState>, Query(q): Query<MonthQuery>) -> Result<Json<Vec<Budget>>, ApiError> {
-    let period = q.month()?.period();
-    Ok(Json(s.read(move |c| Budgets::list(c, period)).await?))
+async fn list_budgets(State(s): State<AppState>) -> Result<Json<Vec<Budget>>, ApiError> {
+    Ok(Json(s.read(Budgets::all).await?))
 }
 
-async fn upsert_budget(State(s): State<AppState>, Json(input): Json<Budget>) -> Done {
-    s.write("budgets.updated", move |c| Budgets::upsert(c, &input)).await?;
+async fn create_budget(State(s): State<AppState>, Json(input): Json<BudgetInput>) -> Created {
+    Ok(created(s.write("budgets.created", move |c| Budgets::create(c, &input)).await?))
+}
+
+async fn update_budget(State(s): State<AppState>, Path(id): Path<i64>, Json(input): Json<BudgetInput>) -> Done {
+    s.write("budgets.updated", move |c| Budgets::update(c, BudgetId(id), &input)).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn delete_budget(State(s): State<AppState>, Path((category, month)): Path<(i64, String)>) -> Done {
-    let month = Month::parse(&month)?;
-    s.write("budgets.deleted", move |c| Budgets::delete(c, CategoryId(category), month)).await?;
+async fn delete_budget(State(s): State<AppState>, Path(id): Path<i64>) -> Done {
+    s.write("budgets.deleted", move |c| Budgets::delete(c, BudgetId(id))).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 

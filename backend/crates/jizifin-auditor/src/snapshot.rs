@@ -38,7 +38,7 @@ pub struct Snapshot {
     pub accounts: Vec<Account>,
     /// Active offset rules.
     pub offset_rules: Vec<OffsetRule>,
-    /// Budgets inside the scope period.
+    /// All budget rows.
     pub budgets: Vec<Budget>,
     /// All projects.
     pub projects: Vec<Project>,

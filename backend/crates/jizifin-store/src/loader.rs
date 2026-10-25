@@ -39,7 +39,7 @@ impl DuckSnapshotLoader {
             income_overrides: IncomeOverrides::list(conn, scope.period)?,
             accounts: Accounts::all(conn)?,
             offset_rules: OffsetRules::active(conn)?,
-            budgets: Budgets::list(conn, scope.period)?,
+            budgets: Budgets::all(conn)?,
             projects: Projects::all(conn)?,
         })
     }

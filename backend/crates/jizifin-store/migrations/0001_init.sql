@@ -54,6 +54,8 @@ CREATE TABLE accounts (
     id                BIGINT PRIMARY KEY DEFAULT nextval('seq_accounts'),
     name_ct           VARCHAR NOT NULL UNIQUE,
     safety_margin_pct DOUBLE NOT NULL DEFAULT 0,
+    -- Gross expected monthly cost; NULL means the sum of account_categories.expected_cents.
+    expected_total_cents BIGINT CHECK (expected_total_cents IS NULL OR expected_total_cents >= 0),
     deposit_mode      VARCHAR NOT NULL DEFAULT 'equal' CHECK (deposit_mode IN ('equal', 'salary_ratio', 'fixed'))
 );
 
@@ -77,6 +79,7 @@ CREATE TABLE projects (
     id           BIGINT PRIMARY KEY DEFAULT nextval('seq_projects'),
     name_ct      VARCHAR NOT NULL,
     target_cents BIGINT NOT NULL DEFAULT 0,
+    target_date  DATE,
     color        VARCHAR NOT NULL DEFAULT '#64748b'
 );
 
@@ -91,6 +94,7 @@ CREATE TABLE tags (
     id             BIGINT PRIMARY KEY DEFAULT nextval('seq_tags'),
     name_ct        VARCHAR NOT NULL,
     description_ct VARCHAR,
+    color          VARCHAR NOT NULL DEFAULT '#f59e0b',
     valid_from     DATE,
     valid_to       DATE,
     CHECK (valid_to IS NULL OR valid_from IS NULL OR valid_to >= valid_from)
@@ -166,12 +170,15 @@ CREATE TABLE income_overrides (
     PRIMARY KEY (member_id, month)
 );
 
+-- SCD2 limits: open-ended rows are standing budgets, bounded rows override them for their months.
+CREATE SEQUENCE seq_budgets START 1;
 CREATE TABLE budgets (
+    id          BIGINT PRIMARY KEY DEFAULT nextval('seq_budgets'),
     category_id BIGINT NOT NULL,
-    month       DATE NOT NULL CHECK (day(month) = 1),
+    valid_from  DATE NOT NULL CHECK (day(valid_from) = 1),
+    valid_to    DATE CHECK (valid_to IS NULL OR (day(valid_to) = 1 AND valid_to >= valid_from)),
     limit_cents BIGINT NOT NULL CHECK (limit_cents >= 0),
-    source      VARCHAR NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'accepted_proposal')),
-    PRIMARY KEY (category_id, month)
+    source      VARCHAR NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'accepted_proposal'))
 );
 
 CREATE SEQUENCE seq_offset_rules START 1;

@@ -13,10 +13,12 @@ COPY --from=planner /src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 COPY Cargo.toml clippy.toml ./
 COPY crates crates
-RUN cargo build --release -p jizifin-api
+RUN cargo build --release -p jizifin-api -p jizifin-migrate
 
 FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /src/target/release/jizifin-api /usr/local/bin/jizifin-api
+# One-shot legacy migrator; removed from the image after cutover.
+COPY --from=builder /src/target/release/jizifin-migrate /usr/local/bin/jizifin-migrate
 ENV JIZIFIN_BIND=0.0.0.0:8000 JIZIFIN_DB_PATH=/data/finance.duckdb
 VOLUME /data
 EXPOSE 8000

@@ -1,0 +1,24 @@
+[package]
+name = "jizifin-migrate"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# One-shot legacy SQLite → DuckDB migrator. Deleted after cutover.
+[dependencies]
+jizifin-domain.workspace = true
+jizifin-auditor.workspace = true
+jizifin-store.workspace = true
+duckdb.workspace = true
+rusqlite = { version = "0.41", features = ["bundled"] }
+aes-gcm = "0.11"
+pbkdf2 = "0.13"
+sha2.workspace = true
+hex.workspace = true
+base64 = "0.23"
+chrono.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
