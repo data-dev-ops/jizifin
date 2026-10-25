@@ -198,6 +198,8 @@
   async function loadTagDetail(id) {
     detailLoading = true;
     detailError   = null;
+    if (barChart) { barChart.destroy(); barChart = null; }
+    if (doughnutChart) { doughnutChart.destroy(); doughnutChart = null; }
     try {
       tagDetail = await fetchTagAnalytics(id);
     } catch (err) {
@@ -211,6 +213,8 @@
     if (selectedTagId === id) {
       selectedTagId = null;
       tagDetail     = null;
+      if (barChart) { barChart.destroy(); barChart = null; }
+      if (doughnutChart) { doughnutChart.destroy(); doughnutChart = null; }
       return;
     }
     selectedTagId = id;
@@ -225,14 +229,59 @@
   let doughnutChart;
 
   /**
-   * Rebuild both charts whenever tagDetail or theme changes.
+   * Rebuild charts whenever tagDetail or either canvas becomes available.
    */
-  $: if (tagDetail && barCanvas && doughnutCanvas) {
+  $: if (tagDetail && (barCanvas || doughnutCanvas)) {
     tick().then(() => renderCharts());
   }
 
-  $: if ($theme && (barChart || doughnutChart)) {
-    tick().then(() => renderCharts());
+  /**
+   * Update existing chart themes in-place without destroying or re-instantiating.
+   */
+  let prevTheme = null;
+  $: if ($theme) {
+    if (prevTheme !== null && prevTheme !== $theme) {
+      applyChartTheme();
+    }
+    prevTheme = $theme;
+  }
+
+  function applyChartTheme() {
+    const isDark = getIsDark();
+
+    if (barChart) {
+      if (barChart.options.plugins?.tooltip) {
+        barChart.options.plugins.tooltip.backgroundColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+        barChart.options.plugins.tooltip.borderColor = isDark ? 'rgba(99, 102, 241, 0.4)' : 'rgba(99, 102, 241, 0.25)';
+        barChart.options.plugins.tooltip.titleColor = isDark ? '#f1f5f9' : '#0f172a';
+        barChart.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#475569';
+      }
+      if (barChart.options.scales?.x) {
+        barChart.options.scales.x.grid.color = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+        barChart.options.scales.x.ticks.color = isDark ? '#9ca3af' : '#64748b';
+      }
+      if (barChart.options.scales?.y) {
+        barChart.options.scales.y.grid.color = isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)';
+        barChart.options.scales.y.ticks.color = isDark ? '#9ca3af' : '#64748b';
+      }
+      barChart.update('none');
+    }
+
+    if (doughnutChart) {
+      if (doughnutChart.options.plugins?.legend?.labels) {
+        doughnutChart.options.plugins.legend.labels.color = isDark ? '#d1d5db' : '#334155';
+      }
+      if (doughnutChart.options.plugins?.tooltip) {
+        doughnutChart.options.plugins.tooltip.backgroundColor = isDark ? 'rgba(15, 23, 42, 0.95)' : 'rgba(255, 255, 255, 0.95)';
+        doughnutChart.options.plugins.tooltip.borderColor = isDark ? 'rgba(99, 102, 241, 0.4)' : 'rgba(99, 102, 241, 0.25)';
+        doughnutChart.options.plugins.tooltip.titleColor = isDark ? '#f1f5f9' : '#0f172a';
+        doughnutChart.options.plugins.tooltip.bodyColor = isDark ? '#cbd5e1' : '#475569';
+      }
+      if (doughnutChart.data.datasets?.[0]) {
+        doughnutChart.data.datasets[0].borderColor = isDark ? '#080c14' : '#ffffff';
+      }
+      doughnutChart.update('none');
+    }
   }
 
   function renderCharts() {
@@ -339,9 +388,9 @@
 
   // ── Expenses for the selected tag ──────────────────────────────────────────
   $: taggedExpenses = selectedTagId
-    ? $expenses.filter((e) => e.tag_id === selectedTagId).sort((a, b) =>
-        b.expense_date.localeCompare(a.expense_date)
-      )
+    ? $expenses
+        .filter((e) => Number(e.tag_id) === Number(selectedTagId))
+        .sort((a, b) => (b.expense_date || '').localeCompare(a.expense_date || ''))
     : [];
 </script>
 
