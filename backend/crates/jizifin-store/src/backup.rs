@@ -25,6 +25,7 @@ impl Backup {
 
     /// Replaces every ledger row with the contents of the backup at `path`.
     pub fn restore(db: &Database, path: &Path) -> Result<(), StoreError> {
+        let _writer = db.exclusive();
         let mut conn = db.connection()?;
         Self::attach(&conn, path, true)?;
         let result = Self::check_version(&conn).and_then(|()| Self::copy_in(&mut conn));

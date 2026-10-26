@@ -7,7 +7,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, put};
 use axum::{Json, Router};
-use jizifin_domain::entities::{Agreement, Budget, Category, Tag};
+use jizifin_domain::entities::{Agreement, Budget, Category, Share, Tag};
+use serde::Deserialize;
 use jizifin_domain::ids::{AgreementId, BudgetId, CategoryId, TagId};
 use jizifin_store::inputs::{AgreementInput, BudgetInput, CategoryInput, TagInput};
 use jizifin_store::repo::{Agreements, Budgets, Categories, Tags};
@@ -18,6 +19,7 @@ pub fn routes() -> Router<AppState> {
         .route("/categories", get(list_categories).post(create_category))
         .route("/categories/{id}", put(update_category).delete(delete_category))
         .route("/categories/{id}/agreements", get(list_agreements).post(create_agreement))
+        .route("/categories/{id}/baseline", put(set_baseline))
         .route("/agreements/{id}", put(update_agreement).delete(delete_agreement))
         .route("/budgets", get(list_budgets).post(create_budget))
         .route("/budgets/{id}", put(update_budget).delete(delete_budget))
@@ -45,6 +47,16 @@ async fn delete_category(State(s): State<AppState>, Path(id): Path<i64>) -> Done
 
 async fn list_agreements(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Json<Vec<Agreement>>, ApiError> {
     Ok(Json(s.read(move |c| Agreements::for_category(c, CategoryId(id))).await?))
+}
+
+/// `{ "shares": [{ member, pct }] }`
+#[derive(Deserialize)]
+struct BaselineBody {
+    shares: Vec<Share>,
+}
+
+async fn set_baseline(State(s): State<AppState>, Path(id): Path<i64>, Json(body): Json<BaselineBody>) -> Created {
+    Ok(created(s.write("agreements.updated", move |c| Agreements::set_baseline(c, CategoryId(id), &body.shares)).await?))
 }
 
 async fn create_agreement(State(s): State<AppState>, Path(id): Path<i64>, Json(input): Json<AgreementInput>) -> Created {

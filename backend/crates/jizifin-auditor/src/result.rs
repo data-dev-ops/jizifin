@@ -13,4 +13,7 @@ pub struct AuditedResult<T> {
     pub data_version: u64,
     /// Invariants that were checked and held.
     pub checks: Vec<&'static str>,
+    /// Step-by-step explanation; filled only when explicitly requested.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub trail: Vec<String>,
 }

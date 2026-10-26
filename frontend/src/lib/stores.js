@@ -1,26 +1,10 @@
 /**
- * stores.js — Svelte writable stores for cross-component reactive state.
+ * stores.js — server responses and UI state. No derived money math: every
+ * total, share, target and status is computed by the backend.
  *
- * users             → array of UserResponse objects (includes inactive when fetched with flag)
- * expenses          → array of ExpenseResponse objects (newest-first)
- * splits            → array of SplitResponse objects (each has allocations: [{user_name, pct}])
- * analytics         → { monthly_total, by_category, by_payer } from the three views
- * selectedMonth     → currently selected YYYY-MM string used to filter Dashboard & Expenses
- * incomeAnalytics   → array of IncomeByPersonRow for the selected month (with carry-forward)
- * incomeEntries     → raw list of decrypted income entries for the selected month
- * incomeCategories  → user-defined income category registry (decrypted)
- * paybacks          → PaybackSummary: { rows, debts, month }
- * budgets           → array of BudgetResponse rows (raw config)
- * recurringExpenses → array of RecurringResponse objects
- * settlements       → array of SettlementResponse rows (locked months)
- * projects          → array of ProjectResponse objects
- * tags              → array of TagTotalRow objects (all-time aggregates per tag)
- * jointAccount      → singleton JointAccountResponse | null
- * jointCategories   → array of encrypted category strings assigned to the joint account
- * jointDeposits     → array of JointAccountDepositResponse objects
- * jointExpectedCosts→ array of JointAccountExpectedCostResponse objects
- * jointCorrections  → array of JointAccountCorrectionResponse objects
- * jointDashboard    → JointAccountDashboardResponse | null
+ * Catalog stores hold decrypted rows (labels in place of ciphertext) and are
+ * refreshed by api.js after writes and by live.js on WebSocket events.
+ * `ledgerVersion` ticks on every server change so tabs refetch their views.
  */
 
 import { writable, derived } from 'svelte/store';
@@ -70,175 +54,73 @@ function persistedString(key, defaultValue) {
   return store;
 }
 
-/**
- * Household users. Each entry: { name, color, is_active, created_at }
- * Populated by fetchUsers(). The store holds ALL users (active + inactive)
- * so deactivated users remain visible in history. Filter by is_active at
- * the UI layer where only active users should be selectable.
- */
-export const users = writable([]);
-
-export const expenses = writable([]);
-
-export const splits = writable([]);
-
-export const analytics = writable({
-  monthly_total: { total_amount: 0.0, expense_count: 0, month: '' },
-  by_category: [],
-  by_payer: [],
-});
-
-/** Current month in YYYY-MM format, shared across Dashboard and Expenses tabs. */
-const now = new Date();
-export const selectedMonth = writable(
-  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-);
-
-/**
- * Income totals per person for the selected month.
- * Each entry: { who: string, total_cents: number, is_carried: boolean }
- */
-export const incomeAnalytics = writable([]);
-
-// Raw list of decrypted income entries for the selected month
-export const incomeEntries = writable([]);
-
-// User-defined income category registry (decrypted)
-export const DEFAULT_INCOME_CATEGORIES = ['SALARY', 'BONUS', 'GIFT'];
-export const incomeCategories = writable(DEFAULT_INCOME_CATEGORIES.map((category) => ({ category })));
-
-// Decrypted list of jobs / employment streams
-export const jobs = writable([]);
-
-/**
- * Payback/settlement analytics summary.
- * Structure: { rows: PaybackRow[], debts: DebtItem[], month: string }
- * PaybackRow: { category, total_amount, per_user_paid, per_user_share_pct, net_per_user }
- * DebtItem:   { from_user, to_user, amount }
- */
-export const paybacks = writable({
-  rows: [],
-  debts: [],
-  month: '',
-});
-
-/**
- * Projects list. Each entry: ProjectResponse from /projects.
- * Fields: id, name, target_cents, target_date, total_spent_cents,
- *         avg_monthly_payment_cents, last_payment, estimated_completion_date
- */
+export const members = writable([]);
+export const categories = writable([]);
+export const accounts = writable([]);
 export const projects = writable([]);
-
-/**
- * Tags (open-ended event labels). Each entry: TagTotalRow from /tags.
- * Fields: id, name, color, description, total_amount, expense_count, first_date, last_date
- */
 export const tags = writable([]);
-
-/**
- * Budget raw config rows. Each entry: { category, month, limit_cents }
- */
+export const jobs = writable([]);
+export const recurring = writable([]);
 export const budgets = writable([]);
+export const offsetRules = writable([]);
+/** Sealed months: `{ month, result_json, inputs_hash, sealed_at }`. */
+export const seals = writable([]);
+
+/** Bumped on every server-side change; views depend on it to refetch. */
+export const ledgerVersion = writable(0);
+
+function byId(store) {
+  return derived(store, ($rows) => new Map($rows.map((row) => [row.id, row])));
+}
+
+export const memberById = byId(members);
+export const categoryById = byId(categories);
+export const accountById = byId(accounts);
+export const projectById = byId(projects);
+export const tagById = byId(tags);
+
+export const activeMembers = derived(members, ($m) => $m.filter((m) => m.is_active));
+export const expenseCategories = derived(categories, ($c) => $c.filter((c) => c.kind === 'expense'));
+export const incomeCategories = derived(categories, ($c) => $c.filter((c) => c.kind === 'income'));
+
+/** Label for member `id` (decrypted name), or `#id` when unknown. */
+export const memberName = derived(memberById, ($m) => (id) => $m.get(id)?.name ?? (id == null ? '' : `#${id}`));
+export const categoryName = derived(categoryById, ($c) => (id) => $c.get(id)?.name ?? (id == null ? '' : `#${id}`));
+
+/** Current month in YYYY-MM format, shared across tabs. */
+const now = new Date();
+export const selectedMonth = writable(`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`);
 
 /**
- * Recurring expense templates. Each entry:
- * { id, name, cost_cents, who_paid, category, day_of_month }
- */
-export const recurringExpenses = writable([]);
-
-/**
- * Locked months. Each entry: { month, settled_at, net_balance_transferred_cents }
- */
-export const settlements = writable([]);
-
-/**
- * Joint accounts list & active account ID for multi-joint account household setups.
- */
-export const jointAccounts = writable([]);
-export const activeJointAccountId = writable(1);
-
-/**
- * Top-of-Dashboard scope filter.
- * Values: 'ALL' (whole household), 'USER:<name>' (single user), 'JOINT:<id>' (joint account members)
+ * Dashboard scope: 'ALL', or comma-separated 'MEMBER:<id>' / 'ACCOUNT:<id>' tokens.
  */
 export const dashboardScope = persistedString('dashboardScope', 'ALL');
 
-/**
- * Joint account singleton / active config. Null when not configured.
- * Structure: { id, name, balance_cents, safety_margin_pct, deposit_split_mode, expected_total_cents, member_names }
- */
-export const jointAccount = writable(null);
-
-/**
- * Parse dashboard scope string into an array of tokens.
- * E.g. "USER:John,USER:Jane" -> ["USER:John", "USER:Jane"], "ALL" -> ["ALL"]
- */
-export function parseDashboardScope(scopeStr) {
-  if (!scopeStr || scopeStr === 'ALL') return ['ALL'];
-  const parts = scopeStr.split(',').map((s) => s.trim()).filter(Boolean);
-  return parts.length > 0 ? parts : ['ALL'];
+/** Scope string to tokens; `['ALL']` when empty. */
+export function parseDashboardScope(scope) {
+  const parts = (scope || 'ALL').split(',').map((s) => s.trim()).filter(Boolean);
+  return parts.length === 0 || parts.includes('ALL') ? ['ALL'] : parts;
 }
 
-/**
- * Resolve user names from dashboard scope tokens.
- * Returns Array of usernames or null if whole household / everyone ('ALL').
- */
-export function resolveScopedUsers(tokens, jointAccountsList = [], singletonJointAccount = null) {
-  if (!tokens || tokens.includes('ALL')) return null;
-  const userSet = new Set();
+/** Member ids selected by `tokens`, or null for the whole household. */
+export function resolveScopedMembers(tokens, accountRows) {
+  if (tokens.includes('ALL')) return null;
+  const ids = new Set();
   for (const token of tokens) {
-    if (token.startsWith('USER:')) {
-      userSet.add(token.slice(5));
-    } else if (token.startsWith('JOINT:')) {
-      const jId = parseInt(token.slice(6), 10);
-      const targetJa = (jointAccountsList || []).find((a) => a.id === jId) || (singletonJointAccount?.id === jId ? singletonJointAccount : null);
-      if (targetJa?.member_names?.length) {
-        targetJa.member_names.forEach((m) => userSet.add(m));
-      }
-    }
+    const [kind, raw] = token.split(':');
+    const id = Number(raw);
+    if (kind === 'MEMBER') ids.add(id);
+    if (kind === 'ACCOUNT') accountRows.find((a) => a.id === id)?.members.forEach((m) => ids.add(m.member));
   }
-  return userSet.size > 0 ? Array.from(userSet) : null;
+  return ids.size > 0 ? [...ids] : null;
 }
 
-/**
- * Derived store representing the active dashboard user scope as an array of user names,
- * or null if everyone/household ('ALL') is selected.
- */
-export const scopedUsers = derived(
-  [dashboardScope, jointAccounts, jointAccount],
-  ([$scope, $jointAccounts, $jointAccount]) => {
-    const tokens = parseDashboardScope($scope);
-    return resolveScopedUsers(tokens, $jointAccounts, $jointAccount);
-  }
-);
+/** Active scope as member ids, or null for everyone. */
+export const scopedMembers = derived([dashboardScope, accounts], ([$scope, $accounts]) =>
+  resolveScopedMembers(parseDashboardScope($scope), $accounts));
 
-/**
- * Encrypted category strings assigned to the joint account.
- * Decrypted at UI layer for display.
- */
-export const jointCategories = writable([]);
-
-/**
- * Per-user deposit config. Each: { user_name (decrypted), amount_cents, day_of_month }
- */
-export const jointDeposits = writable([]);
-export const jointMonthlyDeposits = writable([]);
-
-/**
- * Per-category expected monthly costs. Each: { category (decrypted), expected_cents }
- */
-export const jointExpectedCosts = writable([]);
-
-/**
- * Balance correction log. Each: { id, amount_cents, correction_date, note (decrypted) }
- */
-export const jointCorrections = writable([]);
-
-/**
- * Dashboard response for the selected month.
- * Structure: JointAccountDashboardResponse
- */
-export const jointDashboard = writable(null);
+/** Joint account selected in the Joint tab. */
+export const activeAccountId = writable(null);
 
 /**
  * UI preference: Show project selector dropdown in ExpenseForm.
@@ -309,7 +191,6 @@ export const chartStyle = persistedString('chartStyle', 'doughnut');
  */
 export const theme = persistedString('theme', 'dark');
 
-export const authSalt = writable('');
 export const cryptoKey = writable(null);
 
 const storedSession = typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('jizifin_session') : '';

@@ -53,6 +53,12 @@ impl AuditScope {
         Self { period, project: Some(project), ..Self::month(Month::of(as_of), as_of) }
     }
 
+    /// Restricts the scope to one joint account's entries (none = no filter).
+    pub fn with_account(mut self, account: Option<AccountId>) -> Self {
+        self.account = account;
+        self
+    }
+
     /// Restricts the scope to a member set; an empty set means no filter.
     pub fn with_members(mut self, members: BTreeSet<MemberId>) -> Self {
         self.members = (!members.is_empty()).then_some(members);

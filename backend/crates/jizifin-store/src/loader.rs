@@ -1,14 +1,12 @@
 //! Loads Auditor snapshots through the repositories. Raw rows only: no contentious arithmetic in SQL.
 
-use crate::repo::{Accounts, Agreements, Budgets, Categories, IncomeOverrides, Jobs, Members, OffsetRules, Projects};
+use crate::repo::{Accounts, Agreements, Budgets, Categories, Entries, IncomeOverrides, Jobs, Members, OffsetRules, Projects};
 use crate::rows::{self, ENTRY_COLS};
 use crate::sql::query;
 use crate::{Database, StoreError};
 use duckdb::{Connection, params};
 use jizifin_auditor::{AuditError, AuditScope, Snapshot, SnapshotLoader};
-use jizifin_domain::entities::{Entry, Share};
-use jizifin_domain::ids::EntryId;
-use std::collections::BTreeMap;
+use jizifin_domain::entities::Entry;
 
 /// [`SnapshotLoader`] backed by DuckDB.
 pub struct DuckSnapshotLoader {
@@ -33,7 +31,7 @@ impl DuckSnapshotLoader {
             members: Members::list(conn)?,
             categories: Categories::map(conn)?,
             agreements: Agreements::all(conn)?,
-            overrides: Self::overrides(conn, &entries)?,
+            overrides: Entries::overrides_of(conn, entries.iter().map(|e| e.id))?,
             entries,
             jobs: Jobs::list(conn)?,
             income_overrides: IncomeOverrides::list(conn, scope.period)?,
@@ -53,13 +51,5 @@ impl DuckSnapshotLoader {
         };
         let sql = format!("SELECT {ENTRY_COLS} FROM entries WHERE entry_date >= ? AND entry_date <= ? {filter} ORDER BY entry_date, id");
         query(conn, &sql, params![from, to, project], rows::entry)
-    }
-
-    fn overrides(conn: &Connection, entries: &[Entry]) -> Result<BTreeMap<EntryId, Vec<Share>>, StoreError> {
-        let ids = duckdb::types::Value::List(entries.iter().map(|e| duckdb::types::Value::BigInt(e.id.0)).collect());
-        let sql = "SELECT entry_id, member_id, pct FROM entry_share_overrides WHERE list_contains(?, entry_id) ORDER BY 1, 2";
-        let mut map: BTreeMap<EntryId, Vec<Share>> = BTreeMap::new();
-        query(conn, sql, [ids], rows::owned_share)?.into_iter().for_each(|(id, s)| map.entry(EntryId(id)).or_default().push(s));
-        Ok(map)
     }
 }

@@ -1,6 +1,23 @@
-# Multi-stage production build for Svelte / Vite frontend
+# Multi-stage production build for Svelte / Vite frontend.
+# Needs the `backend` build context (compose: additional_contexts) for jizifin-wasm.
 
-# Stage 1: Build static assets
+# Stage 1: CSV parser to WebAssembly (wasm-bindgen CLI pinned to the locked crate)
+FROM rust:1-bookworm AS wasm
+WORKDIR /src
+COPY --from=backend Cargo.toml Cargo.lock clippy.toml ./
+COPY --from=backend crates ./crates
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    rustup target add wasm32-unknown-unknown && \
+    cargo install wasm-bindgen-cli --locked --version "$(sed -n '/^name = "wasm-bindgen"$/{n;s/version = "\(.*\)"/\1/p;}' Cargo.lock)"
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    cargo build --release --target wasm32-unknown-unknown -p jizifin-wasm && \
+    wasm-bindgen --target web --out-dir /out target/wasm32-unknown-unknown/release/jizifin_wasm.wasm
+
+# Exportable package (make wasm writes it to src/lib/wasm for the dev server)
+FROM scratch AS wasm-pkg
+COPY --from=wasm /out /
+
+# Stage 2: Build static assets
 FROM node:22-alpine AS builder
 
 WORKDIR /app
@@ -15,11 +32,12 @@ RUN --mount=type=cache,target=/root/.npm \
 # Copy build configs and source files
 COPY postcss.config.js tailwind.config.js svelte.config.js vite.config.js index.html ./
 COPY src/ ./src/
+COPY --from=wasm /out ./src/lib/wasm/
 
 # Compile production bundle to /app/dist
 RUN npm run build
 
-# Stage 2: Hardened Alpine Nginx production server
+# Stage 3: Hardened Alpine Nginx production server
 FROM nginx:alpine AS production
 
 # Remove default nginx configs

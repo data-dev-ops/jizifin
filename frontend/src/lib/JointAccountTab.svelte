@@ -1,1399 +1,364 @@
 <script>
-  import { onMount } from 'svelte';
-  import { get } from 'svelte/store';
-  import {
-    jointAccount,
-    jointAccounts,
-    activeJointAccountId,
-    jointCategories,
-    jointDeposits,
-    jointExpectedCosts,
-    jointCorrections,
-    jointDashboard,
-    jointMonthlyDeposits,
-    splits,
-    users,
-    selectedMonth,
-    currencySymbol,
-  } from './stores.js';
-  import {
-    createJointAccount,
-    updateJointAccount,
-    deleteJointAccount,
-    fetchJointAccounts,
-    fetchJointAccount,
-    addJointCategory,
-    removeJointCategory,
-    setJointDeposits,
-    setJointExpectedCosts,
-    createJointCorrection,
-    deleteJointCorrection,
-    fetchJointDashboard,
-    fetchJointCategories,
-    fetchJointDeposits,
-    fetchJointMonthlyDeposits,
-    updateJointMonthlyDeposit,
-    fetchJointExpectedCosts,
-    fetchJointCorrections,
-    settleJointAccount,
-    fetchLatestSalaries,
-    fetchIncomeByPerson,
-    enc,
-  } from './api.js';
+  /**
+   * JointAccountTab.svelte — joint accounts: settings, coupled categories with expected
+   * costs, deposits and corrections. Balance, target, top-up, status and proposed
+   * deposits come from the Auditor; deposits and corrections are ledger entries.
+   */
 
-  // ── reactive ──────────────────────────────────────────────────────────────
-  $: ja          = ($jointAccounts || []).find((a) => a.id === $activeJointAccountId) || $jointAccount || ($jointAccounts || [])[0];
-  $: allAccounts = $jointAccounts || [];
-  $: cats        = $jointCategories;    // [{enc, plain}]
-  $: deposits    = $jointDeposits;      // [{user_name, amount_cents, day_of_month}]
-  $: expected    = $jointExpectedCosts; // [{category, expected_cents}]
-  $: corrections = $jointCorrections;  // [{id, amount_cents, correction_date, note}]
-  $: dash        = $jointDashboard;
-  $: activeUsers = $users.filter((u) => u.is_active);
-  $: accountMembers = (ja?.member_names && ja.member_names.length > 0)
-    ? activeUsers.filter((u) => ja.member_names.includes(u.name))
-    : activeUsers;
-  $: allSplits   = $splits;             // [{category, allocations}]
-  $: sym         = $currencySymbol;
-  $: month       = $selectedMonth;
+  import { accountApi, audit, entryApi } from './api.js';
+  import { money, fmtDate, fmtPct, toCents, centsInput, today, monthBounds } from './format.js';
+  import { selectedMonth, ledgerVersion, accounts, activeAccountId, activeMembers, memberById, expenseCategories, categoryName, currencySymbol } from './stores.js';
 
-  function userColor(name) {
-    return $users.find((u) => u.name === name)?.color ?? '#6366f1';
-  }
+  const MODES = [['equal', 'Equal'], ['salary_ratio', 'Salary ratio'], ['fixed', 'Fixed amounts']];
+  const ROUND_STEPS = [0, 500, 1000, 2500, 5000];
 
-  // ── local state ───────────────────────────────────────────────────────────
-  let section = 'overview';  // overview | categories | deposits | expected | corrections | settle
+  let section = 'overview';
+  let dash = null;
+  let proposal = null;
+  let deposits = [];
+  let corrections = [];
+  let roundTo = 0;
   let errorMsg = '';
   let successMsg = '';
-  let showCreateModal = false;
 
-  // Create form state
-  let createName = '';
-  let createBalance = '0';
-  let createMargin = '10';
-  let createMode = 'even';
-  let createMembers = [];
+  $: if ($activeAccountId == null && $accounts.length) activeAccountId.set($accounts[0].id);
+  $: account = $accounts.find((a) => a.id === $activeAccountId);
+  $: load(account?.id, $selectedMonth, roundTo, $ledgerVersion);
 
-  // Edit settings form state
-  let editName = '';
-  let editBalance = '0';
-  let editMargin = '10';
-  let editMode = 'even';
-  let editMembers = [];
-
-  function toggleCreateMember(uName) {
-    if (createMembers.includes(uName)) {
-      createMembers = createMembers.filter((u) => u !== uName);
-    } else {
-      createMembers = [...createMembers, uName];
+  async function load(id, month, step) {
+    if (id == null) return;
+    try {
+      const bounds = monthBounds(month);
+      const [d, p, dep, cor] = await Promise.all([
+        audit.jointDashboard(id, month), audit.depositProposal(id, month, step || null),
+        entryApi.page({ kind: 'deposit', account: id, ...bounds }), entryApi.page({ kind: 'correction', account: id }),
+      ]);
+      [dash, proposal, deposits, corrections] = [d.value, p.value, dep.entries, cor.entries];
+    } catch (e) {
+      errorMsg = e.message;
     }
   }
 
-  function toggleEditMember(uName) {
-    if (editMembers.includes(uName)) {
-      editMembers = editMembers.filter((u) => u !== uName);
-    } else {
-      editMembers = [...editMembers, uName];
-    }
-  }
-
-  // Correction form
-  let corrAmount = '';
-  let corrDate = '';
-  let corrNote = '';
-  let corrIsNeg = false;
-
-  // Settle
-  let settleMode = 'direct_pay'; // direct_pay | adjust_deposits
-  let settleResult = null;
-  let settling = false;
-
-  // Deposit editing
-  let editDeposits = [];
-  let editingDeposits = false;
-
-  // Expected cost editing
-  let editExpected = [];
-  let editingExpected = false;
-
-  const PERSONAL_CATEGORIES = new Set(['PERSONAL COST', 'LEISURE', 'GIFT', 'PERSONAL']);
-
-  // ── lifecycle ─────────────────────────────────────────────────────────────
-  onMount(async () => {
-    corrDate = new Date().toISOString().slice(0, 10);
-    await fetchJointAccounts();
-    if ($jointAccount) {
-      await switchAccount($jointAccount.id);
-    }
-  });
-
-  async function switchAccount(accId) {
-    activeJointAccountId.set(accId);
-    await fetchJointAccount(accId);
-    await fetchJointCategories(accId);
-    await fetchJointDeposits(accId);
-    await fetchJointExpectedCosts(accId);
-    await fetchJointCorrections(accId);
-    await fetchJointDashboard(month, accId);
-    await fetchJointMonthlyDeposits(month, accId);
-    if (section === 'deposits') enterDeposits();
-    if (section === 'expected') enterExpected();
-  }
-
-  $: if ($jointAccount && month) {
-    fetchJointDashboard(month, $jointAccount.id);
-    fetchJointMonthlyDeposits(month, $jointAccount.id);
-  }
-
-  let editingPaidUser = null;
-  let customPaidAmount = '';
-
-  async function handleToggleDepositPaid(uName, isPaid, customCents = null) {
+  function flash(msg) {
+    successMsg = msg;
     errorMsg = '';
+    setTimeout(() => (successMsg = ''), 3500);
+  }
+
+  const memberLabel = (id) => $memberById.get(Number(id))?.name ?? `#${id}`;
+  const memberColor = (id) => $memberById.get(Number(id))?.color ?? '#6366f1';
+
+  /** The account as an `AccountInput` with `patch` applied. */
+  function input(a, patch = {}) {
+    return {
+      name: a.name, safety_margin_pct: a.safety_margin_pct, expected_override: a.expected_override,
+      deposit_mode: a.deposit_mode, members: a.members, categories: a.categories, ...patch,
+    };
+  }
+
+  async function saveAccount(patch, message) {
     try {
-      const aid = ja?.id || $activeJointAccountId;
-      const existingLog = ($jointMonthlyDeposits || []).find((d) => d.user_name === uName);
-      const sched = deposits.find((d) => d.user_name === uName);
-      const scheduledCents = sched ? sched.amount_cents : 0;
-
-      let actualCents = customCents !== null ? customCents : (existingLog && existingLog.actual_cents > 0 ? existingLog.actual_cents : scheduledCents);
-      if (isPaid && actualCents <= 0) actualCents = scheduledCents;
-
-      await updateJointMonthlyDeposit({
-        month: $selectedMonth,
-        user_name: uName,
-        actual_cents: isPaid ? actualCents : 0,
-        is_paid: isPaid,
-        paid_date: new Date().toISOString().slice(0, 10),
-        account_id: aid,
-      });
-
-      editingPaidUser = null;
-      customPaidAmount = '';
-      await fetchJointDashboard($selectedMonth, aid);
-      await fetchJointMonthlyDeposits($selectedMonth, aid);
-      flash(true, isPaid ? `Deposit marked paid for ${uName}.` : `Deposit unmarked for ${uName}.`);
+      await accountApi.update(account.id, input(account, patch));
+      flash(message);
     } catch (e) {
       errorMsg = e.message;
     }
   }
 
-  // Refresh dashboard when month changes
-  $: if (ja && month) {
-    fetchJointDashboard(month, ja.id).catch(() => {});
+  // ── Create / settings ──────────────────────────────────────────────────────
+  let showCreate = false;
+  let draft = null;
+
+  function openSettings(a = null) {
+    draft = a
+      ? { name: a.name, margin: String(a.safety_margin_pct), mode: a.deposit_mode, members: a.members.map((m) => ({ ...m, fixed: centsInput(m.fixed_deposit) })) }
+      : { name: '', margin: '10', mode: 'equal', members: $activeMembers.map((m) => ({ member: m.id, due_day: 1, fixed: '' })) };
+    showCreate = !a;
+    section = a ? 'settings' : section;
   }
 
-  // Seed editDeposits when entering section
-  function enterDeposits() {
-    const targetUsers = accountMembers;
-
-    editDeposits = targetUsers.map((u) => {
-      const existing = deposits.find((d) => d.user_name === u.name);
-      return {
-        user_name: u.name,
-        amount_cents: existing ? existing.amount_cents : 0,
-        day_of_month: existing ? existing.day_of_month : 1,
-      };
-    });
-    editingDeposits = false;
-    section = 'deposits';
+  function draftInput() {
+    const members = draft.members.map((m) => ({ member: m.member, due_day: Number(m.due_day) || 1, fixed_deposit: toCents(m.fixed) }));
+    return { name: draft.name, safety_margin_pct: Number(draft.margin) || 0, deposit_mode: draft.mode, members };
   }
 
-  let costEstimationMode = 'categories'; // gross | categories
-  let grossTotalEuros = '';
-
-  $: sumCategoryExpectedCents = editExpected.reduce((s, e) => s + (e.expected_cents || 0), 0);
-
-  function initExpectedState() {
-    editExpected = cats.map((c) => {
-      const ex = expected.find((e) => e.category === c.plain);
-      return {
-        category: c.plain,
-        expected_cents: ex ? ex.expected_cents : 0,
-      };
-    });
-    costEstimationMode = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined) ? 'gross' : 'categories';
-    grossTotalEuros = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined) ? (ja.expected_total_cents / 100).toFixed(2) : '';
-    editingExpected = false;
+  function toggleDraftMember(id) {
+    const has = draft.members.some((m) => m.member === id);
+    draft.members = has ? draft.members.filter((m) => m.member !== id) : [...draft.members, { member: id, due_day: 1, fixed: '' }];
   }
 
-  function enterExpected() {
-    initExpectedState();
-    section = 'expected';
-  }
-
-  // ── helpers ───────────────────────────────────────────────────────────────
-  const fmt = (cents) => `${sym}${(cents / 100).toFixed(2)}`;
-  const pct = (actual, target) => target > 0 ? Math.min(100, Math.round(actual / target * 100)) : 0;
-
-  function flash(ok, msg) {
-    errorMsg = '';
-    successMsg = '';
-    if (ok) successMsg = msg;
-    else errorMsg = msg;
-    setTimeout(() => { successMsg = ''; errorMsg = ''; }, 3500);
-  }
-
-  // ── handlers ─────────────────────────────────────────────────────────────
-
-  async function handleSetup() {
-    errorMsg = '';
+  async function create() {
     try {
-      const created = await createJointAccount({
-        name: createName.trim(),
-        balance_cents: Math.round(parseFloat(createBalance) * 100) || 0,
-        safety_margin_pct: parseInt(createMargin) || 10,
-        deposit_split_mode: createMode,
-        member_names: createMembers,
-      });
-      showCreateModal = false;
-      createName = '';
-      createBalance = '0';
-      createMargin = '10';
-      createMode = 'even';
-      createMembers = [];
-      await switchAccount(created.id);
-      // Enable default non-personal categories
-      await enableDefaultCategories(created.id);
-      flash(true, 'Joint account created with default categories enabled.');
+      const categories = $expenseCategories.filter((c) => c.pay_mode !== 'personal').map((c) => ({ category: c.id, expected: 0 }));
+      const id = await accountApi.create({ ...draftInput(), expected_override: null, categories });
+      activeAccountId.set(id);
+      showCreate = false;
+      flash('Joint account created with shared categories coupled.');
     } catch (e) {
       errorMsg = e.message;
     }
   }
 
-  async function enableDefaultCategories(accountId) {
-    const aid = (typeof accountId === 'number' || (typeof accountId === 'string' && accountId.trim() !== '' && !isNaN(Number(accountId))))
-      ? Number(accountId)
-      : (ja?.id ?? $activeJointAccountId ?? 1);
-    for (const s of allSplits) {
-      const isPersonal = PERSONAL_CATEGORIES.has(s.category.toUpperCase());
-      const isAssigned = cats.some((c) => c.plain === s.category);
-      if (!isPersonal && !isAssigned) {
-        const encCat = await enc(s.category);
-        await addJointCategory(encCat, aid).catch(() => {});
-      }
-    }
-    await fetchJointCategories(aid);
-    await fetchJointExpectedCosts(aid).catch(() => {});
-    initExpectedState();
-    if (month) {
-      await fetchJointDashboard(month, aid).catch(() => {});
-    }
-  }
-
-  async function handleDelete() {
-    if (!confirm('Delete joint account and all its config?')) return;
+  async function remove() {
+    if (!confirm('Delete this joint account?')) return;
     try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      await deleteJointAccount(aid);
-      await fetchJointAccounts();
-      const remaining = get(jointAccounts);
-      if (remaining && remaining.length > 0) {
-        await switchAccount(remaining[0].id);
-      }
-      flash(true, 'Joint account removed.');
+      await accountApi.remove(account.id);
+      activeAccountId.set(null);
+      flash('Joint account removed.');
     } catch (e) {
       errorMsg = e.message;
     }
   }
 
-  async function handleUpdateSettings() {
-    errorMsg = '';
+  // ── Categories & expected costs ────────────────────────────────────────────
+  let expectedDraft = {};
+  let grossMode = false;
+  let grossText = '';
+
+  function enterCategories() {
+    expectedDraft = Object.fromEntries(account.categories.map((c) => [c.category, centsInput(c.expected)]));
+    grossMode = account.expected_override != null;
+    grossText = centsInput(account.expected_override);
+    section = 'categories';
+  }
+
+  function toggleCategory(id) {
+    if (id in expectedDraft) {
+      const { [id]: _, ...rest } = expectedDraft;
+      expectedDraft = rest;
+    } else expectedDraft = { ...expectedDraft, [id]: '0.00' };
+  }
+
+  function saveCategories() {
+    const categories = Object.entries(expectedDraft).map(([category, text]) => ({ category: Number(category), expected: toCents(text) ?? 0 }));
+    saveAccount({ categories, expected_override: grossMode ? toCents(grossText) : null }, 'Categories and expected costs saved.');
+  }
+
+  // ── Deposits ───────────────────────────────────────────────────────────────
+  $: depositedBy = new Map(deposits.map((d) => [d.member, d]));
+  $: suggested = proposal?.rounded ?? proposal?.per_member ?? {};
+
+  async function markPaid(member) {
     try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      await updateJointAccount({
-        name: editName.trim() || undefined,
-        balance_cents: editBalance !== '' ? Math.round(parseFloat(editBalance) * 100) : undefined,
-        safety_margin_pct: editMargin !== '' ? parseInt(editMargin) : undefined,
-        deposit_split_mode: editMode || undefined,
-        member_names: editMembers,
-      }, aid);
-      await switchAccount(aid);
-      flash(true, 'Settings saved.');
+      await entryApi.create({ kind: 'deposit', member, account: account.id, amount: suggested[member], date: today() });
+      flash(`Deposit recorded for ${memberLabel(member)}.`);
     } catch (e) {
       errorMsg = e.message;
     }
   }
 
-  async function handleToggleCategory(splitRow) {
-    const aid = ja?.id ?? $activeJointAccountId;
-    const existing = cats.find((c) => c.plain === splitRow.category);
+  async function unmark(entry) {
+    await entryApi.remove(entry.id).catch((e) => { errorMsg = e.message; });
+  }
+
+  function lockProposalAsFixed() {
+    const members = account.members.map((m) => ({ ...m, fixed_deposit: suggested[m.member] ?? m.fixed_deposit }));
+    saveAccount({ deposit_mode: 'fixed', members }, 'Proposed amounts saved as fixed deposits.');
+  }
+
+  // ── Corrections ────────────────────────────────────────────────────────────
+  let corr = { amount: '', date: today(), note: '', negative: false };
+
+  async function addCorrection() {
+    const cents = toCents(corr.amount);
+    if (!cents) {
+      errorMsg = 'Amount required.';
+      return;
+    }
     try {
-      if (existing) {
-        await removeJointCategory(existing.enc, aid);
-      } else {
-        const encCat = await enc(splitRow.category);
-        await addJointCategory(encCat, aid);
-      }
-      await fetchJointExpectedCosts(aid);
-      initExpectedState();
-      if (month) {
-        await fetchJointDashboard(month, aid).catch(() => {});
-      }
+      await entryApi.create({ kind: 'correction', account: account.id, amount: corr.negative ? -cents : cents, date: corr.date, note: corr.note });
+      corr = { amount: '', date: today(), note: '', negative: false };
+      flash('Correction logged.');
     } catch (e) {
       errorMsg = e.message;
     }
-  }
-
-  async function handleProposeDeposits() {
-    errorMsg = '';
-    try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      const totalExpected = (ja && ja.expected_total_cents !== null && ja.expected_total_cents !== undefined && ja.expected_total_cents > 0)
-        ? ja.expected_total_cents
-        : expected.reduce((sum, e) => sum + (e.expected_cents || 0), 0);
-      const targetCents = dash?.target_deposit_cents || (totalExpected > 0
-        ? Math.round(totalExpected * (1 + (ja?.safety_margin_pct || 10) / 100))
-        : 0);
-
-      if (targetCents === 0) {
-        flash(false, 'Please set expected monthly costs first before proposing deposit amounts.');
-        return;
-      }
-
-      const targetUsers = accountMembers;
-      if (!targetUsers || targetUsers.length === 0) {
-        flash(false, 'No account members found.');
-        return;
-      }
-
-      const mode = ja?.deposit_split_mode || 'even';
-
-      if (mode === 'salary') {
-        let salaryRows = [];
-        try {
-          salaryRows = await fetchLatestSalaries();
-        } catch {
-          salaryRows = await fetchIncomeByPerson(month);
-        }
-
-        const salariesDict = {};
-        for (const r of salaryRows || []) {
-          const uName = r.who || r.user_name;
-          const val = r.amount_cents || r.salary_cents || r.total_cents || 0;
-          if (uName) salariesDict[uName] = val;
-        }
-
-        const totalTargetSalary = targetUsers.reduce((s, u) => s + (salariesDict[u.name] || 0), 0);
-
-        editDeposits = targetUsers.map((u) => {
-          const existing = deposits.find((d) => d.user_name === u.name);
-          const userSalary = salariesDict[u.name] || 0;
-          let proposedCents = 0;
-          if (totalTargetSalary > 0) {
-            proposedCents = Math.round(targetCents * (userSalary / totalTargetSalary));
-          } else {
-            proposedCents = Math.round(targetCents / targetUsers.length);
-          }
-          return {
-            user_name: u.name,
-            amount_cents: proposedCents,
-            day_of_month: existing ? existing.day_of_month : 1,
-          };
-        });
-
-        flash(true, 'Proposed deposit amounts calculated based on expected costs and salary ratios.');
-      } else {
-        // 'even' (or fallback): divide target deposit evenly among members
-        const evenShare = Math.round(targetCents / targetUsers.length);
-        editDeposits = targetUsers.map((u) => {
-          const existing = deposits.find((d) => d.user_name === u.name);
-          return {
-            user_name: u.name,
-            amount_cents: evenShare,
-            day_of_month: existing ? existing.day_of_month : 1,
-          };
-        });
-
-        flash(true, 'Proposed deposit amounts calculated evenly across account members.');
-      }
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  let roundInterval = 10;
-
-  function handleRoundOffDeposits() {
-    const step = parseInt(roundInterval) || 10;
-    editDeposits = editDeposits.map((dep) => {
-      const currentEuros = dep.amount_cents / 100;
-      if (currentEuros <= 0) return dep;
-      const roundedEuros = Math.ceil(currentEuros / step) * step;
-      return {
-        ...dep,
-        amount_cents: Math.round(roundedEuros * 100),
-      };
-    });
-    flash(true, `Deposit amounts rounded up to the nearest €${step}.`);
-  }
-
-  async function handleSaveDeposits() {
-    errorMsg = '';
-    try {
-      const aid = ja?.id ?? $activeJointAccountId ?? 1;
-      await setJointDeposits(editDeposits, aid);
-      editingDeposits = false;
-      flash(true, 'Deposits saved.');
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function handleSaveExpected() {
-    errorMsg = '';
-    try {
-      const aid = ja?.id ?? $activeJointAccountId ?? 1;
-      if (costEstimationMode === 'gross') {
-        const grossCents = Math.round(parseFloat(grossTotalEuros) * 100) || 0;
-        await updateJointAccount({ expected_total_cents: grossCents }, aid);
-      } else {
-        await setJointExpectedCosts(editExpected.filter((e) => e.expected_cents > 0), aid);
-        await updateJointAccount({ expected_total_cents: null }, aid);
-      }
-      editingExpected = false;
-      flash(true, 'Expected costs saved.');
-      await fetchJointDashboard(month, aid);
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function handleAddCorrection() {
-    errorMsg = '';
-    if (!corrAmount || !corrDate) { errorMsg = 'Amount and date required.'; return; }
-    try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      const cents = Math.round(parseFloat(corrAmount) * 100) * (corrIsNeg ? -1 : 1);
-      await createJointCorrection({ amount_cents: cents, correction_date: corrDate, note: corrNote.trim() || null, account_id: aid });
-      corrAmount = '';
-      corrNote = '';
-      flash(true, 'Correction logged.');
-      await fetchJointDashboard(month, aid);
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function handleDeleteCorrection(id) {
-    if (!confirm('Delete this correction?')) return;
-    try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      await deleteJointCorrection(id);
-      await fetchJointDashboard(month, aid);
-      flash(true, 'Correction deleted.');
-    } catch (e) {
-      errorMsg = e.message;
-    }
-  }
-
-  async function handleSettle() {
-    settling = true;
-    errorMsg = '';
-    settleResult = null;
-    try {
-      const aid = ja?.id ?? $activeJointAccountId;
-      settleResult = await settleJointAccount({ mode: settleMode, month });
-      if (settleMode === 'adjust_deposits') {
-        await fetchJointDeposits(aid);
-      }
-      flash(true, 'Settled.');
-    } catch (e) {
-      errorMsg = e.message;
-    } finally {
-      settling = false;
-    }
-  }
-
-  $: if (ja) {
-    editName    = ja.name;
-    editBalance = (ja.balance_cents / 100).toFixed(2);
-    editMargin  = String(ja.safety_margin_pct);
-    editMode    = ja.deposit_split_mode;
-    editMembers = ja.member_names ? [...ja.member_names] : [];
   }
 </script>
 
 <div class="space-y-6">
-  <!-- Header -->
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+  <header class="page-header">
     <div>
-      <h1 class="page-title flex items-center gap-2.5">
-        <span>🏦</span> Joint Accounts
-      </h1>
-      <p class="page-subtitle">Shared household funds, monthly deposit schedules, and settlements</p>
+      <h1 class="page-title flex items-center gap-2.5"><span>🏦</span> Joint Accounts</h1>
+      <p class="page-subtitle">Shared accounts with coupled categories, deposit targets and corrections.</p>
     </div>
-
-    {#if ja}
-      <button
-        type="button"
-        on:click={() => { showCreateModal = true; createName = ''; createBalance = '0'; createMargin = '10'; createMode = 'even'; createMembers = []; }}
-        class="btn-primary self-start sm:self-auto flex items-center gap-1.5"
-      >
-        <span>+</span>
-        <span>New Joint Account</span>
-      </button>
-    {/if}
-  </div>
-
-  {#if errorMsg}
-    <div class="p-3.5 bg-rose-50 dark:bg-red-950/60 border border-rose-200 dark:border-red-800/80 rounded-xl text-rose-700 dark:text-red-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
-      <span>{errorMsg}</span>
-      <button on:click={() => (errorMsg = '')} class="text-rose-600 dark:text-red-400 hover:text-rose-800 dark:hover:text-red-200 text-sm font-bold flex-none px-1">×</button>
+    <div class="flex items-center gap-2">
+      {#if $accounts.length > 1}
+        <select bind:value={$activeAccountId} class="select-field text-xs py-1.5 w-auto">
+          {#each $accounts as a (a.id)}<option value={a.id}>🏦 {a.name}</option>{/each}
+        </select>
+      {/if}
+      <button id="btn-create-joint" type="button" on:click={() => openSettings()} class="btn-primary text-xs">+ New account</button>
     </div>
-  {/if}
-  {#if successMsg}
-    <div class="p-3.5 bg-emerald-50 dark:bg-emerald-950/60 border border-emerald-200 dark:border-emerald-800/80 rounded-xl text-emerald-700 dark:text-emerald-300 text-xs flex items-center justify-between gap-2 animate-fadeIn">
-      <span>{successMsg}</span>
-      <button on:click={() => (successMsg = '')} class="text-emerald-600 dark:text-emerald-400 hover:text-emerald-800 dark:hover:text-emerald-200 text-sm font-bold flex-none px-1">×</button>
-    </div>
-  {/if}
+  </header>
 
-  <!-- Multi-Account Account Switcher Pills -->
-  {#if allAccounts.length > 0}
-    <div class="card p-3 flex flex-wrap items-center gap-2">
-      <span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider pl-1">Accounts:</span>
-      {#each allAccounts as acc}
-        <button
-          type="button"
-          on:click={() => switchAccount(acc.id)}
-          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all cursor-pointer {acc.id === ja?.id ? 'bg-indigo-600 text-white shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-200 dark:hover:bg-neutral-700 border border-neutral-200 dark:border-transparent'}"
-        >
-          <span>🏦</span>
-          <span>{acc.name}</span>
-          {#if acc.member_names && acc.member_names.length > 0}
-            <span class="text-[10px] opacity-75">({acc.member_names.join(' & ')})</span>
-          {/if}
-        </button>
-      {/each}
-    </div>
-  {/if}
+  {#if errorMsg}<div class="text-xs text-rose-700 dark:text-red-400 bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-800 rounded-xl px-3 py-2">{errorMsg}</div>{/if}
+  {#if successMsg}<div class="text-xs text-emerald-700 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 rounded-xl px-3 py-2">{successMsg}</div>{/if}
 
-  <!-- ── Create / Setup Modal or Fallback Form ────────────────────────────── -->
-  {#if !ja || showCreateModal}
-    <div class="card p-6 sm:p-8 text-center max-w-xl mx-auto space-y-5 border-indigo-300 dark:border-indigo-500/30">
-      <div class="flex items-center justify-between">
-        <div class="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-500/10 border border-indigo-200 dark:border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400 text-xl">
-          🏦
-        </div>
-        {#if showCreateModal && ja}
-          <button
-            type="button"
-            on:click={() => (showCreateModal = false)}
-            class="text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200 text-sm font-bold px-2 py-1 cursor-pointer"
-          >
-            Cancel
-          </button>
-        {/if}
-      </div>
-
-      <div class="text-left">
-        <h3 class="text-lg font-bold text-neutral-900 dark:text-white">{showCreateModal && ja ? 'Create Joint Account' : 'Set Up Household Joint Account'}</h3>
-        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">
-          A joint account lets a couple or group track shared expenses outside of individual paybacks. Default non-personal categories will be linked automatically.
-        </p>
-      </div>
-
-      <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-left">
-        <div>
-          <label for="ja-setup-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Account Name</label>
-          <input
-            id="ja-setup-name"
-            type="text"
-            bind:value={createName}
-            placeholder="e.g. Alice & Bob Joint"
-            class="input-field"
-          />
-        </div>
-        <div>
-          <label for="ja-setup-balance" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Initial Balance (€)</label>
-          <input
-            id="ja-setup-balance"
-            type="number"
-            step="0.01"
-            bind:value={createBalance}
-            class="input-field"
-          />
-        </div>
-        <div>
-          <label for="ja-setup-margin" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Safety Margin %</label>
-          <input
-            id="ja-setup-margin"
-            type="number"
-            min="0"
-            max="100"
-            bind:value={createMargin}
-            class="input-field"
-          />
-        </div>
-        <div>
-          <label for="ja-setup-mode" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Deposit Split Mode</label>
-          <select
-            id="ja-setup-mode"
-            bind:value={createMode}
-            class="select-field"
-          >
-            <option value="even">Even split</option>
-            <option value="salary">Proportional to salary</option>
-            <option value="manual">Manual</option>
-          </select>
-        </div>
-
-        <!-- Member assignment -->
-        <div class="sm:col-span-2">
-          <label class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Account Members</label>
-          <div class="flex flex-wrap gap-2">
-            {#each activeUsers as u}
-              {@const isChecked = createMembers.includes(u.name)}
-              <button
-                type="button"
-                on:click={() => toggleCreateMember(u.name)}
-                class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-50 dark:bg-indigo-600/20 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-bold' : 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-              >
-                <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
-                <span>{u.name}</span>
-                {#if isChecked}
-                  <span class="text-[10px] text-indigo-600 dark:text-indigo-400">✓</span>
-                {/if}
-              </button>
-            {/each}
-          </div>
-          <p class="text-[10px] text-neutral-500 mt-1">Select members who contribute to and share this joint account (optional, all if empty).</p>
-        </div>
-      </div>
-
-      <button
-        id="ja-create-btn"
-        on:click={handleSetup}
-        disabled={!createName.trim()}
-        class="btn-primary w-full py-2.5"
-      >
-        Create Joint Account
-      </button>
-    </div>
-
+  {#if !account}
+    <div class="card empty-state-box py-16"><p class="text-sm text-neutral-500">No joint account yet. Create one to start tracking shared costs.</p></div>
   {:else}
-    <!-- Sub-navigation tabs -->
     <nav class="flex flex-wrap gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3">
-      {#each [
-        ['overview', '📊 Overview'],
-        ['categories', '🏷️ Categories'],
-        ['deposits', '💰 Deposits'],
-        ['expected', '📋 Expected'],
-        ['corrections', '✏️ Corrections'],
-        ['settle', '⚖️ Settle'],
-      ] as [id, label]}
-        <button
-          id="ja-nav-{id}"
-          on:click={() => {
-            if (id === 'deposits') { enterDeposits(); }
-            else if (id === 'expected') { enterExpected(); }
-            else { section = id; }
-          }}
-          class="px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all duration-150 cursor-pointer
-                 {section === id
-                   ? 'bg-indigo-600 text-white shadow-xs'
-                   : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200 border border-neutral-200 dark:border-neutral-800'}"
-        >
-          {label}
-        </button>
+      {#each [['overview', '📊 Overview'], ['categories', '🏷️ Categories & Expected'], ['deposits', '💶 Deposits'], ['corrections', '✏️ Corrections'], ['settings', '⚙️ Settings']] as [id, label]}
+        <button id="joint-nav-{id}" type="button"
+          on:click={() => (id === 'categories' ? enterCategories() : id === 'settings' ? openSettings(account) : (section = id))}
+          class="px-4 py-2 rounded-xl text-xs font-semibold {section === id ? 'bg-indigo-600 text-white' : 'bg-neutral-100 dark:bg-neutral-900 text-neutral-600 dark:text-neutral-400 border border-neutral-200 dark:border-neutral-800'}">{label}</button>
       {/each}
     </nav>
 
-    <!-- OVERVIEW SECTION -->
-    {#if section === 'overview'}
-      <div class="space-y-6">
-        <!-- Stat Cards Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <!-- Balance -->
-          <div class="card border-indigo-300 dark:border-indigo-500/30 bg-indigo-50/30 dark:bg-indigo-500/5 p-4 sm:p-5">
-            <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Current Balance</p>
-            <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(ja.balance_cents)}</p>
-            <p class="text-xs text-indigo-600 dark:text-indigo-400 mt-1 font-semibold">{ja.name}</p>
-          </div>
-
-          {#if dash}
-            <!-- Spent this month -->
-            <div class="card p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Spent ({dash.month})</p>
-              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.actual_total_cents)}</p>
-              <p class="text-xs text-neutral-500 mt-1">of {fmt(dash.expected_total_cents)} expected</p>
-              <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full mt-3 overflow-hidden">
-                <div class="h-full bg-indigo-500 rounded-full transition-all duration-500" style="width: {pct(dash.actual_total_cents, dash.expected_total_cents)}%"></div>
-              </div>
-            </div>
-
-            <!-- Target deposit -->
-            <div class="card p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Target Deposit / Mo</p>
-              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.target_deposit_cents)}</p>
-              <p class="text-xs text-neutral-500 mt-1">+{dash.safety_margin_pct}% safety margin</p>
-            </div>
-
-            <!-- Deposits received -->
-            <div class="card p-4 sm:p-5">
-              <p class="text-xs font-medium text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Deposits Received</p>
-              <p class="text-2xl sm:text-3xl font-bold text-neutral-900 dark:text-white mt-1 tabular-nums">{fmt(dash.total_deposits_cents)}</p>
-              <p class="text-xs mt-1 font-semibold {dash.total_deposits_cents >= dash.target_deposit_cents ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'}">
-                {dash.total_deposits_cents >= dash.target_deposit_cents ? '✓ Target met' : '⚠ Below target'}
-              </p>
-            </div>
-          {/if}
-        </div>
-
-        <!-- Category breakdown -->
-        {#if dash && (dash.categories ?? []).length > 0}
-          <div class="card p-5 sm:p-6 space-y-4">
-            <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Category Spending Progression — {dash.month}</h3>
-            <div class="space-y-3">
-              {#each dash.categories as row}
-                {@const used = pct(row.actual_cents, row.expected_cents)}
-                <div class="space-y-1">
-                  <div class="flex justify-between text-xs font-medium">
-                    <span class="text-neutral-700 dark:text-neutral-300">{row.category}</span>
-                    <span class="text-neutral-500 dark:text-neutral-400 tabular-nums">{fmt(row.actual_cents)} / {row.expected_cents > 0 ? fmt(row.expected_cents) : '—'} ({used}%)</span>
-                  </div>
-                  <div class="w-full h-2 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
-                    <div
-                      class="h-full rounded-full transition-all duration-500 {used >= 100 ? 'bg-rose-500' : 'bg-indigo-500'}"
-                      style="width: {Math.min(100, used)}%"
-                    ></div>
-                  </div>
-                </div>
-              {/each}
-            </div>
-          </div>
-        {/if}
-
-        <!-- Quick settings -->
-        <div class="card p-5 sm:p-6 space-y-4">
-          <h3 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Joint Account Settings</h3>
-          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
-            <div>
-              <label for="ja-edit-name" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Account Name</label>
-              <input id="ja-edit-name" type="text" bind:value={editName} class="input-field" />
-            </div>
-            <div>
-              <label for="ja-edit-balance" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Current Balance (€)</label>
-              <input id="ja-edit-balance" type="number" step="0.01" bind:value={editBalance} class="input-field" />
-            </div>
-            <div>
-              <label for="ja-edit-margin" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Safety Margin %</label>
-              <input id="ja-edit-margin" type="number" min="0" max="100" bind:value={editMargin} class="input-field" />
-            </div>
-            <div>
-              <label for="ja-edit-mode" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Deposit Split Mode</label>
-              <select id="ja-edit-mode" bind:value={editMode} class="select-field">
-                <option value="even">Even split</option>
-                <option value="salary">Proportional to salary</option>
-                <option value="manual">Manual</option>
-              </select>
-            </div>
-
-            <!-- Edit Account Members -->
-            <div class="sm:col-span-2 md:col-span-4">
-              <label class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Account Members</label>
-              <div class="flex flex-wrap gap-2">
-                {#each activeUsers as u}
-                  {@const isChecked = editMembers.includes(u.name)}
-                  <button
-                    type="button"
-                    on:click={() => toggleEditMember(u.name)}
-                    class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all cursor-pointer {isChecked ? 'bg-indigo-50 dark:bg-indigo-600/20 border-indigo-500 text-indigo-900 dark:text-indigo-200 font-semibold' : 'bg-neutral-50 dark:bg-neutral-800/80 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-                  >
-                    <span class="w-2 h-2 rounded-full flex-none" style="background-color: {userColor(u.name)}"></span>
-                    <span>{u.name}</span>
-                    {#if isChecked}
-                      <span class="text-[10px] text-indigo-600 dark:text-indigo-400">✓</span>
-                    {/if}
-                  </button>
-                {/each}
-              </div>
-            </div>
-          </div>
-          <div class="flex gap-3 pt-2">
-            <button id="ja-save-settings-btn" on:click={handleUpdateSettings} class="btn-primary text-xs py-2 px-4">
-              Save Settings
-            </button>
-            <button id="ja-delete-btn" on:click={handleDelete} class="btn-danger text-xs py-2 px-4">
-              Delete Account
-            </button>
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- CATEGORIES SECTION (Multi-column grid layout) -->
-    {#if section === 'categories'}
-      <div class="card p-5 sm:p-6 space-y-5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-          <div>
-            <h3 class="text-base font-bold text-neutral-900 dark:text-white">Joint Account Categories</h3>
-            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Select categories paid directly from joint funds. Expenses in these categories are excluded from personal paybacks.
-            </p>
-          </div>
-          <button
-            on:click={() => enableDefaultCategories()}
-            class="btn-secondary text-xs py-2 px-3.5 flex-none"
-          >
-            ✓ Enable Non-Personal Defaults
-          </button>
-        </div>
-
-        <!-- Multi-column category grid -->
-        <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-          {#each allSplits as s}
-            {@const active = cats.some((c) => c.plain === s.category)}
-            {@const isPersonal = PERSONAL_CATEGORIES.has(s.category.toUpperCase())}
-            <label
-              for="ja-cat-{s.category}"
-              class="flex items-center gap-3 p-3 rounded-xl border cursor-pointer select-none transition-all duration-150
-                     {active
-                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
-                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-            >
-              <input
-                id="ja-cat-{s.category}"
-                type="checkbox"
-                checked={active}
-                on:change={() => handleToggleCategory(s)}
-                class="sr-only"
-              />
-              <div
-                class="w-5 h-5 rounded-md border flex items-center justify-center flex-none transition-colors
-                       {active ? 'bg-indigo-600 border-indigo-500 text-white' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700'}"
-              >
-                {#if active}
-                  <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                  </svg>
-                {/if}
-              </div>
-              <div class="min-w-0">
-                <p class="text-xs font-semibold truncate">{s.category}</p>
-                <p class="text-[10px] text-neutral-500 truncate">{isPersonal ? 'Personal Category' : 'Shared Category'}</p>
-              </div>
-            </label>
-          {/each}
-        </div>
-      </div>
-    {/if}
-
-    <!-- DEPOSITS SECTION -->
-    {#if section === 'deposits'}
-      <div class="card p-5 sm:p-6 space-y-5">
-        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-neutral-200 dark:border-neutral-800 pb-4">
-          <div>
-            <h3 class="text-base font-bold text-neutral-900 dark:text-white">Monthly Deposit Schedule</h3>
-            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Configure monthly contribution amounts and deposit days per member.</p>
-          </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <button
-              id="ja-propose-deposits-btn"
-              on:click={handleProposeDeposits}
-              class="btn-secondary text-xs py-2 px-3.5 flex items-center gap-1.5 flex-none"
-            >
-              💡 Propose Amounts
-            </button>
-            <div class="flex items-center gap-1.5 bg-neutral-50 dark:bg-neutral-950/80 px-2.5 py-1.5 rounded-xl border border-neutral-200 dark:border-neutral-800">
-              <label for="ja-round-step" class="text-xs font-medium text-neutral-600 dark:text-neutral-400">Interval €</label>
-              <input
-                id="ja-round-step"
-                type="number"
-                min="1"
-                step="1"
-                bind:value={roundInterval}
-                class="w-14 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded-lg px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100 font-bold tabular-nums focus:outline-none focus:border-indigo-500"
-              />
-            </div>
-            <button
-              id="ja-round-deposits-btn"
-              on:click={handleRoundOffDeposits}
-              class="btn-secondary text-xs py-2 px-3.5 flex items-center gap-1.5 flex-none"
-            >
-              ⬆️ Round Up
-            </button>
-          </div>
-        </div>
-
-        <div class="space-y-3 max-w-xl">
-          {#each editDeposits as dep, i}
-            <div class="flex items-center gap-4 p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800">
-              <span class="w-24 font-bold text-sm text-neutral-800 dark:text-neutral-200 flex-none">{dep.user_name}</span>
-              <div class="flex-1">
-                <label for="ja-dep-amount-{i}" class="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Monthly Deposit (€)</label>
-                <input
-                  id="ja-dep-amount-{i}"
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  value={(dep.amount_cents / 100).toFixed(2)}
-                  on:input={(e) => (editDeposits[i].amount_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
-                  on:change={(e) => (editDeposits[i].amount_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
-                  class="input-field"
-                />
-              </div>
-              <div class="w-28 flex-none">
-                <label for="ja-dep-day-{i}" class="block text-[11px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Day of Month</label>
-                <input
-                  id="ja-dep-day-{i}"
-                  type="number"
-                  min="1"
-                  max="31"
-                  bind:value={editDeposits[i].day_of_month}
-                  class="input-field"
-                />
-              </div>
-            </div>
-          {/each}
-        </div>
-
-        <button
-          id="ja-save-deposits-btn"
-          on:click={handleSaveDeposits}
-          class="btn-primary py-2.5 px-4"
-        >
-          Save Deposit Schedule
-        </button>
-
-        <!-- ── Monthly Deposit Execution Log ── -->
-        <div class="mt-8 pt-6 border-t border-neutral-200 dark:border-neutral-800 space-y-4">
-          <div>
-            <h4 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-              <span>📅</span> Monthly Deposit Execution ({$selectedMonth})
-            </h4>
-            <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-              Track whether members have paid their monthly deposits for {$selectedMonth}. If paid amounts differ from scheduled amounts, customize the exact paid figure below.
-            </p>
-          </div>
-
-          <div class="grid grid-cols-1 gap-3 max-w-xl">
-            {#each accountMembers as u}
-              {@const log = ($jointMonthlyDeposits || []).find((d) => d.user_name === u.name)}
-              {@const sched = deposits.find((d) => d.user_name === u.name)}
-              {@const schedCents = sched ? sched.amount_cents : 0}
-              {@const isPaid = log ? log.is_paid : false}
-              {@const actualCents = log && isPaid ? log.actual_cents : schedCents}
-              {@const isDiverted = isPaid && actualCents !== schedCents}
-              {@const dueDay = sched ? sched.day_of_month : 1}
-              {@const isEditingThis = editingPaidUser === u.name}
-
-              <div class="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950 border border-neutral-200 dark:border-neutral-800 space-y-3">
-                <div class="flex items-center justify-between gap-3 flex-wrap">
-                  <div class="flex items-center gap-2">
-                    <div
-                      class="w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-sm"
-                      style="background-color: {u.color}"
-                    >
-                      {u.name.charAt(0).toUpperCase()}
-                    </div>
-                    <span class="font-bold text-sm text-neutral-800 dark:text-neutral-200">{u.name}</span>
-                  </div>
-
-                  <!-- Status badge -->
-                  <div class="flex items-center gap-2">
-                    {#if isPaid}
-                      {#if isDiverted}
-                        <span class="badge-amber">
-                          ✓ Paid €{(actualCents / 100).toFixed(2)} (Scheduled €{(schedCents / 100).toFixed(2)})
-                        </span>
-                      {:else}
-                        <span class="badge-emerald">
-                          ✓ Paid €{(actualCents / 100).toFixed(2)}
-                        </span>
-                      {/if}
-                    {:else}
-                      {#if log && log.status === 'pending'}
-                        <span class="badge-indigo">
-                          ⏳ Pending (Due Day {dueDay})
-                        </span>
-                      {:else}
-                        <span class="badge-amber">
-                          ⚠ Unpaid / Due Day {dueDay}
-                        </span>
-                      {/if}
-                    {/if}
-                  </div>
-                </div>
-
-                <!-- Action buttons / Edit inputs -->
-                {#if isEditingThis}
-                  <div class="flex items-center gap-2 pt-2 border-t border-neutral-200 dark:border-neutral-900">
-                    <div class="flex-1">
-                      <label for="custom-paid-{u.name}" class="block text-[10px] font-medium text-neutral-600 dark:text-neutral-400 mb-1">Actual Amount Paid (€)</label>
-                      <input
-                        id="custom-paid-{u.name}"
-                        type="number"
-                        step="0.01"
-                        bind:value={customPaidAmount}
-                        placeholder={(schedCents / 100).toFixed(2)}
-                        class="input-field"
-                      />
-                    </div>
-                    <button
-                      id="save-custom-paid-{u.name}"
-                      type="button"
-                      on:click={() => handleToggleDepositPaid(u.name, true, Math.round(parseFloat(customPaidAmount || '0') * 100))}
-                      class="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs rounded-lg transition-colors self-end cursor-pointer"
-                    >
-                      Confirm
-                    </button>
-                    <button
-                      type="button"
-                      on:click={() => { editingPaidUser = null; customPaidAmount = ''; }}
-                      class="btn-secondary text-xs py-2 px-3 self-end"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                {:else}
-                  <div class="flex items-center gap-2 pt-1">
-                    {#if !isPaid}
-                      <button
-                        id="btn-mark-paid-{u.name}"
-                        type="button"
-                        on:click={() => handleToggleDepositPaid(u.name, true, schedCents)}
-                        class="px-3 py-1.5 bg-emerald-50 dark:bg-emerald-950/80 hover:bg-emerald-100 dark:hover:bg-emerald-900 border border-emerald-200 dark:border-emerald-700/60 text-emerald-700 dark:text-emerald-300 font-semibold text-xs rounded-lg transition-colors cursor-pointer"
-                      >
-                        ✓ Mark Paid (€{(schedCents / 100).toFixed(2)})
-                      </button>
-                      <button
-                        id="btn-custom-paid-{u.name}"
-                        type="button"
-                        on:click={() => { editingPaidUser = u.name; customPaidAmount = (schedCents / 100).toFixed(2); }}
-                        class="btn-secondary text-xs py-1.5 px-3"
-                      >
-                        Enter Custom Amount…
-                      </button>
-                    {:else}
-                      <button
-                        id="btn-edit-paid-{u.name}"
-                        type="button"
-                        on:click={() => { editingPaidUser = u.name; customPaidAmount = (actualCents / 100).toFixed(2); }}
-                        class="btn-secondary text-xs py-1.5 px-3"
-                      >
-                        Edit Paid Amount
-                      </button>
-                      <button
-                        id="btn-unmark-paid-{u.name}"
-                        type="button"
-                        on:click={() => handleToggleDepositPaid(u.name, false, 0)}
-                        class="btn-danger text-xs py-1.5 px-3"
-                      >
-                        Unmark
-                      </button>
-                    {/if}
-                  </div>
-                {/if}
-              </div>
-            {/each}
-          </div>
-        </div>
-      </div>
-    {/if}
-
-    <!-- EXPECTED COSTS SECTION -->
-    {#if section === 'expected'}
-      <div class="card p-5 sm:p-6 space-y-6">
-        <div>
-          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Expected Monthly Costs</h3>
-          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Configure expected monthly cost targets either as a single gross total or by category.</p>
-        </div>
-
-        <!-- Mode Selection Subsections -->
-        <div class="space-y-4 max-w-2xl">
-          <!-- Gross Cost Estimation Option -->
-          <label class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all
-                        {costEstimationMode === 'gross' ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-neutral-900 dark:text-white shadow-sm' : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'}">
-            <input
-              id="radio-estimation-gross"
-              type="radio"
-              name="cost-estimation-mode"
-              value="gross"
-              checked={costEstimationMode === 'gross'}
-              on:change={() => (costEstimationMode = 'gross')}
-              class="mt-0.5 accent-indigo-600"
-            />
-            <div class="flex-1 space-y-2">
-              <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 block">Expected Gross Cost Estimation</span>
-              <p class="text-xs text-neutral-500 dark:text-neutral-400">Use a single overall gross estimate for the entire joint account.</p>
-              {#if costEstimationMode === 'gross'}
-                <div class="pt-2">
-                  <label for="ja-gross-total" class="block text-xs font-medium text-neutral-700 dark:text-neutral-300 mb-1">Expected Gross Total (€)</label>
-                  <input
-                    id="ja-gross-total"
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    bind:value={grossTotalEuros}
-                    placeholder="e.g. 3000.00"
-                    class="input-field w-full sm:w-64"
-                  />
-                </div>
-              {/if}
-            </div>
-          </label>
-
-          <hr class="border-neutral-200 dark:border-neutral-800 my-2" />
-
-          <!-- Category Specific Estimation Option -->
-          <label class="flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-all
-                        {costEstimationMode === 'categories' ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-neutral-900 dark:text-white shadow-sm' : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'}">
-            <input
-              id="radio-estimation-categories"
-              type="radio"
-              name="cost-estimation-mode"
-              value="categories"
-              checked={costEstimationMode === 'categories'}
-              on:change={() => (costEstimationMode = 'categories')}
-              class="mt-0.5 accent-indigo-600"
-            />
-            <div class="flex-1 space-y-2">
-              <div class="flex items-center justify-between flex-wrap gap-2">
-                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 block">Category Specific Cost Estimations</span>
-                {#if costEstimationMode === 'categories'}
-                  <span class="badge-indigo">
-                    Estimated monthly total cost = {fmt(sumCategoryExpectedCents)}
-                  </span>
-                {/if}
-              </div>
-              <p class="text-xs text-neutral-500 dark:text-neutral-400">Set individual monthly budget targets per joint category.</p>
-
-              {#if costEstimationMode === 'categories'}
-                <div class="pt-2">
-                  {#if cats.length === 0}
-                    <p class="text-xs text-neutral-500">No joint account categories assigned yet. Go to Categories sub-tab first.</p>
-                  {:else}
-                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-                      {#each editExpected as ex, i}
-                        <div class="card-sub p-3 space-y-1">
-                          <span class="block text-xs font-semibold text-neutral-800 dark:text-neutral-300">{ex.category}</span>
-                          <label for="ja-exp-{i}" class="block text-[11px] text-neutral-500">Expected Cost (€)</label>
-                          <input
-                            id="ja-exp-{i}"
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            value={(ex.expected_cents / 100).toFixed(2)}
-                            on:change={(e) => (editExpected[i].expected_cents = Math.round(parseFloat(e.target.value) * 100) || 0)}
-                            class="input-field py-1.5"
-                          />
-                        </div>
-                      {/each}
-                    </div>
-                  {/if}
-                </div>
-              {/if}
-            </div>
-          </label>
-        </div>
-
-        <button
-          id="ja-save-expected-btn"
-          on:click={handleSaveExpected}
-          class="btn-primary py-2.5 px-4"
-        >
-          Save Expected Costs
-        </button>
-      </div>
-    {/if}
-
-    <!-- CORRECTIONS SECTION (Multi-column grid layout) -->
-    {#if section === 'corrections'}
-      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <!-- Log Correction Card -->
-        <div class="card p-5 sm:p-6 space-y-4">
-          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Log Balance Correction</h3>
-          
-          <div class="space-y-3">
-            <div>
-              <span class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1.5">Correction Type</span>
-              <div class="grid grid-cols-2 gap-2">
-                <button
-                  id="ja-corr-topup"
-                  type="button"
-                  on:click={() => (corrIsNeg = false)}
-                  class="py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer
-                         {!corrIsNeg ? 'bg-emerald-50 dark:bg-emerald-950/80 border-emerald-500 text-emerald-700 dark:text-emerald-300 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-                >
-                  + Deposit / Top-up
-                </button>
-                <button
-                  id="ja-corr-withdraw"
-                  type="button"
-                  on:click={() => (corrIsNeg = true)}
-                  class="py-2 rounded-xl text-xs font-semibold border transition-all cursor-pointer
-                         {corrIsNeg ? 'bg-rose-50 dark:bg-red-950/80 border-rose-500 text-rose-700 dark:text-red-300 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 border-neutral-200 dark:border-neutral-700 text-neutral-600 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-                >
-                  − Withdrawal
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label for="ja-corr-amount" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Amount (€)</label>
-              <input id="ja-corr-amount" type="number" step="0.01" min="0" bind:value={corrAmount} class="input-field" />
-            </div>
-
-            <div>
-              <label for="ja-corr-date" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Date</label>
-              <input id="ja-corr-date" type="date" bind:value={corrDate} class="input-field" />
-            </div>
-
-            <div>
-              <label for="ja-corr-note" class="block text-xs font-medium text-neutral-600 dark:text-neutral-400 mb-1">Note (optional)</label>
-              <input id="ja-corr-note" type="text" bind:value={corrNote} maxlength="512" placeholder="e.g. Monthly top-up" class="input-field" />
-            </div>
-          </div>
-
-          <button
-            id="ja-add-corr-btn"
-            on:click={handleAddCorrection}
-            class="btn-primary w-full py-2.5"
-          >
-            Log Correction
-          </button>
-        </div>
-
-        <!-- History Log Card -->
-        <div class="card p-5 sm:p-6 space-y-4">
-          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Correction Log History</h3>
-
-          {#if corrections.length === 0}
-            <p class="text-xs text-neutral-500">No balance corrections logged yet.</p>
-          {:else}
-            <div class="space-y-2 max-h-96 overflow-y-auto pr-1">
-              {#each corrections as c}
-                <div class="flex items-center justify-between p-3 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 text-xs">
-                  <div>
-                    <div class="font-bold tabular-nums {c.amount_cents >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">
-                      {c.amount_cents >= 0 ? '+' : ''}{fmt(c.amount_cents)}
-                    </div>
-                    <div class="text-neutral-500 dark:text-neutral-400 mt-0.5">{c.note ?? '—'} ({c.correction_date})</div>
-                  </div>
-                  <button
-                    id="ja-del-corr-{c.id}"
-                    on:click={() => handleDeleteCorrection(c.id)}
-                    class="p-1 text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 transition-colors cursor-pointer"
-                  >
-                    ×
-                  </button>
-                </div>
-              {/each}
-            </div>
-          {/if}
-        </div>
-      </div>
-    {/if}
-
-    <!-- SETTLE SECTION (Selectable checkmark cards instead of select dropdown) -->
-    {#if section === 'settle'}
-      <div class="card p-5 sm:p-6 space-y-6 max-w-2xl">
-        <div>
-          <h3 class="text-base font-bold text-neutral-900 dark:text-white">Settle Joint Account ({month})</h3>
-          <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">
-            Compare actual spending against deposits collected for the month and choose a settlement method.
+    {#if section === 'overview' && dash}
+      <div class="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="card p-4"><p class="text-[11px] text-neutral-500 uppercase">Balance</p><p class="text-xl font-bold tabular-nums text-neutral-900 dark:text-white">{$money(dash.balance)}</p></div>
+        <div class="card p-4"><p class="text-[11px] text-neutral-500 uppercase">Spent {dash.month}</p><p class="text-xl font-bold tabular-nums text-neutral-900 dark:text-white">{$money(dash.actual_total)}</p><p class="text-[11px] text-neutral-500">Expected {$money(dash.expected_total)}</p></div>
+        <div class="card p-4"><p class="text-[11px] text-neutral-500 uppercase">Deposit target</p><p class="text-xl font-bold tabular-nums text-indigo-700 dark:text-indigo-300">{$money(dash.target)}</p><p class="text-[11px] text-neutral-500">+{dash.safety_margin_pct}% margin</p></div>
+        <div class="card p-4"><p class="text-[11px] text-neutral-500 uppercase">Deposited</p><p class="text-xl font-bold tabular-nums text-neutral-900 dark:text-white">{$money(dash.deposited_total)}</p>
+          <p class="text-[11px] font-semibold {dash.status.status === 'target_met' ? 'text-emerald-600' : dash.status.status === 'pending' ? 'text-indigo-600' : 'text-amber-600'}">
+            {dash.status.status === 'target_met' ? '✓ Target met' : dash.status.status === 'pending' ? `⏳ Pending (due day ${dash.status.due_day})` : '⚠ Below target'}
           </p>
         </div>
-
-        <!-- Selectable Radio Cards for Settlement Modes -->
-        <div class="space-y-3">
-          <span class="block text-xs font-semibold text-neutral-600 dark:text-neutral-400 uppercase tracking-wider">Select Settlement Method</span>
-          
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Direct Pay Card -->
-            <button
-              type="button"
-              id="settle-option-direct-pay"
-              on:click={() => (settleMode = 'direct_pay')}
-              class="text-left p-4 rounded-xl border transition-all relative flex flex-col justify-between space-y-2 cursor-pointer
-                     {settleMode === 'direct_pay'
-                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
-                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-            >
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-                  💵 Direct Payment
-                </span>
-                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'direct_pay' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-300 dark:border-neutral-700'}">
-                  {#if settleMode === 'direct_pay'}
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  {/if}
-                </div>
-              </div>
-              <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Calculate the difference between deposits and actual spending, showing exact amounts for users to transfer directly.
-              </p>
-            </button>
-
-            <!-- Adjust Deposits Card -->
-            <button
-              type="button"
-              id="settle-option-adjust-deposits"
-              on:click={() => (settleMode = 'adjust_deposits')}
-              class="text-left p-4 rounded-xl border transition-all relative flex flex-col justify-between space-y-2 cursor-pointer
-                     {settleMode === 'adjust_deposits'
-                       ? 'bg-indigo-50 dark:bg-indigo-950/60 border-indigo-500 text-indigo-950 dark:text-white shadow-sm'
-                       : 'bg-neutral-50 dark:bg-neutral-950/80 border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700 hover:text-neutral-900 dark:hover:text-neutral-200'}"
-            >
-              <div class="flex items-center justify-between">
-                <span class="font-bold text-sm text-neutral-900 dark:text-neutral-100 flex items-center gap-2">
-                  🔄 Adjust Future Deposits
-                </span>
-                <div class="w-5 h-5 rounded-full border flex items-center justify-center {settleMode === 'adjust_deposits' ? 'bg-indigo-600 border-indigo-500 text-white' : 'border-neutral-300 dark:border-neutral-700'}">
-                  {#if settleMode === 'adjust_deposits'}
-                    <svg class="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                      <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                    </svg>
-                  {/if}
-                </div>
-              </div>
-              <p class="text-xs text-neutral-500 dark:text-neutral-400 leading-relaxed">
-                Automatically recalculates per-user monthly deposit amounts to absorb any surplus or deficit over next month.
-              </p>
-            </button>
+      </div>
+      <div class="card p-4 text-xs flex flex-wrap gap-4 justify-between">
+        <span>Month {dash.month_surplus >= 0 ? 'surplus' : 'deficit'}: <strong class="tabular-nums {dash.month_surplus >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">{$money(dash.month_surplus)}</strong></span>
+        {#if dash.top_up > 0}<span>💡 Top up at least <strong class="tabular-nums">{$money(dash.top_up)}</strong> to reach the target.</span>{/if}
+      </div>
+      <div class="card p-4 space-y-2">
+        <h3 class="text-xs font-bold uppercase text-neutral-600 dark:text-neutral-400">Category usage</h3>
+        {#each dash.categories as c (c.category)}
+          <div class="space-y-1">
+            <div class="flex justify-between text-xs"><span class="font-semibold text-neutral-800 dark:text-neutral-200">{$categoryName(c.category)}</span><span class="tabular-nums">{$money(c.actual)} / {$money(c.expected)} ({fmtPct(c.pct_used)})</span></div>
+            <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden"><div class="h-full rounded-full bg-indigo-500" style="width: {Math.min(c.pct_used, 100)}%"></div></div>
           </div>
+        {/each}
+      </div>
+    {/if}
+
+    {#if section === 'categories'}
+      <div class="card p-5 space-y-3">
+        <label class="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400"><input type="checkbox" bind:checked={grossMode} class="accent-indigo-600" /> Use one gross expected total instead of per-category costs</label>
+        {#if grossMode}
+          <input id="joint-gross" type="text" inputmode="decimal" bind:value={grossText} placeholder="Expected monthly total" class="input-field max-w-xs tabular-nums" />
+        {/if}
+        <div class="space-y-1.5">
+          {#each $expenseCategories as c (c.id)}
+            <div class="flex items-center gap-3 text-xs">
+              <label class="flex items-center gap-2 flex-1"><input type="checkbox" checked={c.id in expectedDraft} on:change={() => toggleCategory(c.id)} class="accent-indigo-600" /> {c.name}{c.pay_mode === 'personal' ? ' (personal)' : ''}</label>
+              {#if c.id in expectedDraft && !grossMode}
+                <input type="text" inputmode="decimal" bind:value={expectedDraft[c.id]} class="input-field py-1 text-xs w-28 tabular-nums" />
+              {/if}
+            </div>
+          {/each}
         </div>
+        <button id="joint-save-categories" type="button" on:click={saveCategories} class="btn-primary">Save</button>
+      </div>
+    {/if}
 
-        <button
-          id="ja-settle-btn"
-          on:click={handleSettle}
-          disabled={settling}
-          class="btn-primary w-full py-2.5 disabled:opacity-50"
-        >
-          {settling ? 'Settling…' : 'Execute Settlement'}
-        </button>
-
-        {#if settleResult}
-          <div class="p-4 rounded-xl bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 space-y-2 animate-fadeIn">
-            <h4 class="text-xs font-bold uppercase tracking-wider text-neutral-700 dark:text-neutral-300">{settleResult.message ?? settleResult.mode}</h4>
-            <p class="text-sm">
-              Difference: <strong class={settleResult.difference_cents >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}>
-                {settleResult.difference_cents >= 0 ? '+' : ''}{fmt(settleResult.difference_cents)}
-              </strong>
-            </p>
-            {#if settleMode === 'direct_pay'}
-              <p class="text-xs text-neutral-500 dark:text-neutral-400">
-                {settleResult.difference_cents < 0
-                  ? `Deficit: Users need to top up ${fmt(-settleResult.difference_cents)} into the account.`
-                  : `Surplus: ${fmt(settleResult.difference_cents)} remains in joint account.`}
-              </p>
-            {:else if settleResult.adjustments}
-              <div class="space-y-1 pt-2">
-                {#each settleResult.adjustments as adj}
-                  <div class="flex justify-between text-xs py-1 border-b border-neutral-200 dark:border-neutral-800">
-                    <span class="text-neutral-700 dark:text-neutral-300">{adj.user_name}</span>
-                    <span class="font-medium">{fmt(adj.old_cents)} → <span class="text-emerald-600 dark:text-emerald-400 font-bold">{fmt(adj.new_cents)}</span></span>
-                  </div>
-                {/each}
-              </div>
+    {#if section === 'deposits' && proposal}
+      <div class="card p-5 space-y-3">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <h3 class="text-sm font-bold text-neutral-800 dark:text-neutral-200">Proposed deposits · {MODES.find(([m]) => m === proposal.mode)?.[1]} · target {$money(proposal.target)}</h3>
+          <label class="text-xs text-neutral-600 dark:text-neutral-400">Round up to
+            <select bind:value={roundTo} class="select-field text-xs py-1 w-auto ml-1">
+              {#each ROUND_STEPS as step}<option value={step}>{step ? $money(step, true) : 'exact'}</option>{/each}
+            </select>
+          </label>
+        </div>
+        {#each account.members as m (m.member)}
+          {@const paid = depositedBy.get(m.member)}
+          <div class="card-sub p-3 flex flex-wrap items-center gap-3 text-xs border-l-4" style="border-left-color: {memberColor(m.member)}">
+            <span class="font-semibold text-neutral-900 dark:text-white flex-1">{memberLabel(m.member)} <span class="text-neutral-500 font-normal">· due day {m.due_day}</span></span>
+            <span class="tabular-nums font-bold">{$money(suggested[m.member] ?? 0)}</span>
+            {#if paid}
+              <span class="text-emerald-600 dark:text-emerald-400">✓ {$money(paid.amount)} on {fmtDate(paid.date)}</span>
+              <button type="button" on:click={() => unmark(paid)} class="text-neutral-500">Undo</button>
+            {:else}
+              <button type="button" on:click={() => markPaid(m.member)} class="btn-secondary text-xs">Mark paid</button>
             {/if}
           </div>
+        {/each}
+        {#if proposal.mode !== 'fixed'}
+          <button type="button" on:click={lockProposalAsFixed} class="btn-ghost text-xs">Save these amounts as fixed deposits</button>
         {/if}
+      </div>
+    {/if}
+
+    {#if section === 'corrections'}
+      <div class="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <form class="lg:col-span-2 card p-5 space-y-3" on:submit|preventDefault={addCorrection}>
+          <h3 class="text-sm font-bold text-neutral-800 dark:text-neutral-200">Balance correction</h3>
+          <div class="grid grid-cols-2 gap-3">
+            <input id="corr-amount" type="text" inputmode="decimal" bind:value={corr.amount} placeholder="Amount ({$currencySymbol})" class="input-field tabular-nums" />
+            <input id="corr-date" type="date" bind:value={corr.date} class="input-field" />
+          </div>
+          <input id="corr-note" type="text" bind:value={corr.note} placeholder="Note" class="input-field" />
+          <label class="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-400"><input type="checkbox" bind:checked={corr.negative} class="accent-rose-600" /> Negative (money out)</label>
+          <button id="corr-save" type="submit" class="btn-primary">Log correction</button>
+        </form>
+        <div class="lg:col-span-3 space-y-2">
+          {#each corrections as c (c.id)}
+            <div class="card-sub p-3 flex items-center justify-between gap-3 text-xs">
+              <span><span class="font-mono text-neutral-400 mr-2">{fmtDate(c.date)}</span>{c.note || '—'}</span>
+              <span class="flex items-center gap-3"><strong class="tabular-nums {c.amount >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">{$money(c.amount)}</strong>
+                <button type="button" on:click={() => entryApi.remove(c.id)} class="text-rose-600 dark:text-red-400">Delete</button></span>
+            </div>
+          {:else}
+            <p class="text-xs text-neutral-500">No corrections.</p>
+          {/each}
+        </div>
+      </div>
+    {/if}
+
+    {#if section === 'settings' && draft}
+      <div class="card p-5 space-y-3 max-w-2xl">
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <label class="block text-xs text-neutral-600 dark:text-neutral-400 sm:col-span-2">Name <input type="text" bind:value={draft.name} class="input-field mt-1" /></label>
+          <label class="block text-xs text-neutral-600 dark:text-neutral-400">Safety margin % <input type="number" min="0" step="0.5" bind:value={draft.margin} class="input-field mt-1" /></label>
+        </div>
+        <label class="block text-xs text-neutral-600 dark:text-neutral-400">Deposit split
+          <select bind:value={draft.mode} class="select-field mt-1">{#each MODES as [value, label]}<option {value}>{label}</option>{/each}</select>
+        </label>
+        {#each draft.members as m (m.member)}
+          <div class="flex items-center gap-3 text-xs">
+            <span class="flex-1 font-semibold" style="color: {memberColor(m.member)}">{memberLabel(m.member)}</span>
+            <label>Due day <input type="number" min="1" max="31" bind:value={m.due_day} class="input-field py-1 w-16 inline" /></label>
+            {#if draft.mode === 'fixed'}<label>Fixed <input type="text" inputmode="decimal" bind:value={m.fixed} class="input-field py-1 w-24 inline tabular-nums" /></label>{/if}
+            <button type="button" on:click={() => toggleDraftMember(m.member)} class="text-rose-600 dark:text-red-400">Remove</button>
+          </div>
+        {/each}
+        <div class="flex flex-wrap gap-2">
+          {#each $activeMembers.filter((x) => !draft.members.some((m) => m.member === x.id)) as x (x.id)}
+            <button type="button" on:click={() => toggleDraftMember(x.id)} class="btn-ghost text-xs">+ {x.name}</button>
+          {/each}
+        </div>
+        <div class="flex gap-2">
+          <button type="button" on:click={() => saveAccount(draftInput(), 'Settings saved.')} class="btn-primary">Save settings</button>
+          <button type="button" on:click={remove} class="btn-secondary text-rose-600">Delete account</button>
+        </div>
       </div>
     {/if}
   {/if}
 </div>
+
+{#if showCreate && draft}
+  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true">
+    <form class="card max-w-md w-full shadow-2xl space-y-3" on:submit|preventDefault={create}>
+      <h3 class="text-base font-bold text-neutral-900 dark:text-white">New joint account</h3>
+      <input id="joint-name" type="text" bind:value={draft.name} placeholder="Account name" class="input-field" />
+      <div class="grid grid-cols-2 gap-3">
+        <label class="block text-xs text-neutral-600 dark:text-neutral-400">Safety margin % <input id="joint-margin" type="number" min="0" bind:value={draft.margin} class="input-field mt-1" /></label>
+        <label class="block text-xs text-neutral-600 dark:text-neutral-400">Deposit split
+          <select id="joint-mode" bind:value={draft.mode} class="select-field mt-1">{#each MODES as [value, label]}<option {value}>{label}</option>{/each}</select>
+        </label>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        {#each $activeMembers as x (x.id)}
+          {@const on = draft.members.some((m) => m.member === x.id)}
+          <button type="button" on:click={() => toggleDraftMember(x.id)} class="px-2.5 py-1 rounded-lg text-xs font-semibold border {on ? 'text-white' : 'border-neutral-200 dark:border-neutral-800 text-neutral-600'}" style={on ? `background-color:${x.color};border-color:${x.color}` : ''}>{x.name}</button>
+        {/each}
+      </div>
+      <p class="text-[11px] text-neutral-500">Opening balance: log a correction after creating the account.</p>
+      <div class="flex gap-2">
+        <button type="button" on:click={() => (showCreate = false)} class="btn-secondary flex-1">Cancel</button>
+        <button id="joint-create" type="submit" class="btn-primary flex-1">Create</button>
+      </div>
+    </form>
+  </div>
+{/if}

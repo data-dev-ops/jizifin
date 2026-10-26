@@ -1,0 +1,7 @@
+# libduckdb-sys links its static-extension autoregister object after the rlib that bundles libduckdb.a,
+# so the linker has already skipped the member defining this symbol. Forcing it undefined pulls it in.
+[target.aarch64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,-u,duckdb_register_static_extensions"]
+
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "link-arg=-Wl,-u,duckdb_register_static_extensions"]

@@ -26,7 +26,7 @@ help: ## Show available commands
 # Build
 # ------------------------------------------------------------------------------
 .PHONY: build
-build: ## Build production containers (hardened multi-stage Nginx frontend + FastAPI)
+build: ## Build production containers (hardened multi-stage Nginx frontend + Rust backend)
 	$(COMPOSE_PROD) build
 
 .PHONY: deploy-backend
@@ -39,8 +39,12 @@ migrate: ## One-shot legacy SQLite → DuckDB migration (needs JIZIFIN_PASSPHRAS
 	$(COMPOSE_PROD) build backend
 	$(COMPOSE_PROD) --profile migrate run --rm migrate
 
+.PHONY: wasm
+wasm: ## Build the jizifin-wasm CSV parser into frontend/src/lib/wasm (dev server and tests)
+	docker build -f frontend/Dockerfile.prod --build-context backend=backend --target wasm-pkg --output frontend/src/lib/wasm frontend
+
 .PHONY: build-dev
-build-dev: ## Build development containers
+build-dev: wasm ## Build development containers
 	$(COMPOSE_DEV) build
 
 # ------------------------------------------------------------------------------

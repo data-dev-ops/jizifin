@@ -2,18 +2,20 @@
 FROM rust:1-bookworm AS chef
 RUN cargo install cargo-chef --locked
 WORKDIR /src
+# Linker workaround for libduckdb-sys; present in every stage so cook and build use identical flags.
+COPY .cargo .cargo
 
 FROM chef AS planner
-COPY Cargo.toml clippy.toml ./
+COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates crates
 RUN cargo chef prepare --recipe-path recipe.json
 
 FROM chef AS builder
 COPY --from=planner /src/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
-COPY Cargo.toml clippy.toml ./
+COPY Cargo.toml Cargo.lock clippy.toml ./
 COPY crates crates
-RUN cargo build --release -p jizifin-api -p jizifin-migrate
+RUN cargo build --release --locked -p jizifin-api -p jizifin-migrate
 
 FROM gcr.io/distroless/cc-debian12
 COPY --from=builder /src/target/release/jizifin-api /usr/local/bin/jizifin-api

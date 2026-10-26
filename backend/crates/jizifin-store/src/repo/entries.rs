@@ -188,13 +188,18 @@ impl Entries {
         Ok(())
     }
 
+    /// Share overrides of `ids`, keyed by entry. The list is cast so an empty set still binds.
+    pub fn overrides_of(conn: &Connection, ids: impl IntoIterator<Item = EntryId>) -> Result<BTreeMap<EntryId, Vec<Share>>, StoreError> {
+        let list = duckdb::types::Value::List(ids.into_iter().map(|id| duckdb::types::Value::BigInt(id.0)).collect());
+        let sql = "SELECT entry_id, member_id, pct FROM entry_share_overrides WHERE list_contains(CAST(? AS BIGINT[]), entry_id) ORDER BY 1, 2";
+        let mut map: BTreeMap<EntryId, Vec<Share>> = BTreeMap::new();
+        query(conn, sql, [list], rows::owned_share)?.into_iter().for_each(|(id, s)| map.entry(EntryId(id)).or_default().push(s));
+        Ok(map)
+    }
+
     fn with_overrides(conn: &Connection, entries: Vec<Entry>) -> Result<Vec<EntryView>, StoreError> {
-        let ids: Vec<i64> = entries.iter().map(|e| e.id.0).collect();
-        let mut by_entry: BTreeMap<i64, Vec<Share>> = BTreeMap::new();
-        let sql = "SELECT entry_id, member_id, pct FROM entry_share_overrides WHERE list_contains(?, entry_id) ORDER BY 1, 2";
-        let list = duckdb::types::Value::List(ids.into_iter().map(duckdb::types::Value::BigInt).collect());
-        query(conn, sql, [list], rows::owned_share)?.into_iter().for_each(|(id, s)| by_entry.entry(id).or_default().push(s));
-        Ok(entries.into_iter().map(|e| EntryView { overrides: by_entry.remove(&e.id.0).unwrap_or_default(), entry: e }).collect())
+        let mut by_entry = Self::overrides_of(conn, entries.iter().map(|e| e.id))?;
+        Ok(entries.into_iter().map(|e| EntryView { overrides: by_entry.remove(&e.id).unwrap_or_default(), entry: e }).collect())
     }
 
     fn probe(conn: &Connection, p: &DuplicateProbe) -> Result<Vec<Entry>, StoreError> {

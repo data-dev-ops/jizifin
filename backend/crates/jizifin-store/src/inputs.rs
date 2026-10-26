@@ -4,7 +4,7 @@
 use crate::StoreError;
 use chrono::NaiveDate;
 use jizifin_domain::entities::{
-    AccountCategory, AccountMember, BudgetSource, CategoryKind, DepositMode, EntryKind, Frequency, PayMode, Recurrence,
+    AccountCategory, AccountMember, BudgetSource, CategoryKind, DepositMode, EntryKind, Frequency, Job, PayMode, Recurrence,
     Share,
 };
 use jizifin_domain::ids::{AccountId, CategoryId, EntryId, MemberId, ProjectId, TagId};
@@ -185,6 +185,17 @@ pub struct DuplicateProbe {
     pub exclude: Option<EntryId>,
 }
 
+/// Pay change from `effective`: the current job ends the day before, a copy starts with the new amount.
+#[derive(Debug, Deserialize)]
+pub struct JobAdjustment {
+    /// First day of the new rate.
+    pub effective: NaiveDate,
+    /// New amount per period.
+    pub amount: Cents,
+    /// Encrypted note for the new stream.
+    pub notes: Option<Ciphertext>,
+}
+
 /// Job create/replace.
 #[derive(Debug, Deserialize)]
 pub struct JobInput {
@@ -202,6 +213,20 @@ pub struct JobInput {
     pub valid_to: Option<NaiveDate>,
     /// Encrypted notes.
     pub notes: Option<Ciphertext>,
+}
+
+impl From<&Job> for JobInput {
+    fn from(job: &Job) -> Self {
+        Self {
+            member: job.member,
+            name: job.name.clone(),
+            amount: job.amount,
+            frequency: job.frequency,
+            valid_from: job.valid_from,
+            valid_to: job.valid_to,
+            notes: job.notes.clone(),
+        }
+    }
 }
 
 impl JobInput {

@@ -8,8 +8,10 @@ use axum::routing::get;
 use axum::{Json, Router};
 use jizifin_auditor::budget::PROPOSAL_LOOKBACK_MONTHS;
 use jizifin_auditor::{AuditError, AuditScope, AuditedResult, Auditor};
+use jizifin_domain::Cents;
 use jizifin_domain::ids::{AccountId, ProjectId};
-use serde::Serialize;
+use jizifin_auditor::splits::SplitStrategy;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 type Audited<T> = Result<Json<AuditedResult<T>>, ApiError>;
@@ -23,7 +25,10 @@ pub fn routes() -> Router<AppState> {
         .route("/budgets/status", get(budget_status))
         .route("/budgets/proposals", get(budget_proposals))
         .route("/splits/salary-ratios", get(salary_ratios))
+        .route("/splits/effective", get(split_overview))
+        .route("/splits/proposal", get(split_proposal))
         .route("/income/effective", get(effective_income))
+        .route("/cashflow", get(cash_flow))
 }
 
 async fn project_settlement(State(s): State<AppState>, Path(id): Path<i64>) -> Audited<impl Serialize> {
@@ -31,9 +36,21 @@ async fn project_settlement(State(s): State<AppState>, Path(id): Path<i64>) -> A
     run(&s, move |a| a.project_settlement(scope, ProjectId(id))).await
 }
 
-async fn deposit_proposal(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
+/// `?round_to=<cents>`
+#[derive(Deserialize)]
+struct RoundQuery {
+    round_to: Option<i64>,
+}
+
+async fn deposit_proposal(
+    State(s): State<AppState>,
+    Path(id): Path<i64>,
+    Query(q): Query<MonthQuery>,
+    Query(r): Query<RoundQuery>,
+) -> Audited<impl Serialize> {
+    let round_to = r.round_to.map(Cents::new);
     let scope = AuditScope::month(q.month()?, today());
-    run(&s, move |a| a.deposit_proposal(scope, AccountId(id))).await
+    run(&s, move |a| a.deposit_proposal(scope, AccountId(id), round_to)).await
 }
 
 async fn joint_dashboard(State(s): State<AppState>, Path(id): Path<i64>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
@@ -41,8 +58,14 @@ async fn joint_dashboard(State(s): State<AppState>, Path(id): Path<i64>, Query(q
     run(&s, move |a| a.joint_dashboard(scope, AccountId(id))).await
 }
 
-async fn budget_status(State(s): State<AppState>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
-    let scope = AuditScope::month(q.month()?, today());
+/// `?account=<id>`
+#[derive(Deserialize)]
+struct AccountQuery {
+    account: Option<i64>,
+}
+
+async fn budget_status(State(s): State<AppState>, Query(q): Query<MonthQuery>, Query(acc): Query<AccountQuery>) -> Audited<impl Serialize> {
+    let scope = AuditScope::month(q.month()?, today()).with_members(q.members()?).with_account(acc.account.map(AccountId));
     run(&s, move |a| a.budget_status(scope)).await
 }
 
@@ -56,9 +79,30 @@ async fn salary_ratios(State(s): State<AppState>, Query(q): Query<MonthQuery>) -
     run(&s, move |a| a.salary_ratios(scope)).await
 }
 
+async fn split_overview(State(s): State<AppState>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
+    let scope = AuditScope::month(q.month()?, today());
+    run(&s, move |a| a.split_overview(scope)).await
+}
+
+/// `?strategy=even|salary`
+#[derive(Deserialize)]
+struct StrategyQuery {
+    strategy: SplitStrategy,
+}
+
+async fn split_proposal(State(s): State<AppState>, Query(q): Query<MonthQuery>, Query(k): Query<StrategyQuery>) -> Audited<impl Serialize> {
+    let scope = AuditScope::month(q.month()?, today()).with_members(q.members()?);
+    run(&s, move |a| a.split_proposal(scope, k.strategy)).await
+}
+
 async fn effective_income(State(s): State<AppState>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
     let scope = AuditScope::month(q.month()?, today());
     run(&s, move |a| a.income(scope)).await
+}
+
+async fn cash_flow(State(s): State<AppState>, Query(q): Query<MonthQuery>) -> Audited<impl Serialize> {
+    let scope = AuditScope::month(q.month()?, today()).with_members(q.members()?);
+    run(&s, move |a| a.cash_flow(scope)).await
 }
 
 async fn run<T, F>(state: &AppState, audit: F) -> Audited<T>

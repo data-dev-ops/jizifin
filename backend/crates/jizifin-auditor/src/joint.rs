@@ -61,8 +61,16 @@ pub struct JointDashboard {
     pub actual_total: Cents,
     /// Deposits plus positive corrections this month.
     pub deposited_total: Cents,
+    /// Expected monthly costs (override or Σ category expectations).
+    pub expected_total: Cents,
+    /// Safety margin applied to the expected costs.
+    pub safety_margin_pct: f64,
     /// Deposit target.
     pub target: Cents,
+    /// Deposit still needed to bring the balance up to the target.
+    pub top_up: Cents,
+    /// `deposited_total − actual_total` for the month (negative = deficit).
+    pub month_surplus: Cents,
     /// Per-category usage.
     pub categories: Vec<CategoryUsage>,
     /// Per-member deposits.
@@ -88,13 +96,18 @@ impl<'a> JointBalanceCalculator<'a> {
     pub fn calculate(&self) -> JointDashboard {
         let target = DepositProposer::target(self.account);
         let deposited_total = self.deposited_total();
+        let (balance, actual_total) = (self.balance(), self.month_spent());
         JointDashboard {
             account: self.account.id,
             month: self.scope.month,
-            balance: self.balance(),
-            actual_total: self.month_entries(EntryKind::Expense).map(|e| e.amount).sum(),
+            balance,
+            actual_total,
             deposited_total,
+            month_surplus: deposited_total - actual_total,
+            expected_total: self.account.expected_total(),
+            safety_margin_pct: self.account.safety_margin_pct,
             target,
+            top_up: (target - balance).max(Cents::ZERO),
             categories: self.account.categories.iter().map(|c| self.usage(c.category, c.expected)).collect(),
             members: self.account.members.iter().map(|m| self.member_deposit(m)).collect(),
             status: self.status(deposited_total, target),
@@ -109,6 +122,10 @@ impl<'a> JointBalanceCalculator<'a> {
     fn month_entries(&self, kind: EntryKind) -> impl Iterator<Item = &'a Entry> {
         let period = self.scope.month.period();
         self.account_entries().filter(move |e| e.kind == kind && period.contains(e.date))
+    }
+
+    fn month_spent(&self) -> Cents {
+        self.month_entries(EntryKind::Expense).map(|e| e.amount).sum()
     }
 
     fn balance(&self) -> Cents {
@@ -162,7 +179,7 @@ impl<'a> JointBalanceCalculator<'a> {
 
 /// Invariant set applied to [`JointDashboard`].
 pub fn joint_invariants() -> InvariantSet<JointDashboard> {
-    InvariantSet::new(vec![Box::new(CategoriesWithinActual), Box::new(TargetCoversExpected)])
+    InvariantSet::new(vec![Box::new(CategoriesWithinActual), Box::new(TargetCoversExpected), Box::new(TopUpClosesGap)])
 }
 
 /// Σ category actuals never exceeds the month's joint expense total.
@@ -187,5 +204,17 @@ impl Invariant<JointDashboard> for TargetCoversExpected {
     fn holds(&self, d: &JointDashboard, snap: &Snapshot) -> bool {
         let Ok(account) = snap.account(d.account) else { return false };
         account.safety_margin_pct < 0.0 || d.target >= account.expected_total()
+    }
+}
+
+/// Balance plus the proposed top-up reaches the target, and the top-up is never negative.
+struct TopUpClosesGap;
+
+impl Invariant<JointDashboard> for TopUpClosesGap {
+    fn id(&self) -> &'static str {
+        "top_up_closes_gap"
+    }
+    fn holds(&self, d: &JointDashboard, _: &Snapshot) -> bool {
+        !d.top_up.is_negative() && d.balance + d.top_up >= d.target
     }
 }

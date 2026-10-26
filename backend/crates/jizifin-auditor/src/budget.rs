@@ -2,7 +2,7 @@
 
 use crate::invariant::{Invariant, InvariantSet};
 use crate::{AuditScope, Snapshot};
-use jizifin_domain::entities::{Budget, EntryKind};
+use jizifin_domain::entities::{Budget, Entry, EntryKind};
 use jizifin_domain::ids::CategoryId;
 use jizifin_domain::{Cents, Month};
 use serde::Serialize;
@@ -13,6 +13,9 @@ pub const PROPOSAL_LOOKBACK_MONTHS: u32 = 3;
 
 /// Proposals are rounded up to whole currency units.
 const WHOLE_UNIT: i64 = 100;
+
+/// Usage below this percentage counts as safe in the health index.
+const SAFE_PCT_USED: f64 = 90.0;
 
 /// Spending vs limit for one budgeted category.
 #[derive(Clone, Debug, PartialEq, Serialize)]
@@ -27,6 +30,52 @@ pub struct BudgetStatus {
     pub remaining: Cents,
     /// `spent / limit` in percent, one decimal.
     pub pct_used: f64,
+}
+
+/// Totals across every budgeted category.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct BudgetSummary {
+    /// Σ limits.
+    pub total_limit: Cents,
+    /// Σ spent in budgeted categories.
+    pub total_spent: Cents,
+    /// `max(0, total_limit − total_spent)`.
+    pub total_remaining: Cents,
+    /// `total_spent / total_limit` in percent; absent without limits.
+    pub usage_pct: Option<f64>,
+    /// Categories with a positive limit.
+    pub configured: usize,
+    /// Of those, categories below 90 % usage.
+    pub safe: usize,
+    /// `safe / configured` in percent (100 when nothing is configured).
+    pub health_pct: f64,
+}
+
+/// Status rows plus their totals.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct BudgetReport {
+    /// One row per budgeted category.
+    pub rows: Vec<BudgetStatus>,
+    /// Totals.
+    pub summary: BudgetSummary,
+}
+
+impl BudgetSummary {
+    fn of(rows: &[BudgetStatus]) -> Self {
+        let total_limit: Cents = rows.iter().map(|r| r.limit).sum();
+        let total_spent: Cents = rows.iter().map(|r| r.spent).sum();
+        let configured = rows.iter().filter(|r| r.limit.is_positive()).count();
+        let safe = rows.iter().filter(|r| r.limit.is_positive() && r.pct_used < SAFE_PCT_USED).count();
+        Self {
+            total_limit,
+            total_spent,
+            total_remaining: (total_limit - total_spent).max(Cents::ZERO),
+            usage_pct: total_limit.is_positive().then(|| total_spent.value() as f64 / total_limit.value() as f64 * 100.0),
+            configured,
+            safe,
+            health_pct: if configured == 0 { 100.0 } else { safe as f64 / configured as f64 * 100.0 },
+        }
+    }
 }
 
 /// Proposed limit for one category.
@@ -44,9 +93,14 @@ pub struct BudgetProposal {
 struct SpendIndex(BTreeMap<(CategoryId, Month), Cents>);
 
 impl SpendIndex {
-    fn build(snap: &Snapshot) -> Self {
+    /// Expense spend in the scope: paid by the scoped members and, with an account, charged to it.
+    fn build(snap: &Snapshot, scope: &AuditScope) -> Self {
         let mut index = BTreeMap::new();
-        let expenses = snap.entries.iter().filter(|e| e.kind == EntryKind::Expense);
+        let in_scope = |e: &&Entry| {
+            let member_ok = scope.members.as_ref().is_none_or(|f| e.member.is_some_and(|m| f.contains(&m)));
+            e.kind == EntryKind::Expense && member_ok && scope.account.is_none_or(|a| e.account == Some(a))
+        };
+        let expenses = snap.entries.iter().filter(in_scope);
         for (entry, category) in expenses.filter_map(|e| e.category.map(|c| (e, c))) {
             *index.entry((category, Month::of(entry.date))).or_default() += entry.amount;
         }
@@ -67,19 +121,21 @@ impl SpendIndex {
 /// Evaluates stored budgets against actual spend.
 pub struct BudgetEvaluator<'a> {
     snap: &'a Snapshot,
+    scope: &'a AuditScope,
     month: Month,
 }
 
 impl<'a> BudgetEvaluator<'a> {
-    /// Evaluator for `scope.month`.
-    pub fn new(snap: &'a Snapshot, scope: &AuditScope) -> Self {
-        Self { snap, month: scope.month }
+    /// Evaluator for `scope` (month, optional members and account).
+    pub fn new(snap: &'a Snapshot, scope: &'a AuditScope) -> Self {
+        Self { snap, scope, month: scope.month }
     }
 
-    /// Status per category with a budget effective this month.
-    pub fn evaluate(&self) -> Vec<BudgetStatus> {
-        let index = SpendIndex::build(self.snap);
-        self.effective().into_values().map(|b| Self::status(b, index.spent(b.category, self.month))).collect()
+    /// Status per category with a budget effective this month, plus totals.
+    pub fn evaluate(&self) -> BudgetReport {
+        let index = SpendIndex::build(self.snap, self.scope);
+        let rows: Vec<BudgetStatus> = self.effective().into_values().map(|b| Self::status(b, index.spent(b.category, self.month))).collect();
+        BudgetReport { summary: BudgetSummary::of(&rows), rows }
     }
 
     fn effective(&self) -> BTreeMap<CategoryId, &'a Budget> {
@@ -105,18 +161,19 @@ impl<'a> BudgetEvaluator<'a> {
 /// Proposes limits from trailing spend.
 pub struct BudgetProposer<'a> {
     snap: &'a Snapshot,
+    scope: &'a AuditScope,
     month: Month,
 }
 
 impl<'a> BudgetProposer<'a> {
     /// Proposer for `scope.month`; the snapshot must cover the lookback window.
-    pub fn new(snap: &'a Snapshot, scope: &AuditScope) -> Self {
-        Self { snap, month: scope.month }
+    pub fn new(snap: &'a Snapshot, scope: &'a AuditScope) -> Self {
+        Self { snap, scope, month: scope.month }
     }
 
     /// One proposal per expense category with spend in the lookback window.
     pub fn propose(&self) -> Vec<BudgetProposal> {
-        let index = SpendIndex::build(self.snap);
+        let index = SpendIndex::build(self.snap, self.scope);
         let months = self.lookback();
         let proposals = index.categories().map(|c| Self::proposal(&index, c, &months));
         proposals.filter(|p| p.proposed.is_positive()).collect()
@@ -159,19 +216,32 @@ impl Invariant<Vec<BudgetProposal>> for WholeUnitProposals {
     }
 }
 
-/// Invariant set applied to budget status rows.
-pub fn status_invariants() -> InvariantSet<Vec<BudgetStatus>> {
-    InvariantSet::new(vec![Box::new(RemainingBalances)])
+/// Invariant set applied to budget reports.
+pub fn status_invariants() -> InvariantSet<BudgetReport> {
+    InvariantSet::new(vec![Box::new(RemainingBalances), Box::new(SummaryMatchesRows)])
 }
 
 /// `remaining + spent == limit` on every row.
 struct RemainingBalances;
 
-impl Invariant<Vec<BudgetStatus>> for RemainingBalances {
+impl Invariant<BudgetReport> for RemainingBalances {
     fn id(&self) -> &'static str {
         "remaining_balances"
     }
-    fn holds(&self, rows: &Vec<BudgetStatus>, _: &Snapshot) -> bool {
-        rows.iter().all(|r| r.remaining + r.spent == r.limit)
+    fn holds(&self, r: &BudgetReport, _: &Snapshot) -> bool {
+        r.rows.iter().all(|row| row.remaining + row.spent == row.limit)
+    }
+}
+
+/// Summary totals equal the row sums.
+struct SummaryMatchesRows;
+
+impl Invariant<BudgetReport> for SummaryMatchesRows {
+    fn id(&self) -> &'static str {
+        "summary_matches_rows"
+    }
+    fn holds(&self, r: &BudgetReport, _: &Snapshot) -> bool {
+        r.summary.total_limit == r.rows.iter().map(|row| row.limit).sum::<Cents>()
+            && r.summary.total_spent == r.rows.iter().map(|row| row.spent).sum::<Cents>()
     }
 }

@@ -6,12 +6,12 @@ use crate::error::ApiError;
 use crate::state::AppState;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
-use axum::routing::{delete, get, put};
+use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
 use jizifin_domain::Month;
 use jizifin_domain::entities::{IncomeOverride, Job, Member};
 use jizifin_domain::ids::{JobId, MemberId};
-use jizifin_store::inputs::{JobInput, MemberInput};
+use jizifin_store::inputs::{JobAdjustment, JobInput, MemberInput};
 use jizifin_store::repo::{IncomeOverrides, Jobs, Members};
 
 /// People and income routes.
@@ -21,6 +21,7 @@ pub fn routes() -> Router<AppState> {
         .route("/members/{id}", put(update_member).delete(delete_member))
         .route("/jobs", get(list_jobs).post(create_job))
         .route("/jobs/{id}", put(update_job).delete(delete_job))
+        .route("/jobs/{id}/adjust", post(adjust_job))
         .route("/income-overrides", get(list_overrides).put(upsert_override))
         .route("/income-overrides/{member}/{month}", delete(delete_override))
 }
@@ -54,6 +55,10 @@ async fn create_job(State(s): State<AppState>, Json(input): Json<JobInput>) -> C
 async fn update_job(State(s): State<AppState>, Path(id): Path<i64>, Json(input): Json<JobInput>) -> Done {
     s.write("jobs.updated", move |c| Jobs::update(c, JobId(id), &input)).await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+async fn adjust_job(State(s): State<AppState>, Path(id): Path<i64>, Json(change): Json<JobAdjustment>) -> Created {
+    Ok(created(s.write("jobs.updated", move |c| Jobs::adjust(c, JobId(id), &change)).await?))
 }
 
 async fn delete_job(State(s): State<AppState>, Path(id): Path<i64>) -> Done {

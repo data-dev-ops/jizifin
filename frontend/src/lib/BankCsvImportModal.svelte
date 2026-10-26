@@ -1,66 +1,55 @@
 <script>
   /**
-   * BankCsvImportModal.svelte
-   *
-   * Bank statement CSV Importer dialog for Jizifin:
-   * - Bank Selection (ING Bank Belgium active, KBC Bank upcoming)
-   * - Household Payer Selection
-   * - Client-side zero-knowledge statement parsing
-   * - Overview table with manual actions:
-   *   * Beneficiary-based category cascading
-   *   * Optional tag assignment
-   *   * Prevent storage checkbox
-   *   * Group to Other (semi-hidden expense consolidation)
+   * BankCsvImportModal.svelte — bank statement import. Parsing, the category cascade,
+   * micro-debit grouping, totals and entry drafts run in jizifin-wasm; duplicates are
+   * checked by the server before the batch is written.
    */
-
-  import { createEventDispatcher, onMount } from 'svelte';
-  import { users, splits, tags, currencySymbol, selectedMonth, incomeCategories, expenses } from './stores.js';
-  import { parseBankCsv, cascadeCategory, prepareTransactionsForImport } from './csvParser.js';
-  import { createExpensesBatch, createIncome } from './api.js';
-  import { findMatchingExpenses } from './duplicateDetector.js';
+  import { createEventDispatcher } from 'svelte';
+  import { activeMembers, expenseCategories, incomeCategories, tags } from './stores.js';
+  import { parseBankCsv, summarize, cascadeFrom, microIndices, draftsFor } from './csv.js';
+  import { entryApi } from './api.js';
+  import { money } from './format.js';
   import DuplicatePromptModal from './DuplicatePromptModal.svelte';
 
   const dispatch = createEventDispatcher();
-
   export let isOpen = false;
 
-  // Active household members
-  $: activeUsers = $users.filter((u) => u.is_active);
-  $: activeTags = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
+  /** Debits below this are offered for bundling. */
+  const MICRO_CENTS = 500;
+  const BUNDLE_CATEGORY = 'OTHER';
 
-  // Form State
   let selectedBank = 'ING';
-  let selectedPayer = '';
+  let selectedPayer = null;
+  $: if (!selectedPayer && $activeMembers.length) selectedPayer = $activeMembers[0].id;
 
-  // Watch activeUsers to set default payer
-  $: if (activeUsers.length > 0 && !selectedPayer) {
-    selectedPayer = activeUsers[0].name;
-  }
-
-  // File & Parsing State
   let fileInput;
   let isDragging = false;
   let fileName = '';
   let parsing = false;
   let parseError = null;
 
-  // Review Stage State
   let transactions = [];
   let stats = null;
+  let summary = null;
   let searchQuery = '';
   let filterOnlyUncategorized = false;
   let cascadeNotice = '';
   let cascadeNoticeTimer = null;
 
-  // Import Execution State
   let importing = false;
   let importError = null;
   let importSuccessCount = null;
 
-  // Duplicate Detection State
   let showDuplicateModal = false;
   let duplicateItems = [];
-  let pendingImportPayload = null;
+  let pendingDrafts = null;
+  let duplicateIndices = [];
+  let duplicateRows = new Set();
+
+  $: summarize(transactions).then((s) => (summary = s)).catch(() => null);
+  $: hasUncategorized = (summary?.uncategorized ?? 0) > 0;
+  $: uncategorizedCount = summary?.uncategorized ?? 0;
+  $: bundleCategory = $expenseCategories.find((c) => c.name === BUNDLE_CATEGORY)?.id ?? null;
 
   function resetState() {
     fileName = '';
@@ -76,7 +65,8 @@
     importSuccessCount = null;
     showDuplicateModal = false;
     duplicateItems = [];
-    pendingImportPayload = null;
+    pendingDrafts = null;
+    duplicateRows = new Set();
   }
 
   function handleClose() {
@@ -85,12 +75,9 @@
   }
 
   function handleKeydown(e) {
-    if (e.key === 'Escape' && !importing) {
-      handleClose();
-    }
+    if (e.key === 'Escape' && isOpen && !importing) handleClose();
   }
 
-  // Handle Drag & Drop
   function handleDragOver(e) {
     e.preventDefault();
     isDragging = true;
@@ -117,23 +104,15 @@
       parseError = 'Please upload a valid .csv file.';
       return;
     }
-
     parseError = null;
     parsing = true;
     fileName = file.name;
-
     try {
-      if (selectedBank === 'KBC') {
-        throw new Error('KBC Bank export format is not yet supported. The parser will be added in a future update.');
-      }
-
-      const text = await file.text();
-      const result = parseBankCsv(text, selectedBank, selectedPayer);
-      // Transactions start with category = '' requiring explicit selection
-      transactions = result.transactions;
+      const result = await parseBankCsv(await file.text(), selectedBank);
+      transactions = result.transactions.map((t) => ({ ...t, member: selectedPayer, category: null, tag: null }));
       stats = result.stats;
     } catch (err) {
-      parseError = err.message || 'Failed to parse CSV file.';
+      parseError = err.message ?? String(err);
       transactions = [];
       stats = null;
     } finally {
@@ -141,157 +120,66 @@
     }
   }
 
-  // Manual Actions: Category Cascading
-  function onCategoryChange(tx, newCategory) {
-    tx.category = newCategory;
-    const beneficiary = tx.beneficiary;
-    if (!beneficiary) return;
-
-    // Cascade within the same type (income or expense)
-    const { updatedTransactions, count } = cascadeCategory(transactions, beneficiary, newCategory, tx.isCredit);
-    transactions = updatedTransactions;
-
-    if (count > 1) {
-      if (cascadeNoticeTimer) clearTimeout(cascadeNoticeTimer);
-      const typeLabel = tx.isCredit ? 'income transactions' : 'expenses';
-      cascadeNotice = `Updated ${count} ${typeLabel} for "${beneficiary}" to "${newCategory}"`;
-      cascadeNoticeTimer = setTimeout(() => {
-        cascadeNotice = '';
-      }, 3500);
-    }
+  function notice(text) {
+    clearTimeout(cascadeNoticeTimer);
+    cascadeNotice = text;
+    cascadeNoticeTimer = setTimeout(() => (cascadeNotice = ''), 3500);
   }
 
-  // Quick Action: Select / Deselect All
+  async function onCategoryChange(index, category) {
+    const targets = await cascadeFrom(transactions, index);
+    targets.forEach((i) => { transactions[i].category = category; });
+    transactions = transactions;
+    if (targets.length > 1) notice(`Updated ${targets.length} rows for "${transactions[index].beneficiary}"`);
+  }
+
   function toggleAllIncluded(value) {
     transactions = transactions.map((t) => ({ ...t, include: value }));
   }
 
-  // Quick Action: Auto-group micro expenses (< €5.00)
-  function groupMicroExpenses() {
-    let count = 0;
-    transactions = transactions.map((t) => {
-      if (t.include && !t.isCredit && t.amountCents < 500) {
-        count++;
-        return { ...t, groupToOther: true };
-      }
-      return t;
-    });
-    if (count > 0) {
-      if (cascadeNoticeTimer) clearTimeout(cascadeNoticeTimer);
-      cascadeNotice = `Grouped ${count} micro-expenses (< €5) to "Other"`;
-      cascadeNoticeTimer = setTimeout(() => {
-        cascadeNotice = '';
-      }, 3500);
-    }
+  async function groupMicroExpenses() {
+    const targets = await microIndices(transactions, MICRO_CENTS);
+    targets.forEach((i) => { transactions[i].groupToOther = true; });
+    transactions = transactions;
+    if (targets.length) notice(`Grouped ${targets.length} micro-expenses (< ${$money(MICRO_CENTS)}) to "${BUNDLE_CATEGORY}"`);
   }
 
-  // Computed Review Stats
-  $: includedTransactions = transactions.filter((t) => t.include && t.amountCents > 0);
-  $: includedExpenses = includedTransactions.filter((t) => !t.isCredit);
-  $: includedIncomes = includedTransactions.filter((t) => t.isCredit);
-  $: groupedToOtherTransactions = includedExpenses.filter((t) => t.groupToOther);
+  $: needle = searchQuery.trim().toLowerCase();
+  $: filteredTransactions = transactions
+    .map((t, index) => ({ t, index }))
+    .filter(({ t }) => !filterOnlyUncategorized || (t.include && t.category == null && !t.groupToOther))
+    .filter(({ t }) => !needle || [t.beneficiary, t.rawDescription, t.displayDate].some((v) => (v || '').toLowerCase().includes(needle)));
 
-  $: totalIncludedExpenseCents = includedExpenses.reduce((sum, t) => sum + t.amountCents, 0);
-  $: totalIncludedIncomeCents = includedIncomes.reduce((sum, t) => sum + t.amountCents, 0);
-  $: totalGroupedOtherCents = groupedToOtherTransactions.reduce((sum, t) => sum + t.amountCents, 0);
+  const entryOf = (d) => ({ kind: d.kind, date: d.date, amount: d.amount, member: d.member, category: d.category, tag: d.tag, name: d.label });
 
-  // Uncategorized check: all included items (expenses not grouped to other, and all income) must have a category
-  $: uncategorizedTransactions = includedTransactions.filter(
-    (t) => (!t.category || !t.category.trim()) && !t.groupToOther
-  );
-  $: uncategorizedCount = uncategorizedTransactions.length;
-  $: hasUncategorized = uncategorizedCount > 0;
-
-  // Map of tx.id -> matching existing expenses for duplicate indication
-  $: duplicateMap = new Map();
-  $: {
-    const map = new Map();
-    for (const tx of transactions) {
-      if (tx.include && !tx.isCredit && tx.category && !tx.groupToOther) {
-        const matches = findMatchingExpenses({ category: tx.category, cost_cents: tx.amountCents }, $expenses, $selectedMonth);
-        if (matches.length > 0) {
-          map.set(tx.id, matches);
-        }
-      }
-    }
-    duplicateMap = map;
-  }
-
-  // Filtered view in table
-  $: filteredTransactions = transactions.filter((t) => {
-    if (filterOnlyUncategorized) {
-      const isUncat = t.include && t.amountCents > 0 && (!t.category || !t.category.trim()) && !t.groupToOther;
-      if (!isUncat) return false;
-    }
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
-    return (
-      (t.beneficiary && t.beneficiary.toLowerCase().includes(q)) ||
-      (t.rawDescription && t.rawDescription.toLowerCase().includes(q)) ||
-      (t.category && t.category.toLowerCase().includes(q)) ||
-      t.displayDate.includes(q)
-    );
-  });
-
-  // Execute Import
   async function handleImport() {
     importError = null;
-
     try {
-      if (hasUncategorized) {
-        throw new Error(
-          `All to-import transactions must have a category set before importing (${uncategorizedCount} items missing category).`
-        );
-      }
-
-      const { expenses: preparedExpenses, incomes: preparedIncomes } = prepareTransactionsForImport(
-        transactions,
-        selectedPayer
-      );
-
-      if (preparedExpenses.length === 0 && preparedIncomes.length === 0) {
-        throw new Error('No expenses or income entries selected for import.');
-      }
-
-      // Duplicate detection: check if any to-import expense matches existing expenses
-      const duplicateWarnings = [];
-      for (const exp of preparedExpenses) {
-        if (exp.name.startsWith('Other expenses (')) continue;
-        const matches = findMatchingExpenses(exp, $expenses, $selectedMonth);
-        if (matches.length > 0) {
-          duplicateWarnings.push({ prospective: exp, matches });
-        }
-      }
-
-      if (duplicateWarnings.length > 0) {
-        pendingImportPayload = { expenses: preparedExpenses, incomes: preparedIncomes };
-        duplicateItems = duplicateWarnings;
+      const drafts = await draftsFor(transactions, bundleCategory);
+      if (drafts.length === 0) throw new Error('No expenses or income entries selected for import.');
+      const probes = drafts.map((d) => ({ category: d.category, amount: d.amount, date: d.date }));
+      const found = (await entryApi.duplicates(probes)).filter((f) => drafts[f.index].kind === 'expense');
+      if (found.length) {
+        pendingDrafts = drafts;
+        duplicateIndices = found.map((f) => f.index);
+        duplicateItems = found.map((f) => ({ prospective: { ...drafts[f.index], name: drafts[f.index].label }, matches: f.matches }));
         showDuplicateModal = true;
         return;
       }
-
-      await executeImport(preparedExpenses, preparedIncomes);
+      await executeImport(drafts);
     } catch (err) {
-      importError = err.message || 'Failed to import transactions.';
+      importError = err.message ?? String(err);
     }
   }
 
-  async function executeImport(expensesToSave, incomesToSave) {
+  async function executeImport(drafts) {
     importing = true;
     try {
-      if (expensesToSave.length > 0) {
-        await createExpensesBatch(expensesToSave, $selectedMonth);
-      }
-      if (incomesToSave.length > 0) {
-        await createIncome(incomesToSave, $selectedMonth);
-      }
-
-      importSuccessCount = { expenses: expensesToSave.length, incomes: incomesToSave.length };
-      setTimeout(() => {
-        handleClose();
-      }, 1500);
+      await entryApi.batch(drafts.map(entryOf));
+      importSuccessCount = { expenses: drafts.filter((d) => d.kind === 'expense').length, incomes: drafts.filter((d) => d.kind === 'income').length };
+      setTimeout(handleClose, 1500);
     } catch (err) {
-      importError = err.message || 'Failed to import transactions.';
+      importError = err.message;
     } finally {
       importing = false;
     }
@@ -299,48 +187,25 @@
 
   async function handleConfirmDuplicates() {
     showDuplicateModal = false;
-    if (pendingImportPayload) {
-      const { expenses: exps, incomes: incs } = pendingImportPayload;
-      pendingImportPayload = null;
-      duplicateItems = [];
-      await executeImport(exps, incs);
-    }
+    const drafts = pendingDrafts;
+    pendingDrafts = null;
+    duplicateItems = [];
+    if (drafts) await executeImport(drafts);
   }
 
   async function handleSkipDuplicates() {
     showDuplicateModal = false;
-    if (pendingImportPayload) {
-      const dupKeys = new Set(
-        duplicateItems.map((d) => `${d.prospective.category}__${d.prospective.cost_cents}__${d.prospective.expense_date}`)
-      );
-      const remainingExpenses = pendingImportPayload.expenses.filter(
-        (e) => !dupKeys.has(`${e.category}__${e.cost_cents}__${e.expense_date}`)
-      );
-      const incs = pendingImportPayload.incomes;
-
-      // Also uncheck skipped duplicate transactions in the table
-      transactions = transactions.map((t) => {
-        if (t.include && !t.isCredit && dupKeys.has(`${t.category}__${t.amountCents}__${t.date}`)) {
-          return { ...t, include: false };
-        }
-        return t;
-      });
-
-      pendingImportPayload = null;
-      duplicateItems = [];
-
-      if (remainingExpenses.length === 0 && incs.length === 0) {
-        cascadeNotice = 'All duplicate items were skipped. No remaining items to import.';
-        return;
-      }
-
-      await executeImport(remainingExpenses, incs);
-    }
+    const skip = new Set(duplicateIndices);
+    const remaining = (pendingDrafts ?? []).filter((_, i) => !skip.has(i));
+    pendingDrafts = null;
+    duplicateItems = [];
+    if (remaining.length) await executeImport(remaining);
+    else importError = 'All selected expenses were duplicates; nothing imported.';
   }
 
   function handleCancelDuplicates() {
     showDuplicateModal = false;
-    pendingImportPayload = null;
+    pendingDrafts = null;
     duplicateItems = [];
   }
 </script>
@@ -427,8 +292,8 @@
                   bind:value={selectedPayer}
                   class="w-full px-3.5 py-2.5 rounded-xl border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 text-sm font-medium focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 outline-none transition"
                 >
-                  {#each activeUsers as u}
-                    <option value={u.name}>{u.name}</option>
+                  {#each $activeMembers as u (u.id)}
+                    <option value={u.id}>{u.name}</option>
                   {/each}
                 </select>
               </div>
@@ -493,13 +358,13 @@
               <div class="p-3.5 rounded-xl border border-indigo-200 dark:border-indigo-900/60 bg-indigo-50/50 dark:bg-indigo-950/20">
                 <span class="text-[11px] font-semibold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Expenses to Store</span>
                 <p class="text-lg font-bold text-indigo-900 dark:text-indigo-200 mt-0.5">
-                  {includedExpenses.length} <span class="text-xs font-medium text-neutral-500">({$currencySymbol} {(totalIncludedExpenseCents / 100).toFixed(2)})</span>
+                  {summary?.expenses ?? 0} <span class="text-xs font-medium text-neutral-500">({$money(summary?.expenseCents ?? 0)})</span>
                 </p>
               </div>
               <div class="p-3.5 rounded-xl border border-emerald-200 dark:border-emerald-900/60 bg-emerald-50/50 dark:bg-emerald-950/20">
                 <span class="text-[11px] font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wider">Income to Store</span>
                 <p class="text-lg font-bold text-emerald-900 dark:text-emerald-200 mt-0.5">
-                  {includedIncomes.length} <span class="text-xs font-medium text-neutral-500">(+{$currencySymbol} {(totalIncludedIncomeCents / 100).toFixed(2)})</span>
+                  {summary?.incomes ?? 0} <span class="text-xs font-medium text-neutral-500">(+{$money(summary?.incomeCents ?? 0)})</span>
                 </p>
               </div>
               <div class="p-3.5 rounded-xl border {hasUncategorized ? 'border-amber-300 dark:border-amber-800/80 bg-amber-50/70 dark:bg-amber-950/30' : 'border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-800/40'}">
@@ -602,13 +467,14 @@
                     </tr>
                   </thead>
                   <tbody class="divide-y divide-neutral-200 dark:divide-neutral-800 bg-white dark:bg-neutral-900">
-                    {#each filteredTransactions as tx (tx.id)}
+                    {#each filteredTransactions as row (row.t.rowIndex)}
+                      {@const tx = row.t}
                       <tr class="hover:bg-neutral-50/70 dark:hover:bg-neutral-800/40 transition-colors {tx.include ? '' : 'opacity-40 bg-neutral-50/30'}">
                         <!-- Include Checkbox -->
                         <td class="p-2.5 text-center">
                           <input
                             type="checkbox"
-                            bind:checked={tx.include}
+                            bind:checked={transactions[row.index].include}
                             class="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 dark:focus:ring-offset-neutral-900 cursor-pointer"
                           />
                         </td>
@@ -635,30 +501,20 @@
                         <td class="p-2.5">
                           <input
                             type="text"
-                            bind:value={tx.beneficiary}
+                            bind:value={transactions[row.index].beneficiary}
                             class="w-full px-2 py-1 rounded-md border border-transparent hover:border-neutral-300 dark:hover:border-neutral-700 focus:border-indigo-500 bg-transparent text-xs font-semibold text-neutral-900 dark:text-neutral-100 outline-none transition"
                           />
-                          {#if duplicateMap.has(tx.id)}
-                            <div class="mt-0.5">
-                              <span
-                                class="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-100 text-amber-900 dark:bg-amber-950/80 dark:text-amber-300 cursor-help"
-                                title="Matches existing: {duplicateMap.get(tx.id).map((m) => `${m.name} (${m.expense_date})`).join(', ')}"
-                              >
-                                <span>⚠️</span> Duplicate match
-                              </span>
-                            </div>
-                          {/if}
                         </td>
 
                         <!-- Amount -->
                         <td class="p-2.5 text-right whitespace-nowrap font-mono font-semibold">
                           {#if tx.isCredit}
                             <span class="text-emerald-600 dark:text-emerald-400">
-                              +{$currencySymbol}{(tx.amountCents / 100).toFixed(2)}
+                              +{$money(tx.amountCents)}
                             </span>
                           {:else}
                             <span class="text-neutral-900 dark:text-white">
-                              {$currencySymbol}{(tx.amountCents / 100).toFixed(2)}
+                              {$money(tx.amountCents)}
                             </span>
                           {/if}
                         </td>
@@ -668,29 +524,29 @@
                           {#if tx.isCredit}
                             <select
                               value={tx.category}
-                              on:change={(e) => onCategoryChange(tx, e.target.value)}
+                              on:change={(e) => onCategoryChange(row.index, e.target.value ? Number(e.target.value) : null)}
                               class="w-full px-2 py-1 rounded-lg border text-xs font-medium focus:ring-1 outline-none transition
                                 {!tx.category && tx.include
                                   ? 'border-amber-400 dark:border-amber-500 bg-amber-50/70 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 focus:ring-amber-500'
                                   : 'border-emerald-300 dark:border-emerald-700 bg-emerald-50/50 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100 focus:ring-emerald-500'}"
                             >
-                              <option value="">-- Choose Income Category --</option>
-                              {#each $incomeCategories as c}
-                                <option value={c.category}>{c.category}</option>
+                              <option value={null}>-- Choose Income Category --</option>
+                              {#each $incomeCategories as c (c.id)}
+                                <option value={c.id}>{c.name}</option>
                               {/each}
                             </select>
                           {:else}
                             <select
                               value={tx.category}
-                              on:change={(e) => onCategoryChange(tx, e.target.value)}
+                              on:change={(e) => onCategoryChange(row.index, e.target.value ? Number(e.target.value) : null)}
                               class="w-full px-2 py-1 rounded-lg border text-xs font-medium focus:ring-1 outline-none transition
                                 {!tx.category && tx.include && !tx.groupToOther
                                   ? 'border-amber-400 dark:border-amber-500 bg-amber-50/70 dark:bg-amber-950/50 text-amber-900 dark:text-amber-100 focus:ring-amber-500'
                                   : 'border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-neutral-900 dark:text-neutral-100 focus:ring-indigo-500'}"
                             >
-                              <option value="">-- Choose Category --</option>
-                              {#each $splits as split}
-                                <option value={split.category}>{split.category}</option>
+                              <option value={null}>-- Choose Category --</option>
+                              {#each $expenseCategories as c (c.id)}
+                                <option value={c.id}>{c.name}</option>
                               {/each}
                             </select>
                           {/if}
@@ -699,11 +555,11 @@
                         <!-- Tag -->
                         <td class="p-2.5">
                           <select
-                            bind:value={tx.tagId}
+                            bind:value={transactions[row.index].tag}
                             class="w-full px-2 py-1 rounded-lg border border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 text-xs text-neutral-900 dark:text-neutral-100 font-medium focus:ring-1 focus:ring-indigo-500 outline-none transition"
                           >
                             <option value={null}>None</option>
-                            {#each activeTags as tag}
+                            {#each $tags as tag (tag.id)}
                               <option value={tag.id}>{tag.name}</option>
                             {/each}
                           </select>
@@ -716,7 +572,7 @@
                           {:else}
                             <input
                               type="checkbox"
-                              bind:checked={tx.groupToOther}
+                              bind:checked={transactions[row.index].groupToOther}
                               disabled={!tx.include}
                               class="w-4 h-4 rounded text-purple-600 focus:ring-purple-500 dark:focus:ring-offset-neutral-900 cursor-pointer disabled:opacity-30"
                             />
@@ -730,12 +586,12 @@
             </div>
 
             <!-- Grouped To Other Note -->
-            {#if groupedToOtherTransactions.length > 0}
+            {#if summary?.grouped > 0}
               <div class="px-4 py-2.5 rounded-xl bg-purple-50 dark:bg-purple-950/40 border border-purple-200 dark:border-purple-800/60 text-purple-900 dark:text-purple-200 text-xs flex items-center justify-between">
                 <div class="flex items-center gap-2">
                   <span>📦</span>
                   <span>
-                    <strong>{groupedToOtherTransactions.length} expenses</strong> will be bundled into 1 consolidated <em>"Other expenses"</em> ledger entry ({$currencySymbol}{(totalGroupedOtherCents / 100).toFixed(2)}).
+                    <strong>{summary.grouped} expenses</strong> will be bundled into 1 consolidated <em>"Other expenses"</em> ledger entry ({$money(summary.groupedCents)}).
                   </span>
                 </div>
                 <span class="font-bold text-purple-700 dark:text-purple-300 text-[11px] uppercase tracking-wider">Semi-Hidden Grouping</span>
@@ -783,7 +639,7 @@
           <button
             type="button"
             on:click={handleImport}
-            disabled={importing || (includedExpenses.length === 0 && includedIncomes.length === 0) || hasUncategorized}
+            disabled={importing || !(summary?.expenses || summary?.incomes) || hasUncategorized}
             class="px-5 py-2.5 rounded-xl text-xs font-bold text-white bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:pointer-events-none transition shadow-lg shadow-indigo-600/20 flex items-center gap-2"
           >
             {#if importing}
@@ -794,12 +650,12 @@
             {:else}
               <span>
                 Import
-                {#if includedExpenses.length > 0 && includedIncomes.length > 0}
-                  {includedExpenses.length} Expenses & {includedIncomes.length} Incomes
-                {:else if includedExpenses.length > 0}
-                  {includedExpenses.length} Expenses ({$currencySymbol}{(totalIncludedExpenseCents / 100).toFixed(2)})
+                {#if summary?.expenses > 0 && summary?.incomes > 0}
+                  {summary.expenses} Expenses & {summary.incomes} Incomes
+                {:else if summary?.expenses > 0}
+                  {summary.expenses} Expenses ({$money(summary.expenseCents)})
                 {:else}
-                  {includedIncomes.length} Incomes ({$currencySymbol}{(totalIncludedIncomeCents / 100).toFixed(2)})
+                  {summary?.incomes ?? 0} Incomes ({$money(summary?.incomeCents ?? 0)})
                 {/if}
               </span>
             {/if}

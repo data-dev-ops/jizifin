@@ -4,6 +4,7 @@ use crate::rows::{self, AGREEMENT_COLS};
 use crate::sql::{insert_id, opt_ct, query, require, touch_one};
 use crate::StoreError;
 use duckdb::{Connection, params};
+use jizifin_auditor::scope::LEDGER_START;
 use jizifin_domain::entities::{Agreement, CategoryKind, Share};
 use jizifin_domain::ids::{AgreementId, CategoryId};
 
@@ -44,6 +45,21 @@ impl Agreements {
         let sql = "UPDATE agreements SET valid_from = ?, valid_to = ?, note_ct = ? WHERE id = ?";
         touch_one(conn, sql, params![input.valid_from, input.valid_to, opt_ct(&input.note), id.0], "agreement")?;
         Self::write_shares(conn, id, &input.shares)
+    }
+
+    /// Sets the shares of the category's baseline (latest open-ended agreement), creating one from the ledger start.
+    pub fn set_baseline(conn: &Connection, category: CategoryId, shares: &[Share]) -> Result<AgreementId, StoreError> {
+        let baseline = Self::for_category(conn, category)?.into_iter().find(|a| !a.is_bounded());
+        let input = |a: Option<&Agreement>| AgreementInput {
+            valid_from: a.map_or(LEDGER_START, |a| a.valid_from),
+            valid_to: None,
+            note: a.and_then(|a| a.note.clone()),
+            shares: shares.to_vec(),
+        };
+        match baseline {
+            Some(a) => Self::update(conn, a.id, &input(Some(&a))).map(|()| a.id),
+            None => Self::create(conn, category, &input(None)),
+        }
     }
 
     /// Deletes an agreement and its shares.

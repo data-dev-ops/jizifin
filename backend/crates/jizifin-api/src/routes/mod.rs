@@ -11,6 +11,7 @@ mod projects;
 mod query;
 mod rules;
 mod settlements;
+mod views;
 
 use crate::state::AppState;
 use crate::{auth, error::ApiError, events};
@@ -44,6 +45,7 @@ pub fn router(state: AppState) -> Router {
         .merge(projects::routes())
         .merge(rules::routes())
         .merge(settlements::routes())
+        .merge(views::routes())
         .merge(console::routes())
         .merge(backup::routes())
         .layer(middleware::from_fn_with_state(state.clone(), auth::require_session));

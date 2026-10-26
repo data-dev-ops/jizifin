@@ -1,285 +1,125 @@
 <script>
   /**
-   * ExpenseList.svelte
-   *
-   * Renders the expenses store as a scrollable table with rich interactivity:
-   * - Filters by `selectedMonth` store (YYYY-MM), text search, category, and tag.
-   * - Quick inline tag assign/change popover for any listed expense.
-   * - Full-featured Edit Expense modal (updating name, amount, date, who_paid,
-   *   category, project, tag, and custom split overrides).
-   * - Delete with click-through confirmation.
-   * - Dates converted from YYYY-MM-DD (storage) → DD/MM/YYYY (display).
+   * ExpenseList.svelte — one month of expenses, paged by the server (keyset
+   * cursor) and filtered by category and tag server-side. Search is a plaintext
+   * substring match over the loaded rows; totals come from `/views/month`.
    */
 
-  import { expenses, selectedMonth, projects, tags, settlements, users, splits, currencySymbol, jointCategories, jointAccountEnabled, jointAccounts, activeJointAccountId, showProjectsInExpense, privacyShield, expenseRowDensity } from './stores.js';
-  import { deleteExpense, updateExpense } from './api.js';
+  import { entryApi, views } from './api.js';
+  import { entryInput } from './entryInput.js';
+  import EntryEditModal from './EntryEditModal.svelte';
+  import { money, fmtDate, monthBounds } from './format.js';
+  import {
+    selectedMonth, ledgerVersion, seals, expenseCategories, tags, tagById, projectById,
+    accountById, categoryById, memberById, memberName, categoryName, privacyShield, expenseRowDensity,
+  } from './stores.js';
 
-  $: activeUsers = $users.filter((u) => u.is_active);
-
-  /** Set of plain category names assigned to the joint account */
-  $: jointCategorySet = new Set(($jointCategories || []).map((c) => (typeof c === 'string' ? c : c.plain)));
-
-  /** Map of joint account IDs to account objects */
-  $: jointAccountMap = Object.fromEntries(($jointAccounts || []).map((ja) => [ja.id, ja]));
-
-  /** Lookup user color from the users store. */
-  function userColor(name) {
-    return $users.find((u) => u.name === name)?.color ?? '#6366f1';
-  }
-
-  /** Set of locked YYYY-MM strings — O(1) lookup per row instead of O(N) scan */
-  $: lockedMonthsSet = new Set($settlements.map((s) => s.month));
-
-  /** True if a given expense_date month is locked */
-  function isLocked(expDate) {
-    const m = expDate ? expDate.slice(0, 7) : null;
-    return m ? lockedMonthsSet.has(m) : false;
-  }
-
-  /** Build id→name lookup map from projects store */
-  $: projectMap = Object.fromEntries($projects.map((p) => [p.id, p.name]));
-
-  /** Build id→tag lookup map from tags store */
-  $: tagMap = Object.fromEntries($tags.map((t) => [t.id, t]));
-
-  /** Active tags precomputed — used in both quick-tag popover and modal to avoid per-row filter */
-  $: activeTags = $tags.filter((t) => t.is_active !== false && t.is_active !== 0);
-
-  /** Helper to get active tags plus currently assigned tag for an expense */
-  function getSelectableTags(currentTagId) {
-    if (!currentTagId) return activeTags;
-    // Include the currently assigned tag even if inactive
-    if (activeTags.some((t) => t.id === currentTagId)) return activeTags;
-    const currentTag = $tags.find((t) => t.id === currentTagId);
-    return currentTag ? [...activeTags, currentTag] : activeTags;
-  }
-
-  /** Active tags for modal */
-  $: activeModalTags = $tags.filter((t) => (t.is_active !== false && t.is_active !== 0) || t.id === editTagId);
-
-  /** YYYY-MM-DD → DD/MM/YYYY */
-  function formatDate(iso) {
-    if (!iso) return '—';
-    const [y, m, d] = iso.split('-');
-    return `${d}/${m}/${y}`;
-  }
-
-  /** Integer cents → currency amount */
-  function formatAmount(cents) {
-    return `${$currencySymbol}${(cents / 100).toFixed(2)}`;
-  }
-
-  // ── Filters & Search ────────────────────────────────────────────────────────
   let searchQuery = '';
   let selectedCategoryFilter = 'ALL';
   let selectedTagFilter = 'ALL';
 
-  /** Expenses for current month */
-  $: monthExpenses = $expenses.filter((e) =>
-    e.expense_date && e.expense_date.startsWith($selectedMonth)
-  );
+  let rows = [];
+  let nextCursor = null;
+  let monthTotal = null;
+  let loadError = null;
+  let loadingMore = false;
 
-  /** Filtered list based on search and category/tag selectors */
-  $: filtered = monthExpenses.filter((e) => {
-    if (selectedCategoryFilter !== 'ALL' && e.category !== selectedCategoryFilter) return false;
-    if (selectedTagFilter !== 'ALL') {
-      if (selectedTagFilter === 'UNTAGGED' && e.tag_id) return false;
-      if (selectedTagFilter !== 'UNTAGGED' && String(e.tag_id) !== String(selectedTagFilter)) return false;
+  $: filter = {
+    kind: 'expense',
+    ...monthBounds($selectedMonth),
+    category: selectedCategoryFilter === 'ALL' ? null : selectedCategoryFilter,
+    tag: selectedTagFilter === 'ALL' ? null : selectedTagFilter,
+  };
+  $: reload(filter, $ledgerVersion);
+
+  async function reload(f) {
+    loadError = null;
+    try {
+      const [page, month] = await Promise.all([entryApi.page(f), views.month($selectedMonth)]);
+      rows = page.entries;
+      nextCursor = page.next_cursor;
+      monthTotal = f.category ? month.by_category.find((b) => b.key === Number(f.category)) ?? { total: 0, count: 0 } : month;
+    } catch (err) {
+      loadError = err.message;
     }
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase();
-      const matchName = (e.name || '').toLowerCase().includes(q);
-      const matchCategory = (e.category || '').toLowerCase().includes(q);
-      const matchPayer = (e.who_paid || '').toLowerCase().includes(q);
-      const matchTag = e.tag_id && tagMap[e.tag_id] && tagMap[e.tag_id].name.toLowerCase().includes(q);
-      const matchProject = e.project_id && projectMap[e.project_id] && projectMap[e.project_id].toLowerCase().includes(q);
-      if (!matchName && !matchCategory && !matchPayer && !matchTag && !matchProject) return false;
+  }
+
+  async function loadMore() {
+    loadingMore = true;
+    try {
+      const page = await entryApi.page({ ...filter, cursor: nextCursor });
+      rows = [...rows, ...page.entries];
+      nextCursor = page.next_cursor;
+    } catch (err) {
+      loadError = err.message;
+    } finally {
+      loadingMore = false;
     }
-    return true;
-  });
+  }
 
-  $: totalFilteredCents = filtered.reduce((acc, e) => acc + (e.cost_cents || 0), 0);
+  $: needle = searchQuery.trim().toLowerCase();
+  $: filtered = needle ? rows.filter(matches) : rows;
 
-  // ── Quick Tag Popover State ────────────────────────────────────────────────
+  function matches(e) {
+    const labels = [e.name, $categoryName(e.category), $memberName(e.member), $tagById.get(e.tag)?.name, $projectById.get(e.project)?.name];
+    return labels.some((l) => (l || '').toLowerCase().includes(needle));
+  }
+
+  $: sealedMonths = new Set($seals.map((s) => s.month));
+  const isLocked = (date) => sealedMonths.has(date.slice(0, 7));
+
+  function isCoupled(e) {
+    return $accountById.get(e.account)?.categories.some((c) => c.category === e.category) ?? true;
+  }
+
+  function sharesLabel(e) {
+    return e.overrides.map((o) => `${$memberName(o.member)} ${o.pct}%`).join(' / ');
+  }
+
+  // ── Quick tag ──────────────────────────────────────────────────────────────
   let quickTagExpenseId = null;
   let tagUpdatingId = null;
 
-  function toggleQuickTag(expenseId, e) {
-    if (e) e.stopPropagation();
-    quickTagExpenseId = quickTagExpenseId === expenseId ? null : expenseId;
+  function toggleQuickTag(id, e) {
+    e?.stopPropagation();
+    quickTagExpenseId = quickTagExpenseId === id ? null : id;
   }
 
-  async function setExpenseTag(expense, targetTagId) {
+  function selectableTags(e) {
+    return $tags.filter((t) => t.id === e.tag || ((!t.valid_from || t.valid_from <= e.date) && (!t.valid_to || t.valid_to >= e.date)));
+  }
+
+  async function setExpenseTag(expense, tag) {
     tagUpdatingId = expense.id;
     try {
-      await updateExpense(expense.id, { tag_id: targetTagId }, $selectedMonth);
+      await entryApi.update(expense.id, entryInput(expense, { tag }));
       quickTagExpenseId = null;
     } catch (err) {
-      alert(err.message || 'Failed to update tag.');
+      loadError = err.message;
     } finally {
       tagUpdatingId = null;
     }
   }
 
-  // ── Delete State ───────────────────────────────────────────────────────────
+  // ── Delete ─────────────────────────────────────────────────────────────────
   let confirmDeleteId = null;
   let deletingId = null;
   let deleteError = null;
-
-  function requestDelete(id) {
-    confirmDeleteId = id;
-    deleteError = null;
-  }
-
-  function cancelDelete() {
-    confirmDeleteId = null;
-    deleteError = null;
-  }
 
   async function confirmDelete(id) {
     deletingId = id;
     deleteError = null;
     try {
-      await deleteExpense(id, $selectedMonth);
+      await entryApi.remove(id);
       confirmDeleteId = null;
     } catch (err) {
-      deleteError = err.message ?? 'Delete failed.';
+      deleteError = err.message;
     } finally {
       deletingId = null;
     }
   }
 
-  // ── Edit Expense Modal State ───────────────────────────────────────────────
-  let editingExpense = null;
-  let editName = '';
-  let editCostEuros = '';
-  let editDate = '';
-  let editCategory = '';
-  let editWhoPaid = '';
-  let editPaidByJoint = false;
-  let editJointAccountId = null;
-  let editProjectId = null;
-  let editTagId = null;
-  let editCustomSplit = false;
-  let editOverridePcts = {};
-  let editUseSlider = true;
-  let editSliderVal = 50;
-  let editSaving = false;
-  let editError = null;
-
-  function openEditModal(expense) {
-    editingExpense = expense;
-    editName = expense.name || '';
-    editCostEuros = ((expense.cost_cents || 0) / 100).toFixed(2);
-    editDate = expense.expense_date || '';
-    editCategory = expense.category || '';
-    editPaidByJoint = !!expense.is_joint;
-    editJointAccountId = expense.joint_account_id || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1);
-    editWhoPaid = expense.who_paid || (activeUsers[0]?.name ?? '');
-    editProjectId = expense.project_id ?? null;
-    editTagId = expense.tag_id ?? null;
-    editError = null;
-
-    // Split overrides
-    editOverridePcts = {};
-    if (expense.overrides && expense.overrides.length > 0) {
-      editCustomSplit = true;
-      expense.overrides.forEach((o) => {
-        editOverridePcts[o.user_name] = o.pct;
-      });
-      if (activeUsers.length === 2 && editOverridePcts[activeUsers[0].name] !== undefined) {
-        editSliderVal = Math.round(editOverridePcts[activeUsers[0].name]);
-        editUseSlider = true;
-      } else {
-        editUseSlider = false;
-      }
-    } else {
-      editCustomSplit = false;
-      if (activeUsers.length === 2) {
-        editSliderVal = 50;
-        editOverridePcts[activeUsers[0].name] = 50;
-        editOverridePcts[activeUsers[1].name] = 50;
-      } else if (activeUsers.length > 0) {
-        const base = Math.floor(100 / activeUsers.length);
-        activeUsers.forEach((u) => { editOverridePcts[u.name] = base; });
-      }
-    }
-  }
-
-  function closeEditModal() {
-    editingExpense = null;
-    editError = null;
-  }
-
-  function handleEditSliderInput(e) {
-    const val = Math.round(parseFloat(e.target.value));
-    editSliderVal = val;
-    if (activeUsers.length === 2) {
-      editOverridePcts[activeUsers[0].name] = val;
-      editOverridePcts[activeUsers[1].name] = 100 - val;
-    }
-  }
-
-  $: editOverrideSum = Number(Object.values(editOverridePcts).reduce((s, v) => s + (parseFloat(v) || 0), 0).toFixed(2));
-  $: editOverrideOk = Math.abs(editOverrideSum - 100) < 0.05;
-
-  async function handleSaveEdit() {
-    editError = null;
-    if (!editName.trim()) {
-      editError = 'Description is required.';
-      return;
-    }
-    const parsedCost = parseFloat(editCostEuros);
-    if (isNaN(parsedCost) || parsedCost <= 0) {
-      editError = 'Please enter a valid positive amount.';
-      return;
-    }
-    const costCents = Math.round(parsedCost * 100);
-
-    if (!editDate || !/^\d{4}-\d{2}-\d{2}$/.test(editDate)) {
-      editError = 'Valid date required (YYYY-MM-DD).';
-      return;
-    }
-    if (!editPaidByJoint && !editWhoPaid) {
-      editError = 'Please select who paid.';
-      return;
-    }
-    if (!editCategory) {
-      editError = 'Please select a category.';
-      return;
-    }
-
-    editSaving = true;
-    try {
-      const payload = {
-        name: editName.trim(),
-        cost_cents: costCents,
-        expense_date: editDate,
-        who_paid: editPaidByJoint ? (activeUsers[0]?.name ?? 'John') : editWhoPaid,
-        category: editCategory,
-        project_id: editProjectId ? Number(editProjectId) : null,
-        tag_id: editTagId ? Number(editTagId) : null,
-        is_joint: editPaidByJoint,
-        joint_account_id: editPaidByJoint ? (editJointAccountId || $activeJointAccountId || ($jointAccounts?.[0]?.id ?? 1)) : null,
-      };
-
-      if (!editPaidByJoint && editCustomSplit && editOverrideOk) {
-        payload.overrides = Object.entries(editOverridePcts).map(([user_name, pct]) => ({
-          user_name,
-          pct: Number(parseFloat(pct).toFixed(4)),
-        }));
-      } else if (!editCustomSplit) {
-        payload.overrides = [];
-      }
-
-      await updateExpense(editingExpense.id, payload, $selectedMonth);
-      closeEditModal();
-    } catch (err) {
-      editError = err.message || 'Failed to update expense.';
-    } finally {
-      editSaving = false;
-    }
-  }
+  let editing = null;
 </script>
 
 <svelte:window on:click={() => (quickTagExpenseId = null)} />
@@ -297,7 +137,7 @@
       <input
         id="expense-search-input"
         type="text"
-        placeholder="Filter by name, payer, or tag…"
+        placeholder="Search loaded rows by name, payer, tag…"
         bind:value={searchQuery}
         class="input-field pl-9 pr-8 text-xs py-1.5"
       />
@@ -316,8 +156,8 @@
       class="select-field text-xs py-1.5 w-auto"
     >
       <option value="ALL">All Categories</option>
-      {#each $splits as s}
-        <option value={s.category}>{s.category}</option>
+      {#each $expenseCategories as c (c.id)}
+        <option value={c.id}>{c.name}</option>
       {/each}
     </select>
 
@@ -329,7 +169,6 @@
         class="select-field text-xs py-1.5 w-auto"
       >
         <option value="ALL">All Tags</option>
-        <option value="UNTAGGED">No Tag</option>
         {#each $tags as t}
           <option value={t.id}>● {t.name}</option>
         {/each}
@@ -340,13 +179,17 @@
   <!-- Summary Stats Bar -->
   <div class="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400 px-1">
     <span>
-      Showing <strong class="text-neutral-900 dark:text-neutral-200">{filtered.length}</strong> of {monthExpenses.length} entries
+      Showing <strong class="text-neutral-900 dark:text-neutral-200">{filtered.length}</strong> of {monthTotal?.count ?? rows.length} entries
     </span>
     <span class="font-semibold text-neutral-800 dark:text-neutral-200">
-      Total: <span class="text-indigo-600 dark:text-indigo-400 font-bold">{formatAmount(totalFilteredCents)}</span>
+      Total: <span class="text-indigo-600 dark:text-indigo-400 font-bold">{$money(monthTotal?.total ?? 0)}</span>
     </span>
   </div>
 </div>
+
+{#if loadError}
+  <p class="text-xs text-rose-600 dark:text-red-400 mb-3">{loadError}</p>
+{/if}
 
 {#if filtered.length === 0}
   <div class="flex flex-col items-center justify-center py-16 text-center gap-3 empty-state-box">
@@ -357,10 +200,10 @@
       </svg>
     </div>
     <p class="text-neutral-700 dark:text-neutral-400 text-sm font-medium">
-      {monthExpenses.length === 0 ? 'No expenses for this month.' : 'No matching expenses found.'}
+      {rows.length === 0 ? 'No expenses for this month.' : 'No matching expenses found.'}
     </p>
     <p class="text-neutral-500 text-xs max-w-xs">
-      {#if monthExpenses.length === 0}
+      {#if rows.length === 0}
         Expenses you log will appear here. Use the form on the left to add your first entry.
       {:else}
         Try clearing your search or category filter to see all {$selectedMonth} expenses.
@@ -386,7 +229,7 @@
           <tr class="border-b border-neutral-200/60 dark:border-neutral-800/60 hover:bg-neutral-100/60 dark:hover:bg-neutral-800/40 transition-colors group">
             <!-- Date -->
             <td class="py-3 pr-4 pl-1 text-neutral-500 tabular-nums whitespace-nowrap">
-              {formatDate(expense.expense_date)}
+              {fmtDate(expense.date)}
             </td>
 
             <!-- Description & Badges -->
@@ -394,10 +237,10 @@
               <span class="block truncate font-medium text-neutral-900 dark:text-neutral-100">{expense.name}</span>
               
               <div class="flex items-center gap-1.5 flex-wrap mt-1">
-                {#if expense.project_id && projectMap[expense.project_id]}
+                {#if $projectById.get(expense.project)}
                   <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
                                bg-indigo-50 dark:bg-indigo-950/60 text-indigo-700 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/60 font-medium">
-                    ▰ {projectMap[expense.project_id]}
+                    ▰ {$projectById.get(expense.project).name}
                   </span>
                 {/if}
 
@@ -405,8 +248,8 @@
                 <!-- svelte-ignore a11y-click-events-have-key-events -->
                 <!-- svelte-ignore a11y-no-static-element-interactions -->
                 <div class="relative inline-block" on:click|stopPropagation>
-                  {#if expense.tag_id && tagMap[expense.tag_id]}
-                    {@const tag = tagMap[expense.tag_id]}
+                  {#if $tagById.get(expense.tag)}
+                    {@const tag = $tagById.get(expense.tag)}
                     <button
                       type="button"
                       id="tag-badge-{expense.id}"
@@ -436,22 +279,22 @@
                     >
                       <p class="text-[10px] font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider px-2 py-1">Assign Tag</p>
                       
-                      {#if getSelectableTags(expense.tag_id).length === 0}
+                      {#if selectableTags(expense).length === 0}
                         <p class="text-xs text-neutral-500 px-2 py-1.5">No active tags available.</p>
                       {:else}
                         <div class="max-h-40 overflow-y-auto space-y-0.5">
-                          {#each getSelectableTags(expense.tag_id) as t}
+                          {#each selectableTags(expense) as t (t.id)}
                             <button
                               type="button"
                               on:click={() => setExpenseTag(expense, t.id)}
                               disabled={tagUpdatingId === expense.id}
-                              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-left {expense.tag_id === t.id ? 'bg-neutral-100 dark:bg-neutral-800/80 font-semibold' : ''}"
+                              class="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg text-xs hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors text-left {expense.tag === t.id ? 'bg-neutral-100 dark:bg-neutral-800/80 font-semibold' : ''}"
                             >
                               <span class="w-2.5 h-2.5 rounded-full flex-none" style="background-color: {t.color}"></span>
                               <span class="truncate flex-1 text-neutral-800 dark:text-neutral-200">
-                                {t.name}{t.is_active === false || t.is_active === 0 ? ' (Closed)' : ''}
+                                {t.name}
                               </span>
-                              {#if expense.tag_id === t.id}
+                              {#if expense.tag === t.id}
                                 <span class="text-indigo-600 dark:text-indigo-400 text-xs">✓</span>
                               {/if}
                             </button>
@@ -459,7 +302,7 @@
                         </div>
                       {/if}
 
-                      {#if expense.tag_id}
+                      {#if expense.tag}
                         <div class="border-t border-neutral-200 dark:border-neutral-800 pt-1 mt-1">
                           <button
                             type="button"
@@ -476,13 +319,13 @@
                 </div>
 
                 {#if $expenseRowDensity !== 'minimal'}
-                  {#if expense.is_joint}
+                  {#if expense.account != null}
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
                                  bg-indigo-50 dark:bg-indigo-950/80 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-700/60 font-semibold"
                           title="Paid by Joint Account">
                       🏦 Joint
                     </span>
-                    {#if !jointCategorySet.has(expense.category)}
+                    {#if !isCoupled(expense)}
                       <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
                                    bg-amber-50 dark:bg-amber-950/80 text-amber-800 dark:text-amber-300 border border-amber-200 dark:border-amber-700/60 font-semibold"
                             title="Category is not in the list of coupled joint account categories">
@@ -494,7 +337,7 @@
                   {#if expense.overrides && expense.overrides.length > 0}
                     <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px]
                                  bg-amber-50 dark:bg-amber-950/60 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-800/60"
-                          title="Custom split: {expense.overrides.map(o => o.user_name + ' ' + o.pct + '%').join(' / ')}">
+                          title="Custom split: {sharesLabel(expense)}">
                       ✶ custom split
                     </span>
                   {/if}
@@ -505,30 +348,30 @@
             <!-- Category -->
             <td class="py-3 pr-4">
               <span class="badge-neutral">
-                {expense.category}
+                {$categoryName(expense.category)}
               </span>
             </td>
 
             <!-- Paid by -->
             <td class="py-3 pr-4">
-              <span class="text-xs font-semibold tabular-nums" style="color: {userColor(expense.who_paid)}">
-                {expense.who_paid}
+              <span class="text-xs font-semibold tabular-nums" style="color: {$memberById.get(expense.member)?.color ?? '#6366f1'}">
+                {$memberName(expense.member)}
               </span>
-              {#if expense.is_joint && $expenseRowDensity !== 'minimal'}
+              {#if expense.account != null && $expenseRowDensity !== 'minimal'}
                 <span class="block text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">
-                  🏦 {jointAccountMap[expense.joint_account_id]?.name || 'Joint'}
+                  🏦 {$accountById.get(expense.account)?.name ?? 'Joint'}
                 </span>
               {/if}
             </td>
 
             <!-- Amount -->
             <td class="py-3 pr-4 text-right font-semibold text-neutral-900 dark:text-neutral-100 tabular-nums">
-              <span class:privacy-masked={$privacyShield}>{formatAmount(expense.cost_cents)}</span>
+              <span class:privacy-masked={$privacyShield}>{$money(expense.amount)}</span>
             </td>
 
             <!-- Actions -->
             <td class="py-3 pr-1 text-right whitespace-nowrap">
-              {#if isLocked(expense.expense_date)}
+              {#if isLocked(expense.date)}
                 <span class="text-[10px] text-amber-600 dark:text-amber-400 px-1.5 py-0.5 rounded border border-amber-300 dark:border-amber-900/50 bg-amber-50 dark:bg-amber-950/30">🔒 Locked</span>
               {:else if confirmDeleteId === expense.id}
                 <!-- Confirmation prompt -->
@@ -545,7 +388,7 @@
                   </button>
                   <button
                     id="cancel-delete-{expense.id}"
-                    on:click={cancelDelete}
+                    on:click={() => (confirmDeleteId = null)}
                     class="px-2 py-0.5 rounded text-xs font-semibold bg-neutral-200 dark:bg-neutral-700 hover:bg-neutral-300 dark:hover:bg-neutral-600 text-neutral-800 dark:text-neutral-200
                            transition-colors"
                   >
@@ -557,7 +400,7 @@
                   <!-- Edit Icon Button -->
                   <button
                     id="edit-expense-{expense.id}"
-                    on:click={() => openEditModal(expense)}
+                    on:click={() => (editing = expense)}
                     title="Edit expense"
                     class="p-1 rounded-lg text-neutral-400 hover:text-indigo-600 dark:hover:text-indigo-300 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 transition-all duration-150"
                   >
@@ -570,7 +413,7 @@
                   <!-- Trash Icon Button -->
                   <button
                     id="delete-expense-{expense.id}"
-                    on:click={() => requestDelete(expense.id)}
+                    on:click={() => { confirmDeleteId = expense.id; deleteError = null; }}
                     title="Delete expense"
                     class="p-1 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400 hover:bg-rose-50 dark:hover:bg-red-950/40 transition-all duration-150"
                   >
@@ -590,272 +433,17 @@
     </table>
   </div>
 
+  {#if nextCursor}
+    <div class="flex justify-center mt-4">
+      <button id="expense-load-more" type="button" on:click={loadMore} disabled={loadingMore} class="btn-secondary text-xs">
+        {loadingMore ? 'Loading…' : 'Load more'}
+      </button>
+    </div>
+  {/if}
+
   {#if deleteError}
     <p class="text-xs text-rose-600 dark:text-red-400 mt-3 text-right">{deleteError}</p>
   {/if}
 {/if}
 
-<!-- ── Full-Featured Edit Expense Modal ────────────────────────────────────── -->
-{#if editingExpense}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-fadeIn">
-    <div class="card p-5 sm:p-6 max-w-lg w-full shadow-2xl max-h-[90vh] overflow-y-auto space-y-4 text-left border-neutral-300 dark:border-neutral-800">
-      <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3">
-        <h3 class="text-base font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-          <span>Edit Expense</span>
-          <span class="text-xs font-normal text-neutral-500 dark:text-neutral-400">({formatDate(editingExpense.expense_date)})</span>
-        </h3>
-        <button
-          on:click={closeEditModal}
-          class="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 text-lg font-bold p-1 leading-none"
-        >✕</button>
-      </div>
-
-      {#if editError}
-        <div class="p-3 bg-rose-50 dark:bg-red-950/60 border border-rose-200 dark:border-red-800 rounded-xl text-rose-700 dark:text-red-300 text-xs">
-          {editError}
-        </div>
-      {/if}
-
-      <form on:submit|preventDefault={handleSaveEdit} class="space-y-3.5">
-        <!-- 1. Description -->
-        <div>
-          <label for="edit-expense-name" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Description</label>
-          <input
-            id="edit-expense-name"
-            type="text"
-            bind:value={editName}
-            class="input-field"
-          />
-        </div>
-
-        <!-- 2. Amount & Date in Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label for="edit-expense-cost" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Amount ({$currencySymbol})</label>
-            <input
-              id="edit-expense-cost"
-              type="number"
-              min="0.01"
-              step="0.01"
-              bind:value={editCostEuros}
-              class="input-field"
-            />
-          </div>
-          <div>
-            <label for="edit-expense-date" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Date</label>
-            <input
-              id="edit-expense-date"
-              type="date"
-              bind:value={editDate}
-              class="input-field"
-            />
-          </div>
-        </div>
-
-        <!-- 3. Category -->
-        <div>
-          <label for="edit-expense-category" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Category</label>
-          <select
-            id="edit-expense-category"
-            bind:value={editCategory}
-            class="select-field"
-          >
-            {#each $splits as s}
-              <option value={s.category}>{s.category}</option>
-            {/each}
-          </select>
-        </div>
-
-        <!-- 4. Project & Tag in Grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {#if $projects.length > 0}
-            <div>
-              <label for="edit-expense-project" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Project</label>
-              <select
-                id="edit-expense-project"
-                bind:value={editProjectId}
-                class="select-field"
-              >
-                <option value={null}>— No Project —</option>
-                {#each $projects as p}
-                  <option value={p.id}>{p.name}{p.is_joint ? ' 🏦' : ''}</option>
-                {/each}
-              </select>
-            </div>
-          {/if}
-
-          {#if activeModalTags.length > 0}
-            <div>
-              <label for="edit-expense-tag" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1">Tag</label>
-              <select
-                id="edit-expense-tag"
-                bind:value={editTagId}
-                class="select-field"
-              >
-                <option value={null}>— No Tag —</option>
-                {#each activeModalTags as t}
-                  <option value={t.id}>
-                    ● {t.name}{t.is_active === false || t.is_active === 0 ? ' (Closed)' : ''}
-                  </option>
-                {/each}
-              </select>
-            </div>
-          {/if}
-        </div>
-
-        <!-- 5. Who Paid -->
-        <div>
-          <p class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-2">Paid by</p>
-          <div class="flex flex-wrap gap-2.5">
-            {#each activeUsers as u}
-              <label class="flex items-center gap-2 text-xs text-neutral-800 dark:text-neutral-200 cursor-pointer bg-neutral-100 dark:bg-neutral-800/80 px-3 py-1.5 rounded-lg border transition-all {editWhoPaid === u.name && !editPaidByJoint ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/40 text-indigo-900 dark:text-white font-semibold' : 'border-neutral-300 dark:border-neutral-700 hover:border-neutral-400 dark:hover:border-neutral-600'}">
-                <input
-                  type="radio"
-                  name="edit-who-paid"
-                  value={u.name}
-                  checked={editWhoPaid === u.name && !editPaidByJoint}
-                  on:change={() => {
-                    editWhoPaid = u.name;
-                    editPaidByJoint = false;
-                  }}
-                  class="sr-only"
-                />
-                <span class="w-2.5 h-2.5 rounded-full" style="background-color: {u.color}"></span>
-                <span>{u.name}</span>
-              </label>
-            {/each}
-
-            {#if $jointAccountEnabled}
-              <label class="flex items-center gap-2 text-xs text-indigo-700 dark:text-indigo-300 cursor-pointer bg-indigo-50 dark:bg-indigo-950/60 px-3 py-1.5 rounded-lg border transition-all {editPaidByJoint ? 'border-indigo-500 bg-indigo-100 dark:bg-indigo-900/60 font-semibold' : 'border-indigo-300 dark:border-indigo-800/60 hover:border-indigo-400 dark:hover:border-indigo-600'}">
-                <input
-                  type="radio"
-                  name="edit-who-paid"
-                  value="joint"
-                  checked={editPaidByJoint}
-                  on:change={() => {
-                    editPaidByJoint = true;
-                  }}
-                  class="sr-only"
-                />
-                <span>🏦 Joint Account</span>
-              </label>
-            {/if}
-          </div>
-
-          {#if editPaidByJoint && ($jointAccounts || []).length > 1}
-            <div class="mt-2.5 p-2.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-200 dark:border-indigo-700/40 space-y-1.5 animate-fadeIn">
-              <label for="edit-expense-joint-account" class="block text-xs font-semibold text-indigo-700 dark:text-indigo-300">
-                Select Joint Account
-              </label>
-              <select
-                id="edit-expense-joint-account"
-                bind:value={editJointAccountId}
-                class="select-field text-xs py-1.5"
-              >
-                {#each $jointAccounts as acc}
-                  <option value={acc.id}>
-                    🏦 {acc.name} {acc.member_names?.length ? `(${acc.member_names.join(' & ')})` : ''}
-                  </option>
-                {/each}
-              </select>
-            </div>
-          {/if}
-        </div>
-
-        <!-- 6. Custom Split Allocations -->
-        {#if !editPaidByJoint}
-          <div class="border-t border-neutral-200 dark:border-neutral-800 pt-3">
-            <label class="flex items-center gap-2 cursor-pointer select-none">
-              <input
-                id="edit-custom-split-toggle"
-                type="checkbox"
-                bind:checked={editCustomSplit}
-                class="rounded bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 text-indigo-600 focus:ring-0"
-              />
-              <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-300">Custom Split Allocation</span>
-            </label>
-
-            {#if editCustomSplit}
-              <div class="mt-2.5 p-3 bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 rounded-xl space-y-2">
-                {#if activeUsers.length === 2 && editUseSlider}
-                  <div class="flex items-center justify-between gap-3 py-1">
-                    <span class="text-xs font-semibold" style="color: {activeUsers[0].color}">
-                      {activeUsers[0].name}: {editSliderVal}%
-                    </span>
-                    <input
-                      type="range" min="0" max="100" step="1"
-                      value={editSliderVal}
-                      on:input={handleEditSliderInput}
-                      class="flex-1 h-2 bg-neutral-200 dark:bg-neutral-800 rounded-lg cursor-pointer accent-indigo-600"
-                    />
-                    <span class="text-xs font-semibold" style="color: {activeUsers[1].color}">
-                      {activeUsers[1].name}: {100 - editSliderVal}%
-                    </span>
-                  </div>
-                  <div class="flex justify-between items-center text-[10px] text-neutral-500 pt-1">
-                    <button type="button" on:click={() => (editUseSlider = false)} class="underline hover:text-neutral-800 dark:hover:text-neutral-300">
-                      Manual % Inputs
-                    </button>
-                    <button
-                      type="button"
-                      on:click={() => {
-                        editSliderVal = 50;
-                        editOverridePcts[activeUsers[0].name] = 50;
-                        editOverridePcts[activeUsers[1].name] = 50;
-                      }}
-                      class="hover:text-neutral-800 dark:hover:text-neutral-300"
-                    >
-                      Reset 50/50
-                    </button>
-                  </div>
-                {:else}
-                  <div class="space-y-1.5">
-                    {#each activeUsers as u}
-                      <div class="flex items-center gap-2">
-                        <span class="text-xs font-semibold w-16 truncate" style="color: {u.color}">{u.name}</span>
-                        <input
-                          type="number" min="0" max="100" step="1"
-                          bind:value={editOverridePcts[u.name]}
-                          class="w-16 bg-white dark:bg-neutral-800 border border-neutral-300 dark:border-neutral-700 rounded px-2 py-1 text-xs text-neutral-900 dark:text-neutral-100"
-                        />
-                        <span class="text-xs text-neutral-500">%</span>
-                      </div>
-                    {/each}
-                    <div class="flex items-center justify-between pt-1">
-                      <span class="text-[10px] {editOverrideOk ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-600 dark:text-amber-400'} font-semibold">
-                        Sum: {editOverrideSum}% (must equal 100%)
-                      </span>
-                      {#if activeUsers.length === 2}
-                        <button type="button" on:click={() => (editUseSlider = true)} class="text-[10px] underline text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-300">
-                          Use Slider
-                        </button>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-              </div>
-            {/if}
-          </div>
-        {/if}
-
-        <div class="flex items-center justify-end gap-2.5 pt-3 border-t border-neutral-200 dark:border-neutral-800">
-          <button
-            type="button"
-            on:click={closeEditModal}
-            class="btn-secondary text-xs py-2 px-4"
-          >
-            Cancel
-          </button>
-          <button
-            id="save-expense-edit-btn"
-            type="submit"
-            disabled={editSaving}
-            class="btn-primary text-xs py-2 px-5"
-          >
-            {editSaving ? 'Saving…' : 'Save Changes'}
-          </button>
-        </div>
-      </form>
-    </div>
-  </div>
-{/if}
+<EntryEditModal entry={editing} on:close={() => (editing = null)} />

@@ -56,7 +56,7 @@ impl IntoResponse for ApiError {
 impl From<AuditError> for ApiError {
     fn from(e: AuditError) -> Self {
         match e {
-            AuditError::UnknownAccount(_) | AuditError::UnknownProject(_) => Self::NotFound(e.to_string()),
+            AuditError::UnknownAccount(_) | AuditError::UnknownProject(_) | AuditError::UnknownEntry(_) => Self::NotFound(e.to_string()),
             AuditError::Load(_) | AuditError::InvariantFailed(_) => Self::Internal(e.to_string()),
         }
     }

@@ -31,6 +31,10 @@ pub struct BucketRow {
     pub expected: BTreeMap<MemberId, Cents>,
     /// Liability share in percent, two decimals, for display.
     pub share_pct: BTreeMap<MemberId, f64>,
+    /// Share of the bucket total each member paid, two decimals, for display.
+    pub paid_pct: BTreeMap<MemberId, f64>,
+    /// Paid − expected per member (positive = owed money back).
+    pub net: BTreeMap<MemberId, Cents>,
 }
 
 /// One simplified transfer.
@@ -57,4 +61,6 @@ pub struct Settlement {
     pub components: Vec<Vec<MemberId>>,
     /// Simplified transfers.
     pub debts: Vec<Debt>,
+    /// Σ transfer amounts.
+    pub transfer_total: Cents,
 }

@@ -7,12 +7,11 @@
    */
 
   import UserManager from './UserManager.svelte';
-  import { exportDatabase, resetDatabase } from './api.js';
-  import { deriveKey, encryptText } from './crypto.js';
+  import { auth, backup } from './api.js';
   import {
     theme,
-    users,
-    splits,
+    activeMembers,
+    expenseCategories,
     projects,
     currencySymbol,
     defaultPayer,
@@ -28,9 +27,6 @@
     mobileAutoCloseMenu,
     mobileCompactView,
     mobileLargeTouchTargets,
-    authSalt,
-    cryptoKey,
-    sessionToken,
     activeDeviceMode,
     detectedDeviceType,
     loadDeviceProfile,
@@ -113,11 +109,15 @@
 
   const CURRENCY_PRESETS = ['€', '$', '£', 'CHF', '¥', 'kr'];
 
+  /** Downloads the ciphertext-only DuckDB backup. */
   async function handleExport() {
     exporting = true;
     exportError = '';
     try {
-      await exportDatabase($authSalt);
+      const blob = await backup.download();
+      const link = Object.assign(document.createElement('a'), { href: URL.createObjectURL(blob), download: `jizifin-${new Date().toISOString().slice(0, 10)}.duckdb` });
+      link.click();
+      URL.revokeObjectURL(link.href);
     } catch (e) {
       exportError = e.message || 'Export failed.';
     } finally {
@@ -133,12 +133,7 @@
     resetting = true;
     resetError = '';
     try {
-      const key = await deriveKey(resetConfirmSalt);
-      const proof = await encryptText("FinanceTrackerAuth", key);
-      await resetDatabase(proof);
-      authSalt.set('');
-      cryptoKey.set(null);
-      sessionToken.set('');
+      await auth.reset(resetConfirmSalt);
       showResetModal = false;
       if (typeof window !== 'undefined') {
         window.location.href = '/';
@@ -906,11 +901,11 @@
           class="w-full sm:w-48 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-indigo-500"
         >
           <option value="">— None (require selection) —</option>
-          {#each $users.filter((u) => u.is_active) as u}
-            <option value={u.name}>{u.name}</option>
+          {#each $activeMembers as u (u.id)}
+            <option value={String(u.id)}>{u.name}</option>
           {/each}
           {#if $jointAccountEnabled}
-            <option value="Joint Account">🏦 Joint Account</option>
+            <option value="JOINT">🏦 Joint Account</option>
           {/if}
         </select>
       </div>
@@ -927,8 +922,8 @@
           class="w-full sm:w-48 bg-white dark:bg-neutral-950 border border-neutral-300 dark:border-neutral-700 rounded-lg px-3 py-1.5 text-xs text-neutral-900 dark:text-neutral-100 focus:outline-none focus:border-indigo-500"
         >
           <option value="">— None (require selection) —</option>
-          {#each $splits as split}
-            <option value={split.category}>{split.category}</option>
+          {#each $expenseCategories as c (c.id)}
+            <option value={String(c.id)}>{c.name}</option>
           {/each}
         </select>
       </div>
@@ -1095,7 +1090,7 @@
       <h2 class="text-sm font-bold text-neutral-900 dark:text-white flex items-center gap-2">
         <span>🔒 Zero-Knowledge Security & Database Backup</span>
       </h2>
-      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Client-side cryptographic status and unencrypted offline SQLite backup export.</p>
+      <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-1">Client-side cryptographic status and encrypted DuckDB backup export.</p>
     </div>
 
     <div class="p-3.5 bg-neutral-50 dark:bg-neutral-950/80 border border-neutral-200 dark:border-neutral-800 rounded-xl flex items-center gap-3">
@@ -1110,8 +1105,8 @@
 
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
       <div>
-        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Export Decrypted Database</p>
-        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Download a fully decrypted SQLite database file (`.db`) for personal backup or viewing in DBeaver.</p>
+        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Export Encrypted Backup</p>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Download the DuckDB file as stored: labels stay ciphertext, so only this passphrase can read it. Restore it on a fresh instance from the login screen.</p>
         {#if exportError}
           <p class="text-xs text-rose-500 dark:text-red-400 mt-2">{exportError}</p>
         {/if}
@@ -1122,7 +1117,7 @@
         disabled={exporting}
         class="w-full sm:w-auto px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 text-xs font-semibold rounded-xl transition-colors border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 whitespace-nowrap shadow-sm"
       >
-        {exporting ? 'Decrypting & Exporting…' : 'Export .db File'}
+        {exporting ? 'Exporting…' : 'Export .duckdb File'}
       </button>
     </div>
   </div>

@@ -7,14 +7,13 @@
    */
 
   import { createEventDispatcher } from 'svelte';
-  import { currencySymbol } from './stores.js';
+  import { memberName, categoryName } from './stores.js';
+  import { money, fmtDate } from './format.js';
 
   export let isOpen = false;
   /**
-   * items: Array of {
-   *   prospective: { name, cost_cents, category, expense_date, who_paid },
-   *   matches: Array<{ id, name, cost_cents, category, expense_date, who_paid }>
-   * }
+   * items: Array of { prospective: { name, amount, category }, matches: Entry[] }
+   * (decrypted entries from `POST /entries/duplicates`).
    */
   export let items = [];
   export let isBatch = false;
@@ -89,7 +88,7 @@
                     New: {item.prospective.name}
                   </span>
                   <span class="font-mono text-neutral-700 dark:text-neutral-300">
-                    {$currencySymbol}{(item.prospective.cost_cents / 100).toFixed(2)} ({item.prospective.category})
+                    {$money(item.prospective.amount)} ({$categoryName(item.prospective.category)})
                   </span>
                 </div>
               {/if}
@@ -103,11 +102,11 @@
                   <div>
                     <div class="font-semibold text-neutral-800 dark:text-neutral-200">{match.name}</div>
                     <div class="text-neutral-500 dark:text-neutral-400 text-[11px]">
-                      {match.expense_date} • Category: <strong class="text-neutral-700 dark:text-neutral-300">{match.category}</strong> • Paid by {match.who_paid}
+                      {fmtDate(match.date)} • Category: <strong class="text-neutral-700 dark:text-neutral-300">{$categoryName(match.category)}</strong> • Paid by {$memberName(match.member)}
                     </div>
                   </div>
                   <div class="font-mono font-bold text-neutral-900 dark:text-white whitespace-nowrap">
-                    {$currencySymbol}{(match.cost_cents / 100).toFixed(2)}
+                    {$money(match.amount)}
                   </div>
                 </div>
               {/each}

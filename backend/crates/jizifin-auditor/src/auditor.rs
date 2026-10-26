@@ -1,7 +1,8 @@
 //! The Auditor façade held in application state.
 
-use crate::budget::{self, BudgetEvaluator, BudgetProposal, BudgetProposer, BudgetStatus};
+use crate::budget::{self, BudgetEvaluator, BudgetProposal, BudgetProposer, BudgetReport};
 use crate::cache::{DataVersion, SnapshotCache};
+use crate::cashflow::{self, CashFlow, CashFlowCalculator};
 use crate::deposit::{self, DepositProposal, DepositProposer};
 use crate::income::{IncomeResolver, MemberIncome};
 use crate::invariant::InvariantSet;
@@ -9,9 +10,12 @@ use crate::joint::{self, JointBalanceCalculator, JointDashboard};
 use crate::project::{self, ProjectSettlement, ProjectSettlementCalculator};
 use crate::ratios::{self, SalaryRatioCalculator, SalaryRatios};
 use crate::settlement::{self, Settlement, SettlementCalculator};
+use crate::splits::{self, SplitOverview, SplitOverviewCalculator, SplitProposal, SplitProposer, SplitStrategy};
 use crate::{AuditError, AuditScope, AuditedResult, Snapshot, SnapshotLoader};
 use jizifin_domain::entities::MonthSeal;
-use jizifin_domain::ids::{AccountId, MemberId, ProjectId};
+use jizifin_domain::Cents;
+use crate::shares::EntryShares;
+use jizifin_domain::ids::{AccountId, EntryId, MemberId, ProjectId};
 use serde::Serialize;
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -48,6 +52,24 @@ impl Auditor {
         })
     }
 
+    /// Settlement plus one trail line per allocated share.
+    pub fn settlement_explained(&self, scope: AuditScope) -> Result<AuditedResult<Settlement>, AuditError> {
+        let mut audited = self.settlement(scope.clone())?;
+        let (snap, _) = self.snapshot(&scope)?;
+        audited.trail = SettlementCalculator::new(&snap, &scope).explain();
+        Ok(audited)
+    }
+
+    /// Who bears what for one expense. Use a [`AuditScope::month`] containing the entry's date.
+    pub fn entry_shares(&self, scope: AuditScope, id: EntryId) -> Result<EntryShares, AuditError> {
+        let (snap, _) = self.snapshot(&scope)?;
+        let shares = SettlementCalculator::new(&snap, &scope).entry_shares(id).ok_or(AuditError::UnknownEntry(id))?;
+        match shares.shares_total() == shares.total {
+            true => Ok(shares),
+            false => Err(AuditError::InvariantFailed("entry_shares_sum_to_total")),
+        }
+    }
+
     /// Re-verifies a seal against current data. The seal stays authoritative.
     pub fn sealed_settlement(&self, scope: AuditScope, seal: MonthSeal) -> Result<SealedSettlement, AuditError> {
         let live = serde_json::to_value(&self.settlement(scope)?.value).map_err(|e| AuditError::Load(e.to_string()))?;
@@ -55,10 +77,10 @@ impl Auditor {
         Ok(SealedSettlement { drift: live != stored, seal })
     }
 
-    /// Proposed deposits for a joint account. Scope must carry the account.
-    pub fn deposit_proposal(&self, scope: AuditScope, account: AccountId) -> Result<AuditedResult<DepositProposal>, AuditError> {
+    /// Proposed deposits for a joint account, optionally also rounded up to `round_to`.
+    pub fn deposit_proposal(&self, scope: AuditScope, account: AccountId, round_to: Option<Cents>) -> Result<AuditedResult<DepositProposal>, AuditError> {
         self.audit(&scope, &deposit::deposit_invariants(), |snap| {
-            Ok(DepositProposer::new(snap, snap.account(account)?, scope.month).propose())
+            Ok(DepositProposer::new(snap, snap.account(account)?, scope.month).rounded_to(round_to).propose())
         })
     }
 
@@ -70,7 +92,7 @@ impl Auditor {
     }
 
     /// Budget usage for a month.
-    pub fn budget_status(&self, scope: AuditScope) -> Result<AuditedResult<Vec<BudgetStatus>>, AuditError> {
+    pub fn budget_status(&self, scope: AuditScope) -> Result<AuditedResult<BudgetReport>, AuditError> {
         self.audit(&scope, &budget::status_invariants(), |snap| Ok(BudgetEvaluator::new(snap, &scope).evaluate()))
     }
 
@@ -96,6 +118,21 @@ impl Auditor {
         self.audit(&scope, &InvariantSet::new(Vec::new()), |snap| Ok(IncomeResolver::new(snap, scope.month).resolve()))
     }
 
+    /// Effective split of every expense category in the scope's month.
+    pub fn split_overview(&self, scope: AuditScope) -> Result<AuditedResult<SplitOverview>, AuditError> {
+        self.audit(&scope, &splits::overview_invariants(), |snap| Ok(SplitOverviewCalculator::new(snap, &scope).calculate()))
+    }
+
+    /// Whole-percent split proposal over the scoped members.
+    pub fn split_proposal(&self, scope: AuditScope, strategy: SplitStrategy) -> Result<AuditedResult<SplitProposal>, AuditError> {
+        self.audit(&scope, &splits::proposal_invariants(), |snap| Ok(SplitProposer::new(snap, &scope).propose(strategy)))
+    }
+
+    /// Income against spending for the scoped members.
+    pub fn cash_flow(&self, scope: AuditScope) -> Result<AuditedResult<CashFlow>, AuditError> {
+        self.audit(&scope, &cashflow::cash_flow_invariants(), |snap| Ok(CashFlowCalculator::new(snap, &scope).calculate()))
+    }
+
     fn audit<T>(
         &self,
         scope: &AuditScope,
@@ -105,7 +142,7 @@ impl Auditor {
         let (snap, data_version) = self.snapshot(scope)?;
         let value = calculate(&snap)?;
         let checks = invariants.verify(&value, &snap)?;
-        Ok(AuditedResult { value, inputs_hash: snap.inputs_hash(), data_version, checks })
+        Ok(AuditedResult { value, inputs_hash: snap.inputs_hash(), data_version, checks, trail: Vec::new() })
     }
 
     fn snapshot(&self, scope: &AuditScope) -> Result<(Arc<Snapshot>, u64), AuditError> {

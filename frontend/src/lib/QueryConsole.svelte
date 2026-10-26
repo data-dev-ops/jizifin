@@ -13,69 +13,47 @@
    */
 
   import { onMount } from 'svelte';
-  import { dec, authFetch } from './api.js';
+  import { open, runQuery as runSql } from './api.js';
 
   // ── Types & Initial State ──────────────────────────────────────────────────
 
   const DB_OBJECTS_SQL =
-    `SELECT name, type, sql FROM sqlite_master WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%' ORDER BY type, name`;
+    `SELECT table_name AS name, CASE table_type WHEN 'VIEW' THEN 'view' ELSE 'table' END AS type, NULL AS sql FROM information_schema.tables WHERE table_schema = 'main' ORDER BY type, name`;
 
-  const EXAMPLES = [
-    'SELECT * FROM expenses ORDER BY expense_date DESC LIMIT 10',
-    'SELECT * FROM splits ORDER BY category',
-    'SELECT * FROM split_allocations ORDER BY category, user_name',
-    'SELECT * FROM users ORDER BY name',
-    'SELECT * FROM view_monthly_total',
-    'SELECT * FROM view_monthly_by_category',
-    "SELECT name, cost_cents / 100.0 AS euros, expense_date, who_paid, category FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now') ORDER BY cost_cents DESC",
-  ];
+  /** Columns holding deterministic AES-GCM ciphertext; shown decrypted. */
+  const CIPHER_SUFFIX = '_ct';
 
-  const USER_PRESETS = [
-    {
-      label: 'Deactivated users',
-      sql: 'SELECT name, color, created_at FROM users WHERE is_active = 0 ORDER BY name',
-    },
-    {
-      label: 'Expenses by deactivated users',
-      sql: "SELECT e.id, e.name, e.cost_cents / 100.0 AS euros, e.expense_date, e.who_paid, e.category\nFROM expenses e\nWHERE e.who_paid IN (SELECT name FROM users WHERE is_active = 0)\nORDER BY e.expense_date DESC LIMIT 50",
-    },
-    {
-      label: 'All users + totals',
-      sql: "SELECT u.name, u.color, u.is_active,\n  COUNT(e.id) AS expense_count,\n  ROUND(COALESCE(SUM(e.cost_cents),0)/100.0,2) AS total_euros\nFROM users u\nLEFT JOIN expenses e ON e.who_paid = u.name\nGROUP BY u.name ORDER BY total_euros DESC",
-    },
-  ];
+  const RECENT_EXPENSES = "SELECT id, entry_date, amount_cents, member_id, category_id, account_id, name_ct FROM entries WHERE kind = 'expense' ORDER BY entry_date DESC, id DESC LIMIT 20";
 
   const CATEGORIZED_PRESETS = [
     {
       group: '👥 Household & Members',
       items: [
-        { label: 'Active Members', sql: 'SELECT name, color, is_active, created_at FROM users WHERE is_active = 1 ORDER BY name' },
-        { label: 'Deactivated Members', sql: 'SELECT name, color, created_at FROM users WHERE is_active = 0 ORDER BY name' },
-        { label: 'Member Spending Totals', sql: 'SELECT who_paid, COUNT(*) as count, ROUND(SUM(cost_cents)/100.0, 2) as total_eur FROM expenses GROUP BY who_paid ORDER BY total_eur DESC' },
+        { label: 'Members', sql: 'SELECT id, name_ct, color, is_active FROM members ORDER BY id' },
+        { label: 'Member Spending Totals', sql: "SELECT m.id, m.name_ct, COUNT(e.id) AS entries, SUM(e.amount_cents) AS total_cents FROM members m LEFT JOIN entries e ON e.member_id = m.id AND e.kind = 'expense' GROUP BY m.id, m.name_ct ORDER BY total_cents DESC" },
       ],
     },
     {
-      group: '💸 Expenses & Spending',
+      group: '💸 Ledger',
       items: [
-        { label: 'Latest 20 Expenses', sql: 'SELECT id, name, cost_cents / 100.0 AS euros, expense_date, who_paid, category, is_joint FROM expenses ORDER BY expense_date DESC, id DESC LIMIT 20' },
-        { label: 'Current Month Category Totals', sql: "SELECT category, COUNT(*) as count, ROUND(SUM(cost_cents)/100.0, 2) as total_eur FROM expenses WHERE strftime('%Y-%m', expense_date) = strftime('%Y-%m', 'now') GROUP BY category ORDER BY total_eur DESC" },
-        { label: 'Project Linked Expenses', sql: 'SELECT e.id, e.name, e.cost_cents / 100.0 as euros, e.expense_date, p.name as project_name FROM expenses e INNER JOIN projects p ON e.project_id = p.id ORDER BY e.expense_date DESC' },
-        { label: 'Joint Account Expenses', sql: 'SELECT id, name, cost_cents / 100.0 as euros, expense_date, who_paid, category FROM expenses WHERE is_joint = 1 ORDER BY expense_date DESC' },
+        { label: 'Latest 20 Expenses', sql: RECENT_EXPENSES },
+        { label: 'Current Month by Category', sql: "SELECT c.name_ct, COUNT(*) AS entries, SUM(e.amount_cents) AS total_cents FROM entries e JOIN categories c ON c.id = e.category_id WHERE e.kind = 'expense' AND e.entry_date >= date_trunc('month', current_date) GROUP BY c.name_ct ORDER BY total_cents DESC" },
+        { label: 'Joint Account Entries', sql: 'SELECT id, kind, entry_date, amount_cents, account_id, name_ct FROM entries WHERE account_id IS NOT NULL ORDER BY entry_date DESC LIMIT 50' },
       ],
     },
     {
-      group: '🏦 Joint Accounts & Projects',
+      group: '🏦 Accounts, Projects & Seals',
       items: [
-        { label: 'Joint Accounts Overview', sql: 'SELECT id, name, balance_cents / 100.0 as balance_eur, safety_margin_pct, deposit_split_mode FROM joint_accounts' },
-        { label: 'Active Projects Summary', sql: 'SELECT id, name, target_cents / 100.0 as target_eur, target_date, is_joint FROM projects ORDER BY target_date ASC' },
-        { label: 'Tag Totals View', sql: 'SELECT * FROM view_tag_totals ORDER BY total_amount DESC' },
+        { label: 'Joint Accounts', sql: 'SELECT id, name_ct, safety_margin_pct, deposit_mode, expected_total_cents FROM accounts' },
+        { label: 'Projects', sql: 'SELECT id, name_ct, target_cents, target_date FROM projects ORDER BY target_date' },
+        { label: 'Sealed Months', sql: 'SELECT month, inputs_hash, sealed_at FROM month_seals ORDER BY month DESC' },
       ],
     },
     {
       group: '🛠️ Schema & System',
       items: [
         { label: 'All Tables & Views', sql: DB_OBJECTS_SQL },
-        { label: 'Table Row Counts', sql: "SELECT 'expenses' as tbl, count(*) as rows FROM expenses UNION ALL SELECT 'users', count(*) FROM users UNION ALL SELECT 'splits', count(*) FROM splits UNION ALL SELECT 'projects', count(*) FROM projects UNION ALL SELECT 'tags', count(*) FROM tags UNION ALL SELECT 'income', count(*) FROM income" },
+        { label: 'Table Row Counts', sql: "SELECT 'entries' AS tbl, count(*) AS n FROM entries UNION ALL SELECT 'members', count(*) FROM members UNION ALL SELECT 'categories', count(*) FROM categories UNION ALL SELECT 'agreements', count(*) FROM agreements UNION ALL SELECT 'projects', count(*) FROM projects UNION ALL SELECT 'tags', count(*) FROM tags" },
       ],
     },
   ];
@@ -85,7 +63,7 @@
     {
       id: 1,
       title: 'Query 1',
-      sql: 'SELECT * FROM expenses ORDER BY expense_date DESC LIMIT 10',
+      sql: RECENT_EXPENSES,
       results: [],
       error: null,
       loading: false,
@@ -129,7 +107,7 @@
     const newTab = {
       id: newId,
       title: `Query ${newId}`,
-      sql: initialSql || 'SELECT * FROM expenses LIMIT 10',
+      sql: initialSql || 'SELECT * FROM entries LIMIT 10',
       results: [],
       error: null,
       loading: false,
@@ -207,43 +185,10 @@
   }
 
   async function executeSingleStatement(stmt) {
-    const res = await authFetch('/query', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ sql: stmt }),
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({ detail: res.statusText }));
-      throw new Error(body.detail ?? `Error ${res.status}: Query failed`);
-    }
-
-    const rawResult = await res.json();
-
-    // Decrypt string cells
-    if (rawResult.rows) {
-      const decryptedRows = [];
-      for (const row of rawResult.rows) {
-        const decRow = [];
-        for (const cell of row) {
-          if (typeof cell === 'string') {
-            decRow.push(await dec(cell));
-          } else {
-            decRow.push(cell);
-          }
-        }
-        decryptedRows.push(decRow);
-      }
-      rawResult.rows = decryptedRows;
-    }
-
-    return {
-      sql: stmt,
-      columns: rawResult.columns || [],
-      rows: rawResult.rows || [],
-      row_count: rawResult.row_count || (rawResult.rows ? rawResult.rows.length : 0),
-      truncated: Boolean(rawResult.truncated),
-    };
+    const raw = await runSql(stmt);
+    const ciphered = raw.columns.map((c) => c.endsWith(CIPHER_SUFFIX));
+    const rows = await Promise.all(raw.rows.map((row) => Promise.all(row.map((cell, i) => (ciphered[i] ? open(cell) : cell)))));
+    return { sql: stmt, columns: raw.columns, rows, row_count: rows.length, truncated: raw.truncated };
   }
 
   async function runQuery() {
@@ -311,9 +256,9 @@
     }
   }
 
-  function setExample(ex) {
+  function setExample(sqlText) {
     if (activeTab) {
-      activeTab.sql = ex;
+      activeTab.sql = sqlText;
       tabs = [...tabs];
       runQuery();
     }
@@ -691,27 +636,13 @@
 
         <!-- Action Bar & Preset Quick Chips -->
         <div class="flex items-center justify-between px-4 py-3 border-t border-neutral-200 dark:border-neutral-800 bg-neutral-50/50 dark:bg-neutral-950/30 gap-3 flex-wrap">
-          <!-- Standard Examples & Presets (Maintains Backwards Compatibility) -->
+          <!-- Quick presets -->
           <div class="flex flex-wrap gap-1.5 items-center">
-            {#each EXAMPLES as ex, i}
+            {#each CATEGORIZED_PRESETS.flatMap((g) => g.items).slice(0, 5) as preset, i}
               <button
                 id="example-{i}"
                 type="button"
-                on:click={() => setExample(ex)}
-                class="text-[11px] px-2.5 py-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 text-neutral-700 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors font-mono truncate max-w-[160px] cursor-pointer border border-neutral-200 dark:border-transparent"
-                title={ex}
-              >
-                {ex.split(' ').slice(0, 4).join(' ')}…
-              </button>
-            {/each}
-
-            {#each USER_PRESETS as preset}
-              <button
-                type="button"
-                on:click={() => {
-                  if (activeTab) activeTab.sql = preset.sql;
-                  runQuery();
-                }}
+                on:click={() => setExample(preset.sql)}
                 class="text-[11px] px-2.5 py-1 rounded-lg bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-200 dark:border-indigo-800/50 text-indigo-700 dark:text-indigo-300 hover:bg-indigo-100 dark:hover:bg-indigo-900/60 transition-colors font-medium cursor-pointer"
                 title={preset.sql}
               >

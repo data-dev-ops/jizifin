@@ -7,6 +7,7 @@ pub mod allocation;
 pub mod auditor;
 pub mod budget;
 pub mod cache;
+pub mod cashflow;
 pub mod deposit;
 pub mod error;
 pub mod income;
@@ -19,6 +20,7 @@ pub mod scope;
 pub mod settlement;
 pub mod shares;
 pub mod snapshot;
+pub mod splits;
 
 pub use auditor::Auditor;
 pub use cache::DataVersion;

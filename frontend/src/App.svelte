@@ -23,8 +23,9 @@
   import FrontendDocs from './lib/docs/FrontendDocs.svelte';
   import BackendDocs from './lib/docs/BackendDocs.svelte';
   import SystemDocs from './lib/docs/SystemDocs.svelte';
-  import { fetchAllData, fetchAnalytics, fetchIncomeByPerson, fetchPaybacks, fetchBudgetAnalytics, fetchIncome, fetchIncomeCategories, fetchRecurring } from './lib/api.js';
-  import { selectedMonth, projects, settlements, users, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, mobileLargeTouchTargets, currencySymbol, splits, authSalt, tags, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
+  import { loadCatalog } from './lib/api.js';
+  import { connect, disconnect } from './lib/live.js';
+  import { selectedMonth, activeMembers, currencySymbol, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, cryptoKey, sessionToken, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
 
   let showJointPromptModal = false;
   let showCsvImportModal = false;
@@ -137,9 +138,7 @@
     activeTab = visibleTabs.some(t => t.id === 'settings') ? 'settings' : visibleTabs[0].id;
   }
 
-  let unsubMonth;
-  let budgetStatus = [];
-  let initialLoaded = false;
+  let loadedFor = null;
 
   onMount(async () => {
     initDeviceProfiles();
@@ -158,35 +157,25 @@
     };
   });
 
-  $: if ($authSalt && !initialLoaded) {
-    initialLoaded = true;
-    loading = true;
-    fetchAllData($selectedMonth)
-      .then(async () => {
-        try { budgetStatus = await fetchBudgetAnalytics($selectedMonth); } catch {}
-      })
-      .catch((e) => {
-        error = 'Could not connect to the backend. Make sure the API service is running.';
-      })
-      .finally(() => {
-        loading = false;
-      });
+  $: unlocked = Boolean($cryptoKey && $sessionToken);
 
-    let skipFirst = true;
-    unsubMonth = selectedMonth.subscribe((month) => {
-      if (skipFirst) { skipFirst = false; return; }
-      Promise.all([
-        fetchAnalytics(month),
-        fetchIncomeByPerson(month),
-        fetchPaybacks(month),
-        fetchIncome(month),
-        fetchRecurring(month),
-        fetchBudgetAnalytics(month).then((rows) => { budgetStatus = rows; }),
-      ]);
-    });
+  // Catalog once per session; tabs fetch their own views and audits.
+  $: if (unlocked && loadedFor !== $sessionToken) {
+    loadedFor = $sessionToken;
+    loading = true;
+    error = null;
+    loadCatalog()
+      .then(connect)
+      .catch((e) => { error = `Could not load data: ${e.message}`; })
+      .finally(() => { loading = false; });
   }
 
-  onDestroy(() => { if (unsubMonth) unsubMonth(); });
+  $: if (!unlocked) {
+    loadedFor = null;
+    disconnect();
+  }
+
+  onDestroy(disconnect);
 
   $: monthLabel = (() => {
     const [y, m] = $selectedMonth.split('-');
@@ -220,7 +209,7 @@
   <BackendDocs on:navigate={(e) => navigateTo(e.detail.path)} />
 {:else if currentRoute === '/docs/architecture'}
   <SystemDocs on:navigate={(e) => navigateTo(e.detail.path)} />
-{:else if !$authSalt}
+{:else if !unlocked}
   <Login />
 {:else}
   <div class="flex h-screen bg-slate-50 dark:bg-neutral-950 text-neutral-900 dark:text-white font-inter overflow-hidden relative {$mobileCompactView ? 'compact-layout' : ''} {$textScale !== '100' ? 'text-scale-' + $textScale : ''} {$highContrast ? 'high-contrast-mode' : ''}">
@@ -253,7 +242,7 @@
       <div>
         <p class="text-sm font-semibold leading-none text-neutral-900 dark:text-white">FinanceTracker</p>
         <p class="text-[11px] text-neutral-500 dark:text-neutral-400 mt-0.5">
-          {$users.filter(u => u.is_active).map(u => u.name).join(' & ') || 'Household'}
+          {$activeMembers.map(u => u.name).join(' & ') || 'Household'}
         </p>
       </div>
     </div>
@@ -314,7 +303,7 @@
         class="flex items-center gap-3 w-full text-left hover:opacity-80 transition-opacity"
       >
         <div class="flex -space-x-1.5">
-          {#each $users.filter(u => u.is_active).slice(0, 4) as u (u.name)}
+          {#each $activeMembers.slice(0, 4) as u (u.id)}
             <div
               class="w-7 h-7 rounded-full border-2 border-white dark:border-neutral-900 flex items-center justify-center text-[10px] font-bold text-white flex-none shadow-sm"
               style="background-color: {u.color}"
@@ -323,7 +312,7 @@
         </div>
         <div>
           <p class="text-xs font-medium text-neutral-800 dark:text-neutral-200">
-            {$users.filter(u => u.is_active).map(u => u.name).join(' & ') || 'Household'}
+            {$activeMembers.map(u => u.name).join(' & ') || 'Household'}
           </p>
           <p class="text-[10px] text-neutral-500">Shared finances · manage →</p>
         </div>

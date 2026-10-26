@@ -4,12 +4,12 @@ use super::components::ComponentPartitioner;
 use super::debts::DebtSimplifier;
 use super::ledger::CategoryLedger;
 use super::offsets::OffsetApplier;
-use super::Settlement;
+use super::{Debt, Settlement};
 use crate::income::IncomeResolver;
-use crate::shares::ShareResolver;
+use crate::shares::{EntryShares, ShareResolver};
 use crate::{AuditScope, Snapshot};
 use jizifin_domain::entities::{Entry, EntryKind};
-use jizifin_domain::ids::MemberId;
+use jizifin_domain::ids::{EntryId, MemberId};
 
 /// Computes the peer settlement of a month.
 pub struct SettlementCalculator<'a> {
@@ -30,8 +30,27 @@ impl<'a> SettlementCalculator<'a> {
         OffsetApplier::new(&ledger).apply(&self.snap.offset_rules, &mut net);
         let rows = ledger.rows();
         let components = ComponentPartitioner::default().partition(&rows, &net);
-        let debts = components.iter().flat_map(|c| DebtSimplifier.simplify(c, &net)).collect();
-        Settlement { month: self.scope.month, rows, net, components, debts }
+        let debts: Vec<Debt> = components.iter().flat_map(|c| DebtSimplifier.simplify(c, &net)).collect();
+        let transfer_total = debts.iter().map(|d| d.amount).sum();
+        Settlement { month: self.scope.month, rows, net, components, debts, transfer_total }
+    }
+
+    /// One line per allocated share of every booked expense (`?explain=1`).
+    pub fn explain(&self) -> Vec<String> {
+        let resolver = self.resolver();
+        let shares = self.payback_entries().filter_map(|e| Self::shares_of(&resolver, e));
+        shares.flat_map(|s| s.trail().collect::<Vec<_>>()).collect()
+    }
+
+    /// Resolved split of one expense in the snapshot, if it is a payable expense.
+    pub fn entry_shares(&self, id: EntryId) -> Option<EntryShares> {
+        let entry = self.snap.entries.iter().find(|e| e.id == id && e.kind == EntryKind::Expense)?;
+        Self::shares_of(&self.resolver(), entry)
+    }
+
+    fn shares_of(resolver: &ShareResolver, entry: &Entry) -> Option<EntryShares> {
+        let (payer, category) = (entry.member?, entry.category?);
+        Some(EntryShares::new(entry, &resolver.resolve(entry, payer, category)))
     }
 
     fn book_ledger(&self) -> CategoryLedger {

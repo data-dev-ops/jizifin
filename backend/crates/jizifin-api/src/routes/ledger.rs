@@ -1,16 +1,21 @@
 //! `/entries`: the unified ledger.
 
+use super::query::today;
 use super::{Created, Done, created};
 use crate::error::ApiError;
-use crate::state::AppState;
+use crate::state::{AppState, blocking};
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
+use jizifin_auditor::AuditScope;
+use jizifin_auditor::shares::EntryShares;
+use jizifin_domain::Month;
 use jizifin_domain::entities::Entry;
 use jizifin_domain::ids::EntryId;
 use jizifin_store::inputs::{DuplicateProbe, EntryInput};
 use jizifin_store::repo::{DuplicateMatch, Entries, EntryFilter, EntryPage};
+use std::sync::Arc;
 
 /// Ledger routes.
 pub fn routes() -> Router<AppState> {
@@ -19,6 +24,14 @@ pub fn routes() -> Router<AppState> {
         .route("/entries/batch", post(create_batch))
         .route("/entries/duplicates", post(duplicates))
         .route("/entries/{id}", get(fetch).put(update).delete(remove))
+        .route("/entries/{id}/shares", get(shares))
+}
+
+async fn shares(State(s): State<AppState>, Path(id): Path<i64>) -> Result<Json<EntryShares>, ApiError> {
+    let entry = s.read(move |c| Entries::get(c, EntryId(id))).await?;
+    let scope = AuditScope::month(Month::of(entry.date), today());
+    let auditor = Arc::clone(&s.auditor);
+    Ok(Json(blocking(move || auditor.entry_shares(scope, entry.id)).await?))
 }
 
 async fn list(State(s): State<AppState>, Query(filter): Query<EntryFilter>) -> Result<Json<EntryPage>, ApiError> {

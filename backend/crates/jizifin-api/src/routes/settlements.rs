@@ -9,11 +9,11 @@ use axum::routing::{get, post};
 use axum::{Json, Router};
 use jizifin_auditor::auditor::SealedSettlement;
 use jizifin_auditor::settlement::Settlement;
-use jizifin_auditor::{AuditScope, AuditedResult};
+use jizifin_auditor::{AuditScope, AuditedResult, Auditor};
 use jizifin_domain::Month;
 use jizifin_domain::entities::MonthSeal;
 use jizifin_store::repo::Seals;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// A month is either sealed (authoritative stored result) or computed live.
@@ -36,16 +36,35 @@ async fn list(State(s): State<AppState>) -> Result<Json<Vec<MonthSeal>>, ApiErro
     Ok(Json(s.read(Seals::list).await?))
 }
 
-async fn fetch(State(s): State<AppState>, Path(month): Path<String>, Query(q): Query<MonthQuery>) -> Result<Json<SettlementView>, ApiError> {
+/// `?explain=1` adds the per-share trail to live settlements.
+#[derive(Deserialize)]
+struct ExplainQuery {
+    explain: Option<u8>,
+}
+
+async fn fetch(
+    State(s): State<AppState>,
+    Path(month): Path<String>,
+    Query(q): Query<MonthQuery>,
+    Query(explain): Query<ExplainQuery>,
+) -> Result<Json<SettlementView>, ApiError> {
     let month = Month::parse(&month)?;
     let scope = AuditScope::month(month, today()).with_members(q.members()?);
     let stored = s.read(move |c| Seals::get(c, month)).await?;
     let auditor = Arc::clone(&s.auditor);
     let view = match stored {
         Some(seal) => SettlementView::Sealed(blocking(move || auditor.sealed_settlement(scope, seal)).await?),
-        None => SettlementView::Live(blocking(move || auditor.settlement(scope)).await?),
+        None => SettlementView::Live(live(auditor, scope, explain.explain == Some(1)).await?),
     };
     Ok(Json(view))
+}
+
+async fn live(auditor: Arc<Auditor>, scope: AuditScope, explain: bool) -> Result<AuditedResult<Settlement>, ApiError> {
+    let audited = match explain {
+        true => blocking(move || auditor.settlement_explained(scope)).await?,
+        false => blocking(move || auditor.settlement(scope)).await?,
+    };
+    Ok(audited)
 }
 
 async fn seal(State(s): State<AppState>, Path(month): Path<String>) -> Result<StatusCode, ApiError> {

@@ -40,6 +40,8 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
+      additional_contexts:
+        backend: ./backend
     container_name: finance-tracker-frontend
     restart: unless-stopped
     depends_on:

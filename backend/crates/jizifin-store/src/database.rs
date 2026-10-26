@@ -5,7 +5,7 @@ use crate::migrate::Migrator;
 use duckdb::{DuckdbConnectionManager, Transaction};
 use jizifin_auditor::DataVersion;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 type Pool = r2d2::Pool<DuckdbConnectionManager>;
 /// A pooled connection.
@@ -16,6 +16,7 @@ pub type PooledConnection = r2d2::PooledConnection<DuckdbConnectionManager>;
 pub struct Database {
     pool: Pool,
     version: Arc<DataVersion>,
+    writer: Arc<Mutex<()>>,
 }
 
 impl Database {
@@ -34,6 +35,12 @@ impl Database {
         Arc::clone(&self.version)
     }
 
+    /// Held by the single writer. DuckDB aborts overlapping updates of one row with a
+    /// transaction conflict, so every write path takes this first. Reads stay unlocked.
+    pub fn exclusive(&self) -> MutexGuard<'_, ()> {
+        self.writer.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
     /// A pooled connection for reads.
     pub fn connection(&self) -> Result<PooledConnection, StoreError> {
         Ok(self.pool.get()?)
@@ -47,6 +54,7 @@ impl Database {
     /// Runs `work` in one transaction without bumping the data version.
     /// Only for bookkeeping that never feeds a calculation (sessions).
     pub fn write_meta<T>(&self, work: impl FnOnce(&Transaction<'_>) -> Result<T, StoreError>) -> Result<T, StoreError> {
+        let _writer = self.exclusive();
         let mut conn = self.connection()?;
         let tx = conn.transaction()?;
         let value = work(&tx)?;
@@ -62,7 +70,7 @@ impl Database {
     }
 
     fn from_manager(manager: DuckdbConnectionManager) -> Result<Self, StoreError> {
-        let db = Self { pool: Pool::new(manager)?, version: Arc::default() };
+        let db = Self { pool: Pool::new(manager)?, version: Arc::default(), writer: Arc::default() };
         Migrator::new(&db).apply()?;
         Ok(db)
     }

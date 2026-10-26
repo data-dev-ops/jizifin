@@ -1,4 +1,4 @@
-use crate::inputs::JobInput;
+use crate::inputs::{JobAdjustment, JobInput};
 use crate::rows::{self, INCOME_OVERRIDE_COLS, JOB_COLS};
 use crate::sql::{insert_id, opt_ct, query, require, touch_one};
 use crate::StoreError;
@@ -32,6 +32,25 @@ impl Jobs {
         let mut p = Self::params(input);
         p.push(Box::new(id.0));
         touch_one(conn, sql, duckdb::params_from_iter(p), "job")
+    }
+
+    /// One job, or `NotFound`.
+    pub fn get(conn: &Connection, id: JobId) -> Result<Job, StoreError> {
+        let found = query(conn, &format!("SELECT {JOB_COLS} FROM jobs WHERE id = ?"), [id.0], rows::job)?;
+        found.into_iter().next().ok_or_else(|| StoreError::NotFound("job".into()))
+    }
+
+    /// Ends job `id` the day before `change.effective` and starts its successor; returns the new id.
+    pub fn adjust(conn: &Connection, id: JobId, change: &JobAdjustment) -> Result<JobId, StoreError> {
+        let job = Self::get(conn, id)?;
+        let ends = change.effective.pred_opt().filter(|d| *d >= job.valid_from);
+        let Some(valid_to) = ends else {
+            return Err(StoreError::Invalid("adjustment must start after the job starts".into()));
+        };
+        let current = JobInput { valid_to: Some(valid_to), ..JobInput::from(&job) };
+        Self::update(conn, id, &current)?;
+        let next = JobInput { amount: change.amount, valid_from: change.effective, notes: change.notes.clone(), ..JobInput::from(&job) };
+        Self::create(conn, &next)
     }
 
     /// Deletes a job.

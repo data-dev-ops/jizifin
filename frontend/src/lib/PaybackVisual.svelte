@@ -1,47 +1,48 @@
 <script>
   /**
-   * PaybackVisual.svelte
-   *
-   * Displays payback (settlement) calculations for any number of household members with full Light/Dark mode theming:
-   *  - Hero section listing all debt transfers (from_user → to_user, amount)
-   *  - Category-level breakdown (Cards or Stacked Bar mode) showing per-user paid amounts and net balances
-   *  - Month lock / settlement banner
+   * PaybackVisual.svelte — the Auditor's settlement for the selected month: debts,
+   * per-bucket paid / share / net. A sealed month shows its stored result and
+   * flags drift when today's data would settle differently.
    */
 
-  import { paybacks, settlements, selectedMonth, users, currencySymbol, paybackDisplayMode, openDrilldown } from './stores.js';
-  import { createSettlement, fetchSettlements } from './api.js';
+  import { audit } from './api.js';
+  import { money, fmtPct } from './format.js';
+  import { selectedMonth, scopedMembers, ledgerVersion, memberById, categoryName, paybackDisplayMode, openDrilldown } from './stores.js';
 
+  let settlement = null;
+  let sealed = null;
   let settling = false;
   let settleError = '';
 
-  $: currentMonth      = $selectedMonth;
-  $: isSettled         = $settlements.some((s) => s.month === currentMonth);
-  $: settlementRecord  = $settlements.find((s) => s.month === currentMonth);
-  $: debts             = $paybacks.debts ?? [];
-  $: allSettled        = debts.length === 0;
+  $: load($selectedMonth, $scopedMembers ?? [], $ledgerVersion);
 
-  function userColor(name) {
-    return $users.find((u) => u.name === name)?.color ?? '#6366f1';
+  async function load(month, members) {
+    settleError = '';
+    try {
+      const view = await audit.settlement(month, members);
+      sealed = view.state === 'sealed' ? view : null;
+      settlement = sealed ? JSON.parse(view.seal.result_json) : view.value;
+    } catch (e) {
+      settleError = e.message;
+    }
   }
 
-  function initial(name) {
-    return (name ?? '').charAt(0).toUpperCase();
-  }
+  $: debts = settlement?.debts ?? [];
+  $: rows = settlement?.rows ?? [];
+  $: allSettled = debts.length === 0;
 
-  function fmt(n) {
-    return `${$currencySymbol}${Number(n).toFixed(2)}`;
-  }
-
-  /** Total net transfer amount across all debt items. */
-  $: totalTransfer = debts.reduce((s, d) => s + d.amount, 0);
+  const name = (id) => $memberById.get(Number(id))?.name ?? `#${id}`;
+  const color = (id) => $memberById.get(Number(id))?.color ?? '#6366f1';
+  const initial = (id) => name(id).charAt(0).toUpperCase();
+  const bucketLabel = (b) => (b.personal_of == null ? $categoryName(b.category) : `${$categoryName(b.category)} · ${name(b.personal_of)}`);
+  const members = (row) => Object.keys(row.net);
 
   async function lockMonth() {
     settleError = '';
     settling = true;
     try {
-      const netCents = Math.round(totalTransfer * 100);
-      await createSettlement({ month: currentMonth, net_balance_transferred_cents: netCents });
-      await fetchSettlements();
+      await audit.seal($selectedMonth);
+      await load($selectedMonth, $scopedMembers ?? []);
     } catch (e) {
       settleError = e.message;
     } finally {
@@ -53,15 +54,18 @@
 <div class="space-y-6">
 
   <!-- ── Month Settled Banner ─────────────────────────────────────────────── -->
-  {#if isSettled}
+  {#if sealed}
     <div class="card bg-gradient-to-br from-emerald-50 via-white to-white dark:from-emerald-950/50 dark:via-neutral-900 dark:to-neutral-900 border-emerald-300 dark:border-emerald-700/50 p-5 flex items-center gap-4">
       <div class="w-10 h-10 rounded-full bg-emerald-100 dark:bg-emerald-900 border border-emerald-300 dark:border-emerald-500/40 flex items-center justify-center text-emerald-600 dark:text-emerald-400 text-xl flex-shrink-0">✓</div>
       <div>
         <p class="text-sm font-bold text-emerald-800 dark:text-emerald-300">✔️ Month Settled</p>
         <p class="text-xs text-emerald-600 dark:text-emerald-500 mt-0.5">
-          {currentMonth} was locked on {settlementRecord?.settled_at?.slice(0, 10) ?? ''}
-          &middot; Transfer: {fmt((settlementRecord?.net_balance_transferred_cents ?? 0) / 100)}
+          {$selectedMonth} was sealed on {sealed.seal.sealed_at.slice(0, 10)}
+          &middot; Transfer: {$money(settlement.transfer_total)}
         </p>
+        {#if sealed.drift}
+          <p class="text-xs font-semibold text-amber-700 dark:text-amber-400 mt-1">⚠ Current data would settle differently; the sealed result stands.</p>
+        {/if}
       </div>
     </div>
   {/if}
@@ -87,20 +91,20 @@
 
       <!-- One row per debt item -->
       <div class="space-y-3">
-        {#each debts as debt (debt.from_user + debt.to_user)}
+        {#each debts as debt (`${debt.from}-${debt.to}`)}
           <div class="card-sub flex items-center gap-4 px-4 sm:px-5 py-3.5 sm:py-4">
             <!-- From user -->
             <div class="flex flex-col items-center min-w-[48px]">
               <div
                 class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-md flex-none text-white"
-                style="background-color:{userColor(debt.from_user)}; box-shadow: 0 4px 12px {userColor(debt.from_user)}40"
-              >{initial(debt.from_user)}</div>
-              <span class="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 font-medium">{debt.from_user}</span>
+                style="background-color:{color(debt.from)}; box-shadow: 0 4px 12px {color(debt.from)}40"
+              >{initial(debt.from)}</div>
+              <span class="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 font-medium">{name(debt.from)}</span>
             </div>
 
             <!-- Arrow + amount -->
             <div class="flex-1 flex flex-col items-center">
-              <span class="font-bold tabular-nums text-lg sm:text-xl" style="color: {userColor(debt.to_user)}">{fmt(debt.amount)}</span>
+              <span class="font-bold tabular-nums text-lg sm:text-xl" style="color: {color(debt.to)}">{$money(debt.amount)}</span>
               <div class="flex items-center text-neutral-400 dark:text-neutral-600 font-bold text-lg select-none leading-none mt-0.5">
                 ─────&gt;
               </div>
@@ -110,20 +114,20 @@
             <div class="flex flex-col items-center min-w-[48px]">
               <div
                 class="w-10 h-10 rounded-full flex items-center justify-center text-xs font-bold shadow-md flex-none text-white"
-                style="background-color:{userColor(debt.to_user)}; box-shadow: 0 4px 12px {userColor(debt.to_user)}40"
-              >{initial(debt.to_user)}</div>
-              <span class="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 font-medium">{debt.to_user}</span>
+                style="background-color:{color(debt.to)}; box-shadow: 0 4px 12px {color(debt.to)}40"
+              >{initial(debt.to)}</div>
+              <span class="text-[10px] text-neutral-500 dark:text-neutral-400 mt-1 font-medium">{name(debt.to)}</span>
             </div>
           </div>
         {/each}
       </div>
 
       <p class="text-neutral-500 text-xs mt-3">
-        Calculated by comparing actual spending against split percentages for all active categories.
+        Computed and verified by the Auditor ({settlement?.components?.length ?? 0} independent group{settlement?.components?.length === 1 ? '' : 's'}).
       </p>
 
       <!-- Lock Month button -->
-      {#if !isSettled}
+      {#if !sealed}
         <div class="pt-4 border-t border-neutral-200 dark:border-neutral-800/60 mt-4">
           <button
             class="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold
@@ -152,7 +156,7 @@
       </div>
     </div>
 
-    {#if ($paybacks?.rows ?? []).length === 0}
+    {#if rows.length === 0}
       <div class="empty-state-box">
         <div class="w-12 h-12 rounded-2xl bg-neutral-100 dark:bg-neutral-800/80 flex items-center justify-center mb-2">
           <svg class="w-6 h-6 text-neutral-400 dark:text-neutral-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
@@ -167,56 +171,41 @@
       </div>
     {:else}
       {#if $paybackDisplayMode === 'bar'}
-        <!-- ── Stacked Bar Mode ── -->
         <div class="space-y-5">
-          {#each $paybacks.rows as row}
-            {@const catUsers = Object.keys(row.per_user_paid ?? {})}
-            {@const totalPaid = catUsers.reduce((s, u) => s + (row.per_user_paid[u] ?? 0), 0)}
-
+          {#each rows as row}
+            {@const label = bucketLabel(row.bucket)}
             <div
-              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-4 last:border-0 last:pb-0 p-2.5 -mx-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              role="button"
-              tabindex="0"
-              on:click={() => openDrilldown('category-adjustment', row.category, { row })}
-              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', row.category, { row }); } }}
-              aria-label="View overview of expenses for {row.category}"
+              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-4 last:border-0 last:pb-0 p-2.5 -mx-2.5 rounded-xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group"
+              role="button" tabindex="0"
+              on:click={() => openDrilldown('category-adjustment', label, { id: row.bucket.category, row })}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', label, { id: row.bucket.category, row }); } }}
+              aria-label="View overview of expenses for {label}"
             >
-              <!-- Row header -->
               <div class="flex items-baseline justify-between mb-2">
-                <div class="flex items-center gap-1.5">
-                  <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</span>
-                  <span class="text-xs text-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity font-bold">›</span>
-                </div>
-                <span class="text-xs text-neutral-500 tabular-nums">{fmt(row.total_amount)}</span>
+                <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{label}</span>
+                <span class="text-xs text-neutral-500 tabular-nums">{$money(row.total)}</span>
               </div>
-
-              <!-- Stacked horizontal bar -->
               <div class="flex h-6 rounded-lg overflow-hidden bg-neutral-100 dark:bg-neutral-800/40">
-                {#each catUsers as userName}
-                  {@const paid = row.per_user_paid[userName] ?? 0}
-                  {@const widthPct = totalPaid > 0 ? (paid / totalPaid) * 100 : 0}
-                  {#if widthPct > 0}
+                {#each Object.entries(row.paid_pct) as [m, pct]}
+                  {#if pct > 0}
                     <div
-                      class="h-full flex items-center justify-center text-[10px] font-bold tabular-nums text-white/90 transition-all duration-300"
-                      style="width: {widthPct}%; background-color: {userColor(userName)};{widthPct < 5 ? ' min-width: 4px;' : ''}"
-                      title="{userName}: {fmt(paid)}"
+                      class="h-full flex items-center justify-center text-[10px] font-bold tabular-nums text-white/90"
+                      style="width: {pct}%; background-color: {color(m)};"
+                      title="{name(m)}: {$money(row.paid[m])}"
                     >
-                      {#if widthPct > 15}{fmt(paid)}{/if}
+                      {#if pct > 15}{$money(row.paid[m])}{/if}
                     </div>
                   {/if}
                 {/each}
               </div>
-
-              <!-- Compact legend -->
               <div class="flex flex-wrap gap-x-4 gap-y-1 mt-2">
-                {#each catUsers as userName}
-                  {@const net = row.net_per_user[userName] ?? 0}
-                  {@const paid = row.per_user_paid[userName] ?? 0}
+                {#each members(row) as m}
+                  {@const net = row.net[m]}
                   <span class="text-[11px] tabular-nums">
-                    <span class="font-semibold" style="color: {userColor(userName)}">{userName}</span>
-                    <span class="text-neutral-500 ml-1">{fmt(paid)}</span>
-                    <span class="ml-1 font-semibold {net > 0.005 ? 'text-emerald-600 dark:text-emerald-400' : net < -0.005 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-400 dark:text-neutral-600'}">
-                      {net > 0.005 ? `+${fmt(net)}` : net < -0.005 ? fmt(net) : '='}
+                    <span class="font-semibold" style="color: {color(m)}">{name(m)}</span>
+                    <span class="text-neutral-500 ml-1">{$money(row.paid[m] ?? 0)}</span>
+                    <span class="ml-1 font-semibold {net > 0 ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-400 dark:text-neutral-600'}">
+                      {net > 0 ? `+${$money(net)}` : net < 0 ? $money(net) : '='}
                     </span>
                   </span>
                 {/each}
@@ -225,49 +214,32 @@
           {/each}
         </div>
       {:else}
-        <!-- ── Card Mode (default) ── -->
         <div class="space-y-6">
-          {#each $paybacks.rows as row}
-            {@const catUsers = Object.keys(row.per_user_paid ?? {})}
-
+          {#each rows as row}
+            {@const label = bucketLabel(row.bucket)}
             <div
-              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-5 last:border-0 last:pb-0 p-3 -mx-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500"
-              role="button"
-              tabindex="0"
-              on:click={() => openDrilldown('category-adjustment', row.category, { row })}
-              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', row.category, { row }); } }}
-              aria-label="View overview of expenses for {row.category}"
+              class="border-b border-neutral-200 dark:border-neutral-800/60 pb-5 last:border-0 last:pb-0 p-3 -mx-3 rounded-2xl hover:bg-neutral-50 dark:hover:bg-neutral-900/60 transition-colors cursor-pointer group"
+              role="button" tabindex="0"
+              on:click={() => openDrilldown('category-adjustment', label, { id: row.bucket.category, row })}
+              on:keydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openDrilldown('category-adjustment', label, { id: row.bucket.category, row }); } }}
+              aria-label="View overview of expenses for {label}"
             >
-              <!-- Row header -->
-              <div class="flex flex-wrap items-center justify-between gap-3 mb-3">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.category}</span>
-                  <span class="text-xs text-neutral-500 ml-1">Total: {fmt(row.total_amount)}</span>
-                  <span class="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-0.5 ml-2">
-                    <span>View expenses</span>
-                    <span>›</span>
-                  </span>
-                </div>
+              <div class="flex items-center gap-2 mb-3">
+                <span class="text-sm font-bold text-neutral-900 dark:text-neutral-100 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{label}</span>
+                <span class="text-xs text-neutral-500 ml-1">Total: {$money(row.total)}</span>
               </div>
-
-              <!-- Per-user spending grid -->
               <div class="grid gap-2" style="grid-template-columns: repeat(auto-fill, minmax(140px, 1fr))">
-                {#each catUsers as userName}
-                  {@const color = userColor(userName)}
-                  {@const paid  = row.per_user_paid?.[userName] ?? 0}
-                  {@const net   = row.net_per_user?.[userName]  ?? 0}
-                  {@const pct   = row.per_user_share_pct?.[userName] ?? 0}
-
+                {#each members(row) as m}
+                  {@const net = row.net[m]}
                   <div class="card-sub p-3">
                     <div class="flex items-center gap-2 mb-1.5">
-                      <div class="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white"
-                           style="background-color:{color}">{initial(userName)}</div>
-                      <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">{userName}</span>
+                      <div class="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style="background-color:{color(m)}">{initial(m)}</div>
+                      <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">{name(m)}</span>
                     </div>
-                    <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-900 dark:text-neutral-200 font-semibold tabular-nums">{fmt(paid)}</span></p>
-                    <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color}">{pct.toFixed(0)}%</span></p>
-                    <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0.005 ? 'text-emerald-600 dark:text-emerald-400' : net < -0.005 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-500'}">
-                      {net > 0.005 ? `+${fmt(net)} owed back` : net < -0.005 ? `${fmt(net)} owes` : 'settled'}
+                    <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-900 dark:text-neutral-200 font-semibold tabular-nums">{$money(row.paid[m] ?? 0)}</span></p>
+                    <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color(m)}">{fmtPct(row.share_pct[m] ?? 0)}</span></p>
+                    <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0 ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-500'}">
+                      {net > 0 ? `+${$money(net)} owed back` : net < 0 ? `${$money(net)} owes` : 'settled'}
                     </p>
                   </div>
                 {/each}

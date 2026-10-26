@@ -8,87 +8,74 @@
    *  - Edit avatar colours for existing users
    */
 
-  import { users } from './stores.js';
-  import { createUser, updateUser, deleteUser, fetchUsers } from './api.js';
+  import { members } from './stores.js';
+  import { memberApi } from './api.js';
   import { getRandomPastelColor } from './colorUtils.js';
 
-  // ── Add-user form state ───────────────────────────────────────────────────
   let newName  = '';
   let newColor = getRandomPastelColor();
   let addError  = '';
   let addSaving = false;
 
-  // ── Per-user inline colour-edit state ─────────────────────────────────────
-  let editingColor = {};   // { [name]: currentColor } while editing
-  let colorSaving  = {};   // { [name]: bool }
-  let colorError   = {};   // { [name]: string }
+  /** `{ [id]: colour }` while editing. */
+  let editingColor = {};
+  let colorSaving  = {};
+  let colorError   = {};
 
-  $: activeUsers   = $users.filter((u) =>  u.is_active);
-  $: inactiveUsers = $users.filter((u) => !u.is_active);
+  $: activeUsers   = $members.filter((u) =>  u.is_active);
+  $: inactiveUsers = $members.filter((u) => !u.is_active);
 
-  /** First letter of a name, uppercased. */
   function initial(name) {
     return (name ?? '').charAt(0).toUpperCase();
   }
 
+  const input = (u, patch) => ({ name: u.name, color: u.color, is_active: u.is_active, ...patch });
+  const byId = (id) => $members.find((u) => u.id === id);
+
   async function handleAdd() {
     addError = '';
-    if (!newName.trim()) { addError = 'Name is required.'; return; }
     addSaving = true;
     try {
-      await createUser({ name: newName.trim(), color: newColor, is_active: true });
-      // Reload all users (including inactive) so the store is up to date.
-      await fetchUsers(true);
+      await memberApi.create({ name: newName, color: newColor, is_active: true });
       newName  = '';
       newColor = getRandomPastelColor();
     } catch (e) {
-      addError = e.message ?? 'Failed to add user.';
+      addError = e.message;
     } finally {
       addSaving = false;
     }
   }
 
   async function toggleActive(user) {
-    try {
-      await updateUser(user.name, { is_active: !user.is_active });
-      await fetchUsers(true);
-    } catch (e) {
-      console.error(e);
-    }
+    await memberApi.update(user.id, input(user, { is_active: !user.is_active })).catch((e) => alert(e.message));
   }
 
   function startEditColor(user) {
-    editingColor = { ...editingColor, [user.name]: user.color };
-    colorError   = { ...colorError,   [user.name]: '' };
+    editingColor = { ...editingColor, [user.id]: user.color };
+    colorError   = { ...colorError,   [user.id]: '' };
   }
 
-  function cancelEditColor(name) {
-    const { [name]: _, ...rest } = editingColor;
+  function cancelEditColor(id) {
+    const { [id]: _, ...rest } = editingColor;
     editingColor = rest;
   }
 
-  async function saveColor(name) {
-    colorSaving = { ...colorSaving, [name]: true };
-    colorError  = { ...colorError,  [name]: '' };
+  async function saveColor(id) {
+    colorSaving = { ...colorSaving, [id]: true };
+    colorError  = { ...colorError,  [id]: '' };
     try {
-      await updateUser(name, { color: editingColor[name] });
-      await fetchUsers(true);
-      cancelEditColor(name);
+      await memberApi.update(id, input(byId(id), { color: editingColor[id] }));
+      cancelEditColor(id);
     } catch (e) {
-      colorError = { ...colorError, [name]: e.message ?? 'Save failed.' };
+      colorError = { ...colorError, [id]: e.message };
     } finally {
-      colorSaving = { ...colorSaving, [name]: false };
+      colorSaving = { ...colorSaving, [id]: false };
     }
   }
 
-  async function handleDelete(name) {
-    if (!confirm(`Delete user "${name}" permanently? This only works if they have no expense or income history.`)) return;
-    try {
-      await deleteUser(name);
-      await fetchUsers(true);
-    } catch (e) {
-      alert(e.message);
-    }
+  async function handleDelete(id) {
+    if (!confirm(`Delete member "${byId(id)?.name}" permanently? This only works without ledger history.`)) return;
+    await memberApi.remove(id).catch((e) => alert(e.message));
   }
 </script>
 
@@ -102,7 +89,7 @@
       <p class="text-neutral-500 text-sm">No active users. Add one below.</p>
     {:else}
       <div class="space-y-2">
-        {#each activeUsers as user (user.name)}
+        {#each activeUsers as user (user.id)}
           <div class="flex items-center gap-3 bg-white dark:bg-neutral-800/50 border border-neutral-200 dark:border-neutral-700/60 rounded-xl px-4 py-3 shadow-sm">
 
             <!-- Avatar -->
@@ -117,29 +104,29 @@
             <span class="flex-1 text-sm font-semibold text-neutral-900 dark:text-neutral-100">{user.name}</span>
 
             <!-- Colour swatch / editor -->
-            {#if editingColor[user.name] !== undefined}
+            {#if editingColor[user.id] !== undefined}
               <div class="flex items-center gap-2">
                 <input
                   type="color"
-                  bind:value={editingColor[user.name]}
+                  bind:value={editingColor[user.id]}
                   class="w-8 h-8 rounded cursor-pointer border-0 bg-transparent p-0"
                   title="Pick colour"
                 />
                 <button
-                  on:click={() => saveColor(user.name)}
-                  disabled={colorSaving[user.name]}
+                  on:click={() => saveColor(user.id)}
+                  disabled={colorSaving[user.id]}
                   class="text-xs px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold disabled:opacity-40 transition-colors cursor-pointer"
                 >
-                  {colorSaving[user.name] ? '…' : 'Save'}
+                  {colorSaving[user.id] ? '…' : 'Save'}
                 </button>
                 <button
-                  on:click={() => cancelEditColor(user.name)}
+                  on:click={() => cancelEditColor(user.id)}
                   class="btn-secondary text-xs px-2.5 py-1"
                 >
                   Cancel
                 </button>
-                {#if colorError[user.name]}
-                  <span class="text-xs text-rose-600 dark:text-red-400">{colorError[user.name]}</span>
+                {#if colorError[user.id]}
+                  <span class="text-xs text-rose-600 dark:text-red-400">{colorError[user.id]}</span>
                 {/if}
               </div>
             {:else}
@@ -246,7 +233,7 @@
       </p>
 
       <div class="space-y-2">
-        {#each inactiveUsers as user (user.name)}
+        {#each inactiveUsers as user (user.id)}
           <div class="flex items-center gap-3 bg-neutral-100/60 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 rounded-xl px-4 py-3 opacity-60">
             <div
               class="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold text-white/60 flex-none grayscale"
@@ -269,7 +256,7 @@
 
             <!-- Hard delete (only shown for users with no history) -->
             <button
-              on:click={() => handleDelete(user.name)}
+              on:click={() => handleDelete(user.id)}
               title="Permanently delete (only works if no history)"
               class="text-xs px-2 py-1.5 rounded-lg text-neutral-400 hover:text-rose-600 dark:hover:text-red-400
                      hover:bg-rose-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
