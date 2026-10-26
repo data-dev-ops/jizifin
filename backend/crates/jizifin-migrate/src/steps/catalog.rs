@@ -2,7 +2,7 @@
 
 use super::{Steps, ct, date, month, opt_ct, opt_date};
 use crate::error::MigrateError;
-use crate::legacy::LegacyAllocation;
+use crate::legacy::{LegacyAgreement, LegacyAllocation};
 use jizifin_auditor::scope::LEDGER_START;
 use jizifin_domain::entities::{BudgetSource, CategoryKind, PayMode, Share};
 use jizifin_domain::{Cents, Month};
@@ -41,15 +41,25 @@ impl Steps<'_> {
     /// Active SCD2 agreements plus legacy baseline allocations as open-ended agreements from the ledger start.
     pub(super) fn agreements(&mut self) -> Result<(), MigrateError> {
         let allocations = self.legacy.allocations()?;
-        let agreements = self.legacy.agreements()?;
-        for a in &agreements {
-            let shares = self.shares(allocations.iter().filter(|x| x.agreement_id == Some(a.id)))?;
-            let input = AgreementInput { valid_from: date(&a.start)?, valid_to: opt_date(a.end.as_deref())?, note: opt_ct(a.note.as_deref())?, shares };
-            Agreements::create(self.conn, self.ids.expense_category(&a.category)?, &input)?;
+        let mut created = 0;
+        for a in &self.legacy.agreements()? {
+            created += usize::from(self.agreement(a, &allocations)?);
         }
         let baselines = self.baselines(&allocations)?;
-        self.report.count("agreements", agreements.len() + baselines);
+        self.report.count("agreements", created + baselines);
         Ok(())
+    }
+
+    /// Legacy agreements without allocations never fixed a split (the equal fallback applied), so they are skipped.
+    fn agreement(&mut self, a: &LegacyAgreement, allocations: &[LegacyAllocation]) -> Result<bool, MigrateError> {
+        let shares = self.shares(allocations.iter().filter(|x| x.agreement_id == Some(a.id)))?;
+        if shares.is_empty() {
+            self.report.note(format!("skipped legacy agreement {} without allocations", a.id));
+            return Ok(false);
+        }
+        let input = AgreementInput { valid_from: date(&a.start)?, valid_to: opt_date(a.end.as_deref())?, note: opt_ct(a.note.as_deref())?, shares };
+        Agreements::create(self.conn, self.ids.expense_category(&a.category)?, &input)?;
+        Ok(true)
     }
 
     fn baselines(&mut self, allocations: &[LegacyAllocation]) -> Result<usize, MigrateError> {
