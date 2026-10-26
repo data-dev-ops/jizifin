@@ -1,39 +1,26 @@
-# Multi-stage build for FastAPI backend with Python 3.14
-FROM python:3.14-slim AS builder
+# Rust backend. Multi-arch: linux/arm64, linux/amd64.
+FROM rust:1-bookworm AS chef
+RUN cargo install cargo-chef --locked
+WORKDIR /src
+# Linker workaround for libduckdb-sys; present in every stage so cook and build use identical flags.
+COPY .cargo .cargo
 
-WORKDIR /app
+FROM chef AS planner
+COPY Cargo.toml Cargo.lock clippy.toml ./
+COPY crates crates
+RUN cargo chef prepare --recipe-path recipe.json
 
-# Copy uv binary directly from official image (instant, no apt-get/curl needed)
-COPY --from=ghcr.io/astral-sh/uv:latest /uv /bin/uv
+FROM chef AS builder
+COPY --from=planner /src/recipe.json recipe.json
+RUN cargo chef cook --release --recipe-path recipe.json
+COPY Cargo.toml Cargo.lock clippy.toml ./
+COPY crates crates
+RUN cargo build --release --locked -p jizifin-api
 
-# Copy lock file and pyproject for layer caching
-COPY uv.lock pyproject.toml ./
-
-# Sync dependencies with BuildKit cache mount
-RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --frozen --no-dev --no-editable
-
-# ─────────────────────────────────────────────────────────────────────────────
-
-FROM python:3.14-slim
-
-WORKDIR /app
-
-# Copy virtual environment from builder
-COPY --from=builder /app/.venv .venv
-
-# Copy application code
-COPY app/ app/
-COPY pyproject.toml ./
-
-ENV PATH="/app/.venv/bin:$PATH" \
-    PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/')" || exit 1
-
+FROM gcr.io/distroless/cc-debian12
+COPY --from=builder /src/target/release/jizifin-api /usr/local/bin/jizifin-api
+ENV JIZIFIN_BIND=0.0.0.0:8000 JIZIFIN_DB_PATH=/data/finance.duckdb
+VOLUME /data
 EXPOSE 8000
-
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 CMD ["jizifin-api", "--healthcheck"]
+ENTRYPOINT ["jizifin-api"]

@@ -36,7 +36,7 @@ describe('Docs Components & Navigation', () => {
       render(DocsHub);
 
       const input = screen.getByPlaceholderText(/Filter documentation topics/i);
-      await fireEvent.input(input, { target: { value: 'FastAPI' } });
+      await fireEvent.input(input, { target: { value: 'Auditor' } });
 
       expect(screen.getByText('Backend Services & DB Engine')).toBeInTheDocument();
       expect(screen.queryByText('Frontend Technical Docs')).not.toBeInTheDocument();
@@ -139,11 +139,11 @@ describe('Docs Components & Navigation', () => {
       expect(screen.getByText('Backend Services & Database Architecture')).toBeInTheDocument();
       expect(screen.getByText('Backend Reference')).toBeInTheDocument();
       expect(screen.getByText(/1\. Stack and Lifecycle/i)).toBeInTheDocument();
-      expect(screen.getByText(/2\. SQLite Schema & WAL Mode/i)).toBeInTheDocument();
-      expect(screen.getByText(/3\. Algorithms/i)).toBeInTheDocument();
+      expect(screen.getByText(/2\. DuckDB Schema & Single Writer/i)).toBeInTheDocument();
+      expect(screen.getByText(/3\. The Auditor/i)).toBeInTheDocument();
       expect(screen.getByText(/4\. API Endpoints Catalog/i)).toBeInTheDocument();
       expect(screen.getByText(/5\. WebSockets & Real-Time Events/i)).toBeInTheDocument();
-      expect(screen.getByText(/6\. Pytest Test Suite/i)).toBeInTheDocument();
+      expect(screen.getByText(/6\. Verification & Tests/i)).toBeInTheDocument();
 
       expect(screen.getByText('Hare-Niemeyer Largest Remainder Distribution')).toBeInTheDocument();
       expect(screen.getByText('Connected Subgraph Debt Simplification')).toBeInTheDocument();

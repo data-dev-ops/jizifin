@@ -68,8 +68,12 @@ frontend/
 │   │   ├── api.js                    # Fetch wrapper with automatic AES-GCM encryption
 │   │   ├── colorUtils.js             # HSL color math and contrast ratio checks
 │   │   ├── crypto.js                 # WebCrypto PBKDF2 derivation and AES-GCM static IV routines
-│   │   ├── csvParser.js              # RFC 4180 CSV tokenizer and ING/KBC bank statement parser
-│   │   ├── duplicateDetector.js      # Category and amount cent matching engine for duplicate detection
+│   │   ├── csv.js                    # Async wrappers over the WASM CSV statement parser
+│   │   ├── entryInput.js             # Turns an entry row into a full EntryInput (PUT replaces the entry)
+│   │   ├── format.js                 # money store, date/percent formatting, string-to-cents parsing
+│   │   ├── live.js                   # /ws/finance listener; bumps ledgerVersion and refreshes catalogs
+│   │   ├── chartTheme.js             # Chart.js colours per theme
+│   │   ├── wasm/                     # Built jizifin-wasm package (git-ignored; `make wasm`)
 │   │   └── stores.js                 # Svelte writable stores and localStorage bindings
 │   ├── test/
 │   │   ├── components/               # 23 Svelte UI component test suites
@@ -160,48 +164,18 @@ export async function deriveKey(passphrase) {
 
 Client state is maintained in Svelte writable stores. Decrypted financial data exists only in browser memory and is wiped on logout. Preferences are persisted in `localStorage`.
 
-| Store | Type | Persistence | Description |
-|---|---|---|---|
-| `authSalt` | `writable(string)` | Session Memory | Master key passphrase in memory (cleared on logout) |
-| `cryptoKey` | `writable(CryptoKey)` | Session Memory | Derived 256-bit AES-GCM key |
-| `selectedMonth` | `writable(string)` | LocalStorage | Active target month (`YYYY-MM`) |
-| `dashboardScope` | `writable(string)` | LocalStorage | Scope filter (`ALL`, `USER:<name>`, `JOINT:<id>`) |
-| `users` | `writable(User[])` | Memory | Household member list `[{ name, color, is_active }]` |
-| `expenses` | `writable(Expense[])` | Memory | Expenses for active month (newest-first) |
-| `splits` | `writable(Split[])` | Memory | Category registry, default allocations, and SCD2 agreements |
-| `incomeCategories` | `writable(string[])` | Memory | Income category registry |
-| `incomeEntries` | `writable(Income[])` | Memory | Non-recurring income items for the selected month |
-| `incomeAnalytics` | `writable(IncomeRow[])` | Memory | Combined income totals per person with carry-forward |
-| `jobs` | `writable(Job[])` | Memory | Employment contracts and normalized monthly salary |
-| `projects` | `writable(Project[])` | Memory | Savings targets with participant member lists |
-| `tags` | `writable(Tag[])` | Memory | Event tags with active date constraints |
-| `budgets` | `writable(Budget[])` | Memory | Monthly category spending limits |
-| `recurringExpenses` | `writable(Recurring[])`| Memory | Automated recurring expense templates |
-| `settlements` | `writable(Settlement[])`| Memory | Locked historical months |
-| `jointAccounts` | `writable(JointAccount[])` | Memory | Multi-joint account registry |
-| `activeJointAccountId` | `writable(number)` | LocalStorage | Currently selected joint account ID |
-| `jointAccount` | `writable(JointConfig)` | Memory | Active joint account configuration |
-| `jointCategories` | `writable(string[])` | Memory | Categories mapped to joint account |
-| `jointDeposits` | `writable(Deposit[])` | Memory | Monthly deposit schedules per user |
-| `jointMonthlyDeposits` | `writable(MonthlyDep[])` | Memory | Deposit execution tracking (paid, overdue, pending) |
-| `jointExpectedCosts` | `writable(ExpectedCost[])` | Memory | Expected monthly cost per category |
-| `jointCorrections` | `writable(Correction[])` | Memory | Balance correction log (+/-) |
-| `jointDashboard` | `writable(Dashboard)` | Memory | Spending actuals vs expected costs and deposit status |
-| `jointAccountEnabled` | `writable(boolean)` | LocalStorage | Module toggle for joint accounts |
-| `currencySymbol` | `writable(string)` | LocalStorage | Currency symbol preset (`€`, `$`, `£`, `CHF`, `¥`, `kr`) |
-| `roundingMode` | `writable(string)` | LocalStorage | Decimal display mode (`cents` or `whole`) |
-| `rowDensity` | `writable(string)` | LocalStorage | Display density (`minimal`, `compact`, `detailed`) |
-| `activePreset` | `writable(string)` | LocalStorage | 1-Click functional preset |
-| `mobileTabVisibility` | `writable(object)` | LocalStorage | Mobile navigation tab visibility map |
-| `desktopTabVisibility` | `writable(object)` | LocalStorage | Desktop navigation tab visibility map |
-| `theme` | `writable(string)` | LocalStorage | Theme selection (`dark`, `light`, `system`) |
-| `privacyShield` | `writable(boolean)` | LocalStorage | Frosted-glass blur mask over balances |
-| `highContrast` | `writable(boolean)` | LocalStorage | High-contrast borders and accessibility tokens |
-| `textScale` | `writable(string)` | LocalStorage | Text size scale (`100`, `110`, `125`) |
+| Store | Persistence | Description |
+|---|---|---|
+| `cryptoKey`, `sessionToken` | Session memory | Derived AES-GCM key and bearer token; cleared on logout or a 401 |
+| `members`, `categories`, `accounts`, `projects`, `tags`, `jobs`, `recurring`, `budgets`, `offsetRules`, `seals` | Memory | Catalog rows loaded by `loadCatalog()`; names are decrypted after reading |
+| `memberById`, `categoryById`, `accountById`, `projectById`, `tagById`, `memberName`, `categoryName` | Derived | Id lookups for rendering |
+| `activeMembers`, `expenseCategories`, `incomeCategories` | Derived | Filtered catalog views |
+| `ledgerVersion` | Memory | Bumped by `live.js` on every server event; views refetch when it changes |
+| `selectedMonth` | LocalStorage | Active month (`YYYY-MM`) |
+| `dashboardScope`, `scopedMembers`, `activeAccountId` | LocalStorage / derived | `MEMBER:<id>` / `ACCOUNT:<id>` scope tokens and the member ids they resolve to |
+| `currencySymbol`, `currencyPrecisionMode`, `expenseRowDensity`, `experienceTier`, `theme`, `privacyShield`, `highContrast`, `textScale`, tab-visibility and form-default stores | LocalStorage | Display and workflow preferences, with desktop and mobile device profiles |
 
----
-
-## 5. API Client and Real-Time WebSockets (`api.js`)
+Stores hold **no derived money**. Totals, balances, ratios and settlements are fetched from the Auditor and `/views/*` endpoints and rendered as received.
 
 ### 5.1 HTTP Client & Automatic Cryptography
 All backend communication flows through `request()` in `api.js`. Sensitive payload fields are encrypted before dispatch, and responses are decrypted before updating Svelte stores:
@@ -209,7 +183,7 @@ All backend communication flows through `request()` in `api.js`. Sensitive paylo
 - Components bind `err.message` to local reactive error banners.
 
 ### 5.2 Real-Time WebSockets (`/ws/finance`)
-Clients connect to `/ws/finance` upon authentication. When any household user modifies expenses, joint accounts, or categories, the server fans out an event payload (`expense_created`, `expense_updated`, `joint_account_updated`). The client reactively refreshes analytics, paybacks, and dashboard stores in real time.
+Clients connect to `/ws/finance` upon authentication. When any household user modifies expenses, joint accounts, or categories, the server fans out `{"event": "<table>.<action>"}` (for example `entries.created`, `settlements.sealed`, `backup.restored`). `live.js` bumps `ledgerVersion` and refreshes the matching catalog store; screens re-run their server queries through reactive statements such as `$: load($selectedMonth, $ledgerVersion)`. The socket authenticates with `?token=` and reconnects every 3 seconds.
 
 ---
 
@@ -257,21 +231,21 @@ Clients connect to `/ws/finance` upon authentication. When any household user mo
 ### 6.7 `DocsHub.svelte` (In-App Interactive Documentation Hub)
 - Fully browsable in-app technical reference suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) mirroring repo architecture documentation.
 
-### 6.8 `BankCsvImportModal.svelte` & `csvParser.js` (Bank Statement CSV Importer)
-- **RFC 4180 CSV Tokenizer**: Robust CSV parser supporting quoted strings, multiline descriptions, and UTF-8 BOM headers.
-- **ING Belgium Statement Dialect**: Extracts clean beneficiary names from Debit Mastercard, Bancontact payments, SEPA Direct Debits (`Domiciliëring in euro`), SEPA credit transfers, and fee notices.
-- **KBC Bank Selector**: Integrated bank selection menu with upcoming parser notice.
-- **Dual-Stream Classification**: Positive transactions are routed as `Income` with categories loaded from `$incomeCategories`; negative transactions are routed as `Expense` with categories from `$splits`.
-- **Beneficiary Auto-Cascading**: Assigning a category to any row automatically cascades the category to all other rows sharing the same beneficiary within the same transaction type.
-- **Mandatory Category Assignment**: Strict validation prevents importing uncategorized rows; silent fallback to `'OTHER'` is prohibited. Amber visual indicators and an alert filter highlight missing assignments.
-- **Micro-Expense Bundling**: One-click action to bundle expenses under €5.00 into a consolidated `"Other expenses (bundled)"` entry.
-- **Dual-Stream Commit**: Saves expenses in batch via `POST /expenses/batch` (`createExpensesBatch`) and income via `POST /income` (`createIncome`).
+### 6.8 `BankCsvImportModal.svelte` & `csv.js` (Bank Statement CSV Importer)
+- **WASM parser**: `csv.js` wraps the `jizifin-wasm` package (RFC 4180 tokenizer with BOM handling, Belgian amounts to integer cents, `DD/MM/YY` dates, ING counterparty extraction). The browser performs no float amount maths.
+- **Dual-Stream Classification**: Credits become income drafts with `$incomeCategories`; debits become expense drafts with `$expenseCategories`.
+- **Beneficiary Auto-Cascading**: Assigning a category cascades to the other rows of the same beneficiary and stream (`cascadeFrom`).
+- **Mandatory Category Assignment**: Rows without a category cannot be imported; there is no silent fallback to `OTHER`.
+- **Micro-Expense Bundling**: `microIndices` / `draftsFor` bundle small debits into one "Other expenses (n items bundled)" draft.
+- **Commit**: Text fields are sealed (encrypted) and the drafts are sent in one transaction with `entryApi.batch` (`POST /entries/batch`).
 
-### 6.9 `duplicateDetector.js` & `DuplicatePromptModal.svelte` (Duplicate Expense Detection)
-- **Matching Engine**: Compares prospective expenses against all decrypted ledger entries in `$expenses` by category (case-insensitive) and exact cent amount (`cost_cents`).
-- **Interactive Modal Prompt**: Displays `"This expense might already have been entered: [matching entry(s)] Do you still want to add it? (Yes / No)"` whenever matching transactions exist.
-- **Manual Entry Guard (`ExpenseForm.svelte`)**: Intercepts form submission before sending POST requests, presenting matching existing entries with payer and date metadata.
-- **Batch CSV Import Guard (`BankCsvImportModal.svelte`)**: Displays inline `⚠️ Duplicate match` badges in the review table, and prompts user upon import with options to `"Yes, Add Anyway"`, `"No, Skip Duplicates"` (excluding duplicates from the import batch), or `"No, Cancel"`.
+### 6.9 `DuplicatePromptModal.svelte` (Duplicate Detection)
+- **Server-side matching**: `entryApi.duplicates` (`POST /entries/duplicates`) finds entries with the same category and exact cent amount in the same month.
+- **Manual Entry Guard (`ExpenseForm.svelte`)**: Checks before creating and shows the matches with payer and date.
+- **Batch CSV Import Guard**: Checks when Import is pressed and offers "Yes, Add Anyway", "No, Skip Duplicates" or "No, Cancel". CSV review rows show no live duplicate badge.
+
+### 6.10 `EntryEditModal.svelte`
+- Edits any expense or income entry; PUT replaces the whole entry. For expenses it also shows, read-only, the Auditor's resolved split ("Who bears what", `GET /entries/{id}/shares`).
 
 ---
 
@@ -392,14 +366,14 @@ Authoritative client-side validation rules matching backend schema constraints:
 
 ## 9. Automated Testing & Verification
 
-The frontend test suite contains **384 tests across 43 test files** using Vitest and JSDOM:
+The Vitest suite is mid-cleanup after the thin-client rewrite. Suites for removed modules (`csvParser`, `duplicateDetector`, `budgeting_engine`, `splits_allocations`, `numerical_precision`, `networth_reporting`, `reconciliation_locking`, `recurrence_scheduling`, `ledger_transfers`, `multicurrency`, `mutations_reclassification`, `import_export_analytics`, `concurrency_security`, `categories_tags` and the old `api.test.js`) are scheduled for deletion; `crypto`, `colorUtils`, `device_profiles`, `customization_personas` and component rendering with a mocked `api.js` stay (plan §12.6). Treat the current pass/fail counts as unreliable until that cleanup is done.
 
 ### Test Execution Commands
-- **Primary Host CLI**:
+- **Primary (Docker, via make)**:
   ```bash
-  npm --prefix frontend test -- --run
+  make wasm && make test-frontend
   ```
-- **Pre-Built Docker Container Fallback**:
+- **Explicit Docker command**:
   ```bash
   docker run --rm \
     -v $(pwd)/frontend/src:/app/src \
@@ -409,22 +383,5 @@ The frontend test suite contains **384 tests across 43 test files** using Vitest
     jizifin-frontend-test npm test -- --run
   ```
 
-### Test Scope and Coverage
-- **Unit & Mathematical Suites (19 files)**:
-  - Cryptographic key derivation, AES-GCM static IV determinism, Base64URL encoding (`crypto.test.js`)
-  - Bank statement CSV parsing, beneficiary extraction, and credit/debit tokenization (`csvParser.test.js`)
-  - Category and cent amount duplicate detection matching (`duplicateDetector.test.js`)
-  - HTTP error translation, batch expense encryption, and status propagation (`api.test.js`)
-  - Float cent conversion, currency display, and Largest Remainder splits (`numerical_precision.test.js`)
-  - 7-domain personas and device profile persistence (`customization_personas.test.js`, `device_profiles.test.js`)
-  - Historical reconciliation month locking (`reconciliation_locking.test.js`)
-  - Multi-currency symbols and formatting (`multicurrency.test.js`)
-- **Component & Integration Suites (24 files)**:
-  - Bank CSV import modal workflow, category auto-cascading, micro-expense bundling, and duplicate skipping (`BankCsvImportModal.test.js`)
-  - Duplicate expense interception and confirmation modal (`ExpenseForm.test.js`)
-  - Full UI scenario verification with synthetic identities `Alice` & `Bob` and `test-master-passphrase` (`ScenariosFrontendUI.test.js`)
-  - Multi-joint accounts and monthly deposit execution (`JointAccountTab.test.js`, `MultiHouseholdCouples.test.js`)
-  - SCD2 split agreement timeline trays and override badges (`SplitManager.test.js`)
-  - Project milestone equity settlements (`ProjectsTab.test.js`)
-  - Tag timeline boundary validation and form guards (`TagsTab.test.js`, `ExpenseForm.test.js`)
-  - In-app documentation hub rendering and routes (`Docs.test.js`)
+### Test Scope
+See the cleanup note above and plan §12.6. After the cleanup the suite covers crypto, colour utilities, device profiles and personas, `format.js` (`toCents`), the `csv.js` boundary against the built WASM, and component rendering with a mocked `api.js`.

@@ -1,303 +1,132 @@
-# 🤖 SYSTEM CAPROM: FinanceTracker LLM Agent Directives
+# 🤖 FinanceTracker Agent Directives
 
-**TARGET:** Gemini Pro / Advanced LLM Agent  
-**CONTEXT:** Monorepo Personal Finance Tracker (Multi-user Household)  
-**PRIME DIRECTIVE:** Strictly adhere to the technical stack, execution paths, and database schemas defined below. Prioritize zero-regression, ANSI-compliant SQL, flat Svelte component design, and deterministic cryptographic integrity.
-
----
-
-## ⚙️ 1. MULTI-SYSTEM ENVIRONMENT & EXECUTION STEERING
-
-Agents work across varied host systems, sandboxes, and CI environments. To eliminate host dependency drift, missing executables (e.g. `npm: command not found`), and PATH inconsistencies across Linux, macOS, and Windows/WSL2, **Docker containers are the primary, default execution standard**. Full workspace rules are defined under [.agents/rules/](file:///home/jim/Documents/jizifin/.agents/rules/).
-
-### Tooling & Execution Priority
-1. **Priority 1 (Universal Default - All Platforms)**: Pre-built Docker test containers with live volume mounting. This guarantees identical Python 3.14 / Node 22 runtime parity without requiring host tooling:
-   - Backend Container: `jizifin-backend-test`
-   - Frontend Container: `jizifin-frontend-test`
-2. **Priority 2 (Secondary Convenience Only)**: Local host CLI (`uv run ...`, `npm ...`) **only** when verified present on `PATH` in the current shell. Never hardcode user-specific paths (e.g., `~/.nvm/...`).
-3. **Cluster Orchestration**: Multi-container stack (`backend`, `frontend`, `caddy`, `sonarqube`) runs via `docker compose`. Ignore `sonarqube` unless requested.
-
-### One-Time Test Container Build (Fresh Clone / Dependency Update)
-```bash
-docker build -t jizifin-backend-test -f backend/Dockerfile.test backend/
-docker build -t jizifin-frontend-test frontend/
-```
-
-### Execution Commands Reference
-
-| Task | Universal Docker Command (Primary) | Host CLI (Secondary Convenience) |
-| :--- | :--- | :--- |
-| **Backend Tests (Full)** | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest` | `uv run --directory backend pytest` |
-| **Backend Integration Scenarios** | `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest tests/test_scenarios_integration.py` | `uv run --directory backend pytest tests/test_scenarios_integration.py` |
-| **Backend Dev Server** | `docker compose up backend` | `uv run --directory backend uvicorn app.main:app --reload --port 8000` |
-| **Frontend Tests (Full)** | `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run` | `npm --prefix frontend test -- --run` |
-| **Frontend Dev Server** | `docker compose up frontend` | `npm --prefix frontend run dev` |
-| **Full Stack Cluster** | `docker compose up -d backend frontend caddy` | `docker compose up --build -d` (production) |
-| **Sonar & Full Coverage** | `./scripts/run-tests-and-sonar.sh` | Local SonarQube on `http://localhost:9000` |
-
-*Note for Windows PowerShell*: Replace `$(pwd)` with `${PWD}` (e.g. `-v ${PWD}/backend/app:/app/app`).
-*Note on Vitest*: Always include `-- --run` to prevent Vitest from hanging in interactive watch mode.
+**CONTEXT:** Monorepo personal finance tracker (multi-user household), running on Rust + DuckDB 2.0 with a thin Svelte client.
+**PRIME DIRECTIVE:** Follow the stack, execution paths, schema and crypto contract below. Prioritise zero regression, small methods, deterministic integer-cent maths and zero-knowledge privacy.
+**DEEP REFERENCE:** [docs/RUST_MIGRATION_PLAN.md](docs/RUST_MIGRATION_PLAN.md) holds the design history, the HTTP API tables, the spike results and the parity hazards. The Python/SQLite implementation is gone; it lives only in git (`git show legacy-python`).
 
 ---
 
-## 🏗️ 2. ARCHITECTURAL BOUNDARIES & CRYPTOGRAPHIC DESIGN
+## ⚙️ 1. EXECUTION (Docker first)
 
-### 🖥️ Backend: FastAPI / Python 3.14 / SQLite
-- **Validation:** Strict Pydantic v2 schemas for all requests, responses, and analytics.
-- **Database Driver:** `aiosqlite` with WAL mode (`PRAGMA journal_mode=WAL;`) and foreign keys enforced (`PRAGMA foreign_keys=ON;`).
-- **Querying:** No ORMs. All endpoints write native, optimized, ANSI-compliant SQL directly.
-- **Currency & Dates:** Currency is represented strictly as `INTEGER` cents at the database layer (decimals `cents / 100.0` exposed only at presentation layer). Dates are `TEXT` formatted as `YYYY-MM-DD`.
-- **Realtime Broadcast:** Native `fastapi.WebSocket` fan-out broadcasting live ledger events on `/ws/finance`.
+Never rely on host `cargo` or `npm`; they may be missing. Run from the repo root.
 
-### 🌐 Frontend: Vanilla Svelte / Tailwind CSS / Chart.js
-- **State Management:** Svelte writable stores (`stores.js`) serve as the reactive data bridge for local client state.
-- **Styling:** Exclusively utility-first Tailwind CSS. Scoped `<style>` blocks are prohibited unless strictly necessary (e.g., canvas or keyframes).
-- **Visualization:** Raw Chart.js rendered on `<canvas>` elements, reactively updated via `chart.update()`. No heavy component wrappers.
-- **Error Handling:** Central API helper `request()` in `frontend/src/lib/api.js` throws explicit `Error` objects on non-2xx status codes; Svelte components catch and bind `err.message` to local reactive error banners.
+| Task | Command |
+| :--- | :--- |
+| Lint + type-check the Rust workspace | `make lint-backend` (clippy with `-D warnings`) |
+| Backend tests | `make test-backend` (cargo-nextest in `jizifin-backend-test`) |
+| Build the WASM CSV parser (needed before frontend dev/build/tests) | `make wasm` |
+| Frontend tests | `make test-frontend` (always `-- --run`; Vitest otherwise hangs in watch mode) |
+| Frontend production build | `cd frontend && docker run --rm -v "$PWD:/app" -v jizifin-node-modules:/app/node_modules -w /app node:22-alpine sh -c 'npm install --include=optional --no-audit --no-fund >/dev/null 2>&1; npx vite build'`, then `git checkout frontend/package-lock.json` |
+| Deploy a new backend | `make deploy-backend` (builds first; the running container is swapped only if the build succeeds) |
+| Full stack | `docker compose up -d backend frontend caddy` |
 
-### 🔒 Client-Server Cryptographic Split (Zero-Knowledge Privacy)
-To maintain zero-knowledge privacy for household finances, sensitive data is encrypted before leaving the client:
+Notes:
+- Stale Docker fingerprints: `touch backend/crates/*/src/lib.rs backend/crates/*/src/main.rs` before a clippy run.
+- `backend/.cargo/config.toml` forces a linker symbol that `libduckdb-sys` needs; do not remove it. Without it the release binary does not link, and clippy cannot tell.
+- Never write the household passphrase to a file, log, env file or document.
+- Do not run test suites for documentation-only or git-only requests.
 
-1. **Client-Side Cryptography (`crypto.js`)**:
-   - **Key Derivation:** Derives a 256-bit AES-GCM `CryptoKey` from the user passphrase using PBKDF2 (100,000 iterations, SHA-256, static salt `"jizifin-salt-pbkdf2"`).
-   - **Static IV:** AES-GCM uses static 12-byte IV `[106, 105, 122, 105, 102, 105, 110, 45, 99, 114, 121, 112]` (`"jizifin-cryp"`). Ciphertext is encoded to Base64URL (no padding).
-   - **Encryption/Decryption:** Payload fields are encrypted via `encryptText` before POST/PUT and decrypted via `decryptText` before updating stores.
-2. **Server-Side Cryptography (`crypto_utils.py`)**:
-   - Manages bulk database export (`/auth/export`) and import (`/auth/import`). Uses the Python `cryptography` library with identical PBKDF2 salt and static IV.
-   - Decrypts database copies in-place on the server filesystem temporarily during export streaming, and re-encrypts imported databases before replacing active storage. Plaintext is never persisted on disk.
-3. **Deterministic AES-GCM Querying Rules**:
-   - **Valid on Encrypted Columns**: Exact matches (`col = ?`, `IN (...)`), equality joins (`ON a.col = b.col`), `GROUP BY`, and foreign key cascades.
-   - **FORBIDDEN on Encrypted Columns**: Range filters (`<`, `>`, `BETWEEN`), `LIKE` wildcards, and text collation `ORDER BY`.
-   - **Plaintext Columns**: Amounts (`cost_cents`, `amount_cents`), dates (`expense_date`, `start_date`), IDs, flags (`is_joint`, `is_active`), and `settlements`.
+---
+
+## 🏗️ 2. ARCHITECTURE
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        COLUMN ENCRYPTION MATRIX                        │
-├───────────────────────────────────┬────────────────────────────────────┤
-│ ENCRYPTED (Base64URL)             │ PLAINTEXT                          │
-├───────────────────────────────────┼────────────────────────────────────┤
-│ users.name                        │ All *_cents (cost, amount, target) │
-│ splits.category                   │ All dates (YYYY-MM-DD, month)      │
-│ income_categories.category        │ All integer IDs and foreign keys   │
-│ projects.name                     │ Boolean flags (is_joint, is_active)│
-│ expenses.name, who_paid, category │ colors (#hex)                      │
-│ income.name, who, category        │ settlements table                  │
-│ recurring_expenses.name, who, cat │ day_of_month, frequencies          │
-│ jobs.name, who, notes             │ percentages (pct, REAL)            │
-│ split_allocations.category, user  │ safety_margin_pct                  │
-│ tags.name, description            │ deposit_split_mode                 │
-│ joint_accounts.name               │ magic_word (app_config)            │
-│ joint_account_deposits.user_name  │                                    │
-│ joint_account_corrections.note    │                                    │
-│ salary_overrides.user_name, note  │                                    │
-└───────────────────────────────────┴────────────────────────────────────┘
+Caddy :80/:443 ──/api/* (prefix stripped), /ws/*──▶ backend:8000 (axum)
+               └─ everything else ───────────────▶ frontend:5173 (Svelte)
+backend: routes ─▶ repositories (CRUD, /views) ─▶ DuckDB file /data/finance.duckdb
+                └▶ Auditor (in-process) ─ snapshot load ─▶ calculators ─▶ invariants ─▶ AuditedResult
 ```
 
----
+### Backend (`backend/`, Rust workspace)
+| Crate | Role |
+| :--- | :--- |
+| `jizifin-domain` | Pure types, no IO: `Cents`, `Month`, `Ciphertext`, typed ids, entities |
+| `jizifin-auditor` | Sole owner of contentious maths; snapshot cache; invariants |
+| `jizifin-store` | DuckDB schema/migrations, one repository struct per aggregate, backup/restore, `DuckSnapshotLoader` |
+| `jizifin-api` | axum routes, auth/sessions, WebSocket hub, scheduler, SQL console |
+| `jizifin-wasm` | CSV bank-statement parser compiled to WASM for the browser |
 
-## 🌟 3. COMPREHENSIVE FEATURE OVERVIEW
+Rules that apply to every change:
+1. **DuckDB only.** No other engine, no ORM, no fallback. Write native SQL in repositories.
+2. **No legacy, no redundancy.** No compatibility shims, no dead code, no duplicated helpers: extract one.
+3. **Small methods** (clippy-enforced, `backend/clippy.toml`): ≤ 20 lines, ≤ 4 parameters (use a parameter struct beyond that), cognitive complexity ≤ 8. Put `tracing::…!` calls in tiny helpers. A new crate must add `[lints] workspace = true`.
+4. **Contentious maths lives in the Auditor.** Settlements, deposit proposals, budgets, income, ratios, split resolution, cash flow and project equity are computed only in `jizifin-auditor`. Plain aggregates (sums, counts, shares of a total) are store repositories exposed as `/views/*`.
+5. **Integer cents everywhere.** Amounts are `INTEGER`/`BIGINT` cents and `Cents(i64)` in Rust; the browser formats them for display only. Never truncate percentage floats.
+6. **Single writer.** `Database::exclusive()` serialises writes (DuckDB aborts overlapping updates of one row). Reads are pooled. Every DB call runs in `spawn_blocking` via `AppState::read/write/write_meta`.
+7. Every `pub` item has a `///` doc line. Errors are `{"detail": "..."}`: 422 invalid, 401 no session, 404 missing, 409 conflict/sealed month/still referenced, 500 internal or failed audit invariant.
 
-The application provides the following core capabilities:
+### Auditor
+Every public method runs `snapshot → calculate → verify invariants → AuditedResult { value, inputs_hash, data_version, checks }`. A failing invariant is HTTP 500 and the value is never returned. Snapshots are cached per `(scope, data_version)` (LRU of 64); `Database::write` bumps the version.
 
-1. **Multi-User & Co-Housing Support**:
-   - Houses multiple members and independent couples under one instance.
-   - Dynamic user configuration with custom colors and active/inactive status.
-   - Connected-component graph isolation ensures debt settlements between couples do not cross over into unrelated household tenants.
-2. **Multi-Joint Accounts**:
-   - Multiple isolated joint accounts (`joint_accounts`, `joint_account_members`) with independent balances, safety margins, and category bindings.
-   - Expenses and recurring commitments can be charged directly to a specific joint account (`is_joint = 1`, `joint_account_id`).
-   - Per-account monthly deposit schedules (`joint_account_deposits`), monthly execution tracking (`joint_account_monthly_deposits`), and signed balance corrections (`joint_account_corrections`).
-   - Direct joint expenses are automatically excluded from peer-to-peer payback debt calculations.
-3. **Category Management & SCD2 Split Agreements**:
-   - Dynamic category registry with renaming cascades across all referencing tables (`ON UPDATE CASCADE`) and delete protection (blocked with HTTP 409 if referenced).
-   - Slowly Changing Dimensions Type 2 (SCD2) category split agreements (`split_agreements`, `split_allocations`) supporting date-bounded overrides. Overrides take precedence over baseline agreements during their active window.
-4. **Jobs & Period-Specific Salary Adjustments**:
-   - Employment contracts (`jobs`) tracking regular income streams with normalized frequencies (`monthly`, `weekly`, `biweekly`, `annual`) and start/end dates.
-   - Month-specific salary overrides (`salary_overrides`) for temporary unpaid leave, sickness, or overtime, dynamically adjusting proportional split ratios for target periods without mutating underlying contracts.
-5. **Project Multi-User Membership & Settlement**:
-   - Target budget goals (`projects`) with user membership tracking (`project_users`).
-   - Dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), evaluating effective funding (direct personal + joint proportion) against assigned liability.
-6. **Dynamic Tag Timelines & Boundary Enforcement**:
-   - Event and label tags (`tags`) with active date windows (`start_date`, `end_date`).
-   - Strict timeline window validation on expense creation/update (`HTTP 422` if expense falls outside tag bounds).
-   - Rejection of tag timeline shrinkage if existing assigned expenses would be orphaned outside proposed dates.
-7. **Core Ledger & Recurring Commitments**:
-   - Expense tracking with smart form memory, search & filtering, inline tag assignment, and comprehensive edit modals.
-   - Automated recurring expense templates (`recurring_expenses`) with day-of-month and frequency scheduling.
-   - Month-locking settlements (`settlements`) to seal historical periods.
-8. **7-Domain Personalization & Settings**:
-   - Independent Desktop vs Mobile display profiles saved in `localStorage`.
-   - 1-Click functional presets: `Streamlined`, `High Legibility`, `Standard / Balanced`, and `Detailed / Power User`.
-   - Public stealth privacy shield (frosted-glass blur with hover peek).
-   - Custom currency symbol presets (€, $, £, CHF, ¥, kr), whole-unit rounding, and configurable row density (`minimal`, `compact`, `detailed`).
-9. **Interactive Documentation Hub (DocsHub)**:
-   - In-app technical and user documentation suite (`DocsHub.svelte`, `BackendDocs.svelte`, `FrontendDocs.svelte`, `GettingStartedDocs.svelte`, `SystemDocs.svelte`) backed by repository markdown guides.
-10. **Database Migration Resilience**:
-    - Automatic in-memory/import schema migration via `ensure_column` and dynamic table updaters, guaranteeing legacy backups import cleanly with backfilled defaults.
-11. **Bank Statement CSV Importer & Duplicate Expense Detection**:
-    - Client-side RFC 4180 CSV parser and ING Belgium export parser (`csvParser.js`), extracting clean counterparty names from Debit Mastercard, Bancontact, SEPA Direct Debits, and credit transfers.
-    - Dual-stream income vs expense processing: positive rows are routed to the income ledger with `$incomeCategories`, while negative rows are routed to the expense ledger with `$splits`.
-    - Real-time auto-cascading of category assignments across identical beneficiaries within the same stream.
-    - Strict categorization enforcement: all to-import entries must have an explicit category set (no silent fallback to 'other').
-    - Category-and-amount duplicate detection engine (`duplicateDetector.js`) intercepting both manual form entry (`ExpenseForm.svelte`) and batch CSV import (`BankCsvImportModal.svelte`).
-    - Accessible confirmation prompts (`DuplicatePromptModal.svelte`) displaying matching ledger entries and giving users 1-click options to confirm, cancel, or skip duplicate items.
+- **Allocation:** signed Hare-Niemeyer (largest remainder) with `.floor()`; ties broken by SHA-256 of `"{seed}:{member_id}"` (entries use the entry id as seed).
+- **Share precedence:** personal pay → entry override → income ratio → agreement in force (bounded beats open-ended, then later `valid_from`, then higher id) → equal split.
+- **Settlement:** per-category buckets, net = paid − expected, offset rules, connected-component isolation, greedy debt simplification. Joint-account expenses never enter it.
+- **Sealed months** (`month_seals`): `GET /settlements/{month}` returns the stored result plus a `drift` flag; entry writes in a sealed month fail with 409.
+- Endpoints: `/settlements/{month}[?explain=1]`, `/accounts/{id}/deposit-proposal`, `/accounts/{id}/dashboard`, `/budgets/status`, `/budgets/proposals`, `/splits/salary-ratios|effective|proposal`, `/income/effective`, `/cashflow`, `/projects/{id}/settlement`, `/entries/{id}/shares`. Full shapes: plan §7.
+
+### Frontend (`frontend/`, Svelte + Tailwind + Chart.js)
+The browser does the minimum:
+1. Derives the AES-GCM key and sends the auth proof.
+2. Encrypts text fields before writes (`seal`) and decrypts labels after reads (`open`).
+3. Renders server values and formats cents/dates (`format.js`).
+4. Plaintext-only work: substring search and sorting of the loaded page, CSV parsing in WASM.
+
+**It does not sum, average, round, split or compare money.** If a screen needs a number the server does not provide, add it to the Auditor (contentious) or to `/views/*` (plain aggregate). Styling is utility-first Tailwind; scoped `<style>` only for canvas/keyframes. Charts are raw Chart.js on `<canvas>`. `lib/api.js` `request()` throws `ApiError` with the server's `detail`; components bind `err.message` to banners. State lives in `lib/stores.js`; `lib/live.js` listens on `/ws/finance` and bumps `ledgerVersion`. Keep components flat; avoid deep prop drilling.
+
+### 🔒 Zero-knowledge crypto contract
+- **Key:** PBKDF2 (100,000 iterations, SHA-256, static salt `"jizifin-salt-pbkdf2"`) → 256-bit AES-GCM key.
+- **IV:** static 12 bytes `"jizifin-cryp"`; ciphertext is Base64URL without padding (`crypto.js`). Deterministic by design.
+- **Login proof:** `encryptText("FinanceTrackerAuth")`. The server stores only `SHA-256(proof)`; it never sees the passphrase.
+- The server holds ciphertext in `*_ct` columns and plaintext numbers/dates/ids/flags.
+- **On `*_ct` columns only:** equality, `IN`, joins and `GROUP BY`. **Forbidden:** range filters, `LIKE`, collation `ORDER BY` (sort in the browser).
+- Backups (`GET/POST /backup`) are a DuckDB file of ciphertext and numbers; sessions are excluded.
 
 ---
 
-## 🗄️ 4. DATABASE SCHEMA & QUERY OPTIMIZATION
+## 🗄️ 3. SCHEMA (`backend/crates/jizifin-store/migrations/0001_init.sql`)
 
-Authoritative schema definitions, migrations, and view initializations reside in `backend/app/database.py`.
+Surrogate `BIGINT` keys from sequences. **No foreign keys, by decision** (DuckDB blocks updating a UNIQUE column of a referenced parent); repositories enforce integrity with `require`/`unreferenced`. One unified `entries` ledger; SCD2 agreements and budgets; no stored contentious values except `month_seals`. Bump `LATEST_VERSION` and add a numbered SQL file for every schema change.
 
-### Database Table Catalog (24 Tables)
+| Table | Key columns (`*_ct` = ciphertext) |
+| :--- | :--- |
+| `app_config`, `sessions`, `schema_version` | auth proof hash; token hashes (7-day idle TTL); migration level |
+| `members` | `id`, `name_ct` UNIQUE, `color`, `is_active` |
+| `categories` | `id`, `kind` expense/income, `name_ct`, `pay_mode` shared/personal/income_ratio |
+| `agreements`, `agreement_shares` | per-category SCD2: `valid_from`, `valid_to` NULL = open-ended; `pct` DOUBLE |
+| `accounts`, `account_members`, `account_categories` | joint accounts: `safety_margin_pct`, `expected_total_cents`, `deposit_mode`, `due_day`, `fixed_deposit_cents`, `expected_cents` |
+| `projects`, `project_members`, `tags` | targets and event windows |
+| `recurring_templates` | `kind`, `amount_cents`, `day_of_month`, `recurrence`, `valid_from/to`, `is_active` |
+| `entries` | `kind` expense/income/deposit/correction, `entry_date`, signed `amount_cents`, `member_id`, `category_id`, `account_id`, `project_id`, `tag_id`, `recurring_id`, `name_ct`, `note_ct`; UNIQUE `(recurring_id, entry_date)` |
+| `entry_share_overrides` | per-entry custom split |
+| `jobs`, `income_overrides` | contracts (monthly/weekly/biweekly/annual) and month-specific amounts |
+| `budgets` | SCD2 limits, `valid_to` NULL = standing |
+| `offset_rules` | debit/credit member+category pairs |
+| `month_seals` | `month`, `result_json`, `inputs_hash`, `sealed_at` |
 
-| Table | Purpose | Primary Key | Key Foreign Keys | Encrypted Columns |
-| :--- | :--- | :--- | :--- | :--- |
-| `app_config` | App key-value configuration | `key` | None | `value` (magic_word) |
-| `users` | Household members | `name` | None | `name` |
-| `splits` | Expense category registry | `category` | None | `category` |
-| `income_categories` | Income category registry | `category` | None (historical survival) | `category` |
-| `projects` | Budget milestone targets | `id` (AUTO) | None | `name` |
-| `project_users` | Multi-user project members | `(project_id, user_name)` | `projects(id)`, `users(name)` | `user_name` |
-| `tags` | Event & label tags with timeline | `id` (AUTO) | None | `name`, `description` |
-| `expenses` | Core expense ledger | `id` (AUTO) | `users(name)`, `splits(category)`, `projects(id)`, `tags(id)`, `joint_accounts(id)` | `name`, `who_paid`, `category` |
-| `expense_overrides` | Per-expense custom split overrides | `(expense_id, user_name)` | `expenses(id)`, `users(name)` | `user_name` |
-| `income` | Append-only income ledger | `id` (AUTO) | `users(name)` | `name`, `who`, `category` |
-| `jobs` | Employment contracts & regular income | `id` (AUTO) | `users(name)` | `name`, `who`, `notes` |
-| `salary_overrides` | Month-specific salary adjustments | `(user_name, month)` | `users(name)` | `user_name`, `note` |
-| `recurring_expenses` | Automated expense templates | `id` (AUTO) | `users(name)`, `splits(category)`, `joint_accounts(id)` | `name`, `who_paid`, `category` |
-| `budgets` | Monthly category spending limits | `(category, month)` | `splits(category)` | `category` |
-| `settlements` | Monthly reconciliation & lock log | `month` | None | Plaintext |
-| `split_agreements` | SCD2 category split timelines | `id` (AUTO) | `splits(category)` | `category`, `note` |
-| `split_allocations` | User percentage shares per agreement | `id` (AUTO) | `split_agreements(id)`, `splits(category)`, `users(name)` | `category`, `user_name` |
-| `joint_accounts` | Multi-joint account registry | `id` (AUTO) | None | `name` |
-| `joint_account_members`| Joint account participant roster | `(account_id, user_name)` | `joint_accounts(id)`, `users(name)` | `user_name` |
-| `joint_account` | Singleton backwards-compat table | `id = 1` | None | `name` |
-| `joint_account_categories` | Categories paid from joint accounts | `(category, account_id)` | `splits(category)`, `joint_accounts(id)` | `category` |
-| `joint_account_deposits` | Monthly user deposit schedules | `(user_name, account_id)` | `users(name)`, `joint_accounts(id)` | `user_name` |
-| `joint_account_monthly_deposits` | Deposit execution & payment log | `(month, user_name, account_id)` | `users(name)`, `joint_accounts(id)` | `user_name` |
-| `joint_account_expected_costs` | Expected monthly cost per category | `(category, account_id)` | `splits(category)`, `joint_accounts(id)` | `category` |
-| `joint_account_corrections` | Signed balance corrections | `id` (AUTO) | `joint_accounts(id)` | `note` |
-
-### Database Views Catalog (9 Read-Only Views)
-Recreated on application startup to guarantee schema alignment:
-
-1. `view_monthly_total`: Current month's aggregated spending total (`cost_cents / 100.0`) and transaction count.
-2. `view_monthly_by_category`: Current month spending grouped by category.
-3. `view_monthly_by_payer`: Current month spending grouped by `who_paid`.
-4. `view_expenses_by_month_category`: Monthly spending grouped by `(YYYY-MM, category)`.
-5. `view_project_summary`: Target vs aggregated total spent cents per project.
-6. `view_tag_totals`: All-time spending aggregates, transaction counts, and active date bounds per tag.
-7. `view_joint_account_monthly`: Joint account monthly spending grouped by `(month, category, account_id)`.
-8. `view_current_split_allocations`: Active category split allocations resolved from SCD2 agreements for current date.
-9. `view_split_agreements_active`: Active category split agreement timelines ordered by start date.
-
-### Query Performance & Execution Plan (EQP) Optimization
-The `jizifin-query-optimizer` skill defines indexing standards to guarantee high throughput and zero table scans:
-- **Canonical Indexes**:
-  - `idx_expenses_date_id` on `expenses (expense_date DESC, id DESC)`
-  - `idx_expenses_who_date` on `expenses (who_paid, expense_date DESC)`
-  - `idx_expenses_category_date` on `expenses (category, expense_date DESC)`
-  - `idx_expenses_project_id` on `expenses (project_id) WHERE project_id IS NOT NULL`
-  - `idx_expenses_tag_id` on `expenses (tag_id) WHERE tag_id IS NOT NULL`
-  - `idx_expenses_joint_date` on `expenses (is_joint, expense_date DESC)`
-  - `idx_income_who_date` on `income (who, income_date DESC)`
-  - `idx_jobs_who_dates` on `jobs (who, start_date, end_date)`
-  - `idx_split_agreements_cat_dates` on `split_agreements (category, start_date, end_date)`
-  - `idx_split_allocations_agreement` on `split_allocations (agreement_id)`
-  - `idx_split_allocations_category` on `split_allocations (category)`
-- **SARGability Rule**: Avoid calling SQL functions on index columns (e.g. use `WHERE expense_date >= 'YYYY-MM-01' AND expense_date <= 'YYYY-MM-31'` instead of `WHERE strftime('%Y-%m', expense_date) = ...`).
+Indexes: `entries(entry_date, id)`, `(member_id, entry_date)`, `(category_id, entry_date)`, `(account_id, entry_date)`, `(project_id)`. Keep range filters SARGable (compare `entry_date` to bounds, never wrap it in a function).
 
 ---
 
-## 🧮 5. COMPLEX DOMAIN LOGIC & INVARIANTS
-
-### 1. Signed Hare-Niemeyer / Largest Remainder Distribution (`allocate_cents_largest_remainder`)
-Computes exact integer cent allocations for positive expenses, zero values, and negative credit memos/refunds:
-1. Calculates exact float cent shares: `share = total_cents * pct / total_pct`.
-2. Computes base cent shares using mathematical floor: `floor_share = math.floor(share)` (essential for correct negative quotient assignments on refunds).
-3. Evaluates fractional remainder: `remainder = share - floor_share`.
-4. Distributes remaining cents (`total_cents - sum(floor_shares)`) to users in descending order of remainder.
-5. **Deterministic Salted Tie-Breaker**: For users with identical fractional remainders, tie-breaking order is determined by SHA-256 hash of `f"{tx_salt}:{user}"` (using expense ID, date, or category), eliminating alphabetical drift across hundreds of transactions.
-
-### 2. Payback Calculation & Graph Decomposition (`/analytics/paybacks`)
-1. **Joint Account Exclusion**: Direct joint account transactions (`is_joint = 1`) and categories assigned to joint accounts are excluded from peer reimbursement calculations.
-2. **Allocation Resolution**: Evaluates per-expense overrides (`expense_overrides`), then active SCD2 split agreements (`split_agreements`), falling back to baseline splits or equal distribution.
-3. **Personal-Pay Categories**: Categories designated for personal spend (`PERSONAL COST`, `LEISURE`, `GIFT`) are dynamically remapped to the payer with 100% liability.
-4. **Special Deduction Rule**: Evaluates the smaller of Jane's "Combined Fixed" and John's "Apartment" payments, adjusting net positions to simulate direct reimbursement.
-5. **Connected-Component Graph Isolation**: Partitions members into disjoint connected subgraphs based on transaction splits before executing greedy debt simplification, ensuring debts do not cross outside participating groups.
-
-### 3. Tag Active Window Validation (`POST /expenses`, `PUT /expenses`, `PUT /tags/{id}`)
-- Validates that `tag.start_date <= expense.expense_date <= tag.end_date`. Violations return `HTTP 422 Unprocessable Content`.
-- Updating a tag timeline validates all currently assigned expenses; if any expense would fall outside the proposed window, the update is rejected with `HTTP 422`.
-
-### 4. Jobs & Salary Override Analytics (`/income/latest-salary`, `/analytics/income-by-person`)
-- Evaluates active contracts in `jobs` during target month `YYYY-MM` (`start_date <= '{month}-31'` and `end_date IS NULL OR end_date >= '{month}-01'`).
-- Normalizes frequencies: `monthly` (`cents`), `weekly` (`round(cents * 52 / 12)`), `biweekly` (`round(cents * 26 / 12)`), `annual` (`round(cents / 12)`).
-- Month-specific overrides in `salary_overrides` take precedence over contract amounts for that specific month.
-- Falls back to legacy historical `SALARY` append entries only if user has no configured jobs.
-
----
-
-## 📂 6. REPO TOPOLOGY
+## 📂 4. REPO TOPOLOGY
 
 ```
-jizifin/
-├── backend/
-│   ├── app/
-│   │   ├── main.py            # FastAPI endpoints, lifespan, WebSockets, analytics
-│   │   ├── database.py        # Schema DDL, migrations, views, connection pool
-│   │   ├── models.py          # Pydantic v2 validation models
-│   │   └── crypto_utils.py    # Server-side PBKDF2/AES-GCM backup streaming
-│   ├── docs/                  # Backend technical documentation markdown
-│   ├── tests/                 # Pytest test suite (342 tests, 21 test files)
-│   ├── pyproject.toml         # Python project configuration and dependencies
-│   └── Dockerfile             # Python 3.14 container definition
-├── frontend/
-│   ├── src/
-│   │   ├── lib/
-│   │   │   ├── api.js         # Central client API with automatic AES-GCM encryption
-│   │   │   ├── crypto.js      # WebCrypto PBKDF2 and AES-GCM static IV routines
-│   │   │   ├── stores.js      # Reactive Svelte writable stores
-│   │   │   ├── docs/          # In-app interactive documentation components
-│   │   │   └── *.svelte       # Feature tab and management components
-│   │   ├── App.svelte         # Main application shell, tabs, privacy shield
-│   │   └── main.js            # DOM mount point
-│   ├── docs/                  # Frontend technical documentation markdown
-│   ├── src/test/              # Vitest test suite (384 tests, 43 test files)
-│   ├── package.json           # Node scripts and dependencies
-│   └── Dockerfile             # Vite / Node container definition
-├── docs/                      # General and getting-started documentation
-├── scripts/                   # Test automation and SonarQube runner scripts
-├── docker-compose.yml         # Local and production multi-container orchestration
-└── Caddyfile                  # Reverse proxy, TLS termination, and WebSocket routing
+backend/   Cargo workspace (crates above), Dockerfile, Dockerfile.test, clippy.toml, .cargo/config.toml
+frontend/  src/lib (api, stores, live, format, crypto, csv, *.svelte), src/lib/docs, src/test (Vitest), Dockerfile.prod (builds WASM)
+docs/      RUST_MIGRATION_PLAN.md, getting-started.md
+scripts/   capture-legacy-reference.sh (one-off), run-tests-and-sonar.sh, get-sonar-report.sh
+docker-compose.yml, Caddyfile, Makefile
+data/      DuckDB file (git-ignored, bind-mounted at /data)
 ```
 
 ---
 
-## 🚨 7. ZERO-REGRESSION POLICY & MANDATORY VERIFICATION
+## 🚨 5. VERIFICATION POLICY
 
-### Critical Invariant: Zero Regression Verification
-Running full test suites is mandatory **only** when modifying application source code, API models, database schemas/migrations, or core dependencies. **DO NOT run test suites** when the user requests documentation updates, markdown edits, git commits, repository rule adjustments, or local exploration/inspection.
+- After changing Rust: `make lint-backend`. After changing the frontend: `make wasm` then the production build above.
+- **Test status:** the Rust test suite is not written yet (plan §12, "Phase B"). The frontend Vitest suite still contains suites for modules that no longer exist (plan §12.6 lists them for deletion). Do not treat a green or red run of those as evidence either way.
+- Before declaring behaviour correct, check it against a real run: the API on a migrated scratch database, or the live host.
+- Documentation synchronisation: when schema, endpoints or workflows change, update this file, `README.md` and `docs/RUST_MIGRATION_PLAN.md` together.
 
-When required, verify 100% test passage across both suites:
-- **Backend Test Suite (342 Tests across 21 test files)**:
-  - *Universal Docker (Primary)*: `docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest`
-  - *Host CLI (Secondary)*: `uv run --directory backend pytest`
-- **Frontend Test Suite (384 Tests across 43 test files)**:
-  - *Universal Docker (Primary)*: `docker run --rm -v $(pwd)/frontend/src:/app/src -v $(pwd)/frontend/index.html:/app/index.html -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js -v $(pwd)/frontend/vite.config.js:/app/vite.config.js jizifin-frontend-test npm test -- --run`
-  - *Host CLI (Secondary)*: `npm --prefix frontend test -- --run`
+## 🛡️ 6. SANDBOX RULES
 
-### Mathematical & Architectural Code Generation Rules
-1. **Never Truncate Floating-Point Percentages**: Keep basis-point precision (`AllocationEntry.pct` float, `toFixed(4)`). Never coerce to integer with `int()` or `Math.round()`.
-2. **Integer Cent Database Boundary**: Stored values are always `INTEGER` cents. Currency formatting (`cents / 100.0`) occurs exclusively at presentation/response boundaries.
-3. **Signed Math Floor**: Always use `math.floor()` in Largest Remainder distribution to guarantee zero-sum invariants on negative refunds.
-4. **Flat Component Composition**: Keep Svelte components modular and avoid deep hierarchical prop drilling.
-5. **Documentation Synchronization**: When schema, indexes, endpoints, or workflows change, update `AGENTS.md` and `README.md` in tandem.
-
----
-
-## 🛡️ 8. PERMISSION HANDLING & SANDBOX RECOVERY PROTOCOL
-
-1. **System Boundary Recognition**: If a terminal command returns a sandbox deny or protection boundary error, pivot immediately to workspace bounds or Docker container execution.
-2. **No `cd` Commands**: Never execute `cd` commands in `run_command`. Always specify the working directory via the `Cwd` parameter.
-3. **Workspace Enclosure**: All commands, scripts, and file modifications must remain strictly confined to the project root.
+If a command hits a sandbox boundary, pivot to Docker. Keep all commands and edits inside the project root. Prefer absolute paths over `cd`.

@@ -82,13 +82,13 @@
       </p>
 
       <div class="p-4 rounded-xl bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 font-mono text-[11px] text-neutral-800 dark:text-neutral-200 overflow-x-auto">
-        <pre><code>Client (Browser)                                        Server (FastAPI + SQLite)
+        <pre><code>Client (Browser)                                        Server (Rust + DuckDB)
 +-----------------------+                              +-----------------------+
 | Plaintext String      |                              |                       |
 |         ↓             |                              |                       |
 | PBKDF2 (100k iters)   |                              |                       |
 |         ↓             |                              |                       |
-| AES-GCM (Static IV)   | --- Base64URL Ciphertext --->| SQLite DB (WAL Mode)  |
+| AES-GCM (Static IV)   | --- Base64URL Ciphertext --->| DuckDB file           |
 |         ↓             |                              | • Exact matches       |
 | Display in Svelte UI  | &lt;--- Base64URL Ciphertext ---| • GROUP BY / FK checks|
 +-----------------------+                              +-----------------------+</code></pre>
@@ -126,7 +126,7 @@
             <tr>
               <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">AES-GCM IV</td>
               <td class="py-2 px-3 font-mono">"jizifin-cryp" (12 bytes)</td>
-              <td class="py-2 px-3">Static IV for deterministic matching in SQLite</td>
+              <td class="py-2 px-3">Static IV for deterministic matching in DuckDB</td>
             </tr>
           </tbody>
         </table>

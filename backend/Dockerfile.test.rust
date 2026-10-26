@@ -1,4 +1,0 @@
-# Rust test runner (replaces Dockerfile.test at cutover).
-FROM rust:1-bookworm
-RUN cargo install cargo-nextest --locked
-WORKDIR /app

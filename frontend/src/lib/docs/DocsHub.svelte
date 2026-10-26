@@ -38,8 +38,8 @@
       badge: 'Backend',
       badgeColor: 'bg-amber-500/10 text-amber-600 dark:text-amber-400 border-amber-500/20',
       icon: `<svg class="w-6 h-6 text-amber-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M5.25 14.25h13.5m-13.5 0a3 3 0 01-3-3m3 3a3 3 0 100 6h13.5a3 3 0 100-6m-16.5-3a3 3 0 013-3h13.5a3 3 0 013 3m-19.5 0a4.5 4.5 0 01.9-2.7L5.7 7.4A3 3 0 018.1 6h7.8a3 3 0 012.4 1.4l1.8 2.85a4.5 4.5 0 01.9 2.75"/></svg>`,
-      description: 'FastAPI async routing, SQLite in WAL mode, raw SQL queries, integer cent math, Largest Remainder allocations, and Pytest coverage.',
-      topics: ['FastAPI & aiosqlite', 'SQL Views (No ORM)', 'Integer Cent Math', 'Hare-Niemeyer Splits', 'Debt Simplification', 'Pytest Suite'],
+      description: 'Rust API, embedded DuckDB, the in-process Auditor, integer cent math, Largest Remainder allocations, and clippy-enforced small methods.',
+      topics: ['Rust & DuckDB', 'Auditor Invariants', 'Integer Cent Math', 'Hare-Niemeyer Splits', 'Debt Simplification', 'Clippy Gates'],
       actionLabel: 'Open Backend Docs →',
       isPrimary: false,
     },
@@ -141,7 +141,7 @@
         <input
           type="text"
           bind:value={searchQuery}
-          placeholder="Filter documentation topics (e.g., crypto, svelte, wal, setup)..."
+          placeholder="Filter documentation topics (e.g., crypto, svelte, auditor, setup)..."
           class="w-full pl-10 pr-4 py-2 rounded-xl text-sm bg-white dark:bg-neutral-900 border border-neutral-300 dark:border-neutral-700 text-neutral-900 dark:text-white placeholder-neutral-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 shadow-sm transition-all"
         />
       </div>
@@ -210,12 +210,12 @@
     <div class="mt-8 rounded-xl bg-neutral-100/60 dark:bg-neutral-900/60 border border-neutral-200 dark:border-neutral-800 p-4">
       <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-center">
         <div>
-          <p class="text-lg font-bold text-neutral-900 dark:text-white">325</p>
-          <p class="text-[11px] text-neutral-500 dark:text-neutral-400">Frontend Tests</p>
+          <p class="text-lg font-bold text-neutral-900 dark:text-white">5</p>
+          <p class="text-[11px] text-neutral-500 dark:text-neutral-400">Rust Crates</p>
         </div>
         <div>
-          <p class="text-lg font-bold text-neutral-900 dark:text-white">328</p>
-          <p class="text-[11px] text-neutral-500 dark:text-neutral-400">Backend Tests</p>
+          <p class="text-lg font-bold text-neutral-900 dark:text-white">12</p>
+          <p class="text-[11px] text-neutral-500 dark:text-neutral-400">Audited Calculations</p>
         </div>
         <div>
           <p class="text-lg font-bold text-neutral-900 dark:text-white">100,000</p>

@@ -2,7 +2,7 @@ services:
   backend:
     build:
       context: ./backend
-      dockerfile: Dockerfile.rust
+      dockerfile: Dockerfile
     image: jizifin-backend:latest
     container_name: finance-tracker-backend
     restart: unless-stopped
@@ -18,21 +18,6 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-    networks:
-      - app-network
-
-  # One-shot legacy SQLite → DuckDB migration (Phase C). Never modifies finance.db.
-  #   JIZIFIN_PASSPHRASE=... docker compose --profile migrate run --rm migrate
-  migrate:
-    profiles:
-      - migrate
-    image: jizifin-backend:latest
-    entrypoint: ["jizifin-migrate", "--sqlite", "/legacy/finance.db", "--duckdb", "/data/finance.duckdb"]
-    environment:
-      JIZIFIN_PASSPHRASE: ${JIZIFIN_PASSPHRASE:-}
-    volumes:
-      - ./backend/finance.db:/legacy/finance.db:ro
-      - ./data:/data
     networks:
       - app-network
 

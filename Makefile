@@ -34,11 +34,6 @@ deploy-backend: ## Build the Rust backend; swap the running container only if th
 	$(COMPOSE_PROD) build backend
 	$(COMPOSE_PROD) up -d --no-deps --wait backend
 
-.PHONY: migrate
-migrate: ## One-shot legacy SQLite → DuckDB migration (needs JIZIFIN_PASSPHRASE; legacy file untouched)
-	$(COMPOSE_PROD) build backend
-	$(COMPOSE_PROD) --profile migrate run --rm migrate
-
 .PHONY: wasm
 wasm: ## Build the jizifin-wasm CSV parser into frontend/src/lib/wasm (dev server and tests)
 	docker build -f frontend/Dockerfile.prod --build-context backend=backend --target wasm-pkg --output frontend/src/lib/wasm frontend
@@ -100,18 +95,16 @@ logs-caddy: ## Follow Caddy container logs
 # Testing
 # ------------------------------------------------------------------------------
 .PHONY: test
-test: test-backend test-frontend ## Run both backend (pytest) and frontend (vitest) test suites
+test: test-backend test-frontend ## Run both backend (nextest) and frontend (vitest) test suites
 
 .PHONY: test-backend
-test-backend: ## Run backend pytest suite
-	@if command -v uv >/dev/null 2>&1; then \
-		uv run --directory backend pytest; \
-	elif docker image inspect jizifin-backend-test >/dev/null 2>&1; then \
-		docker run --rm -v "$$(pwd)/backend/app:/app/app" -v "$$(pwd)/backend/tests:/app/tests" jizifin-backend-test pytest; \
-	else \
-		docker build -t jizifin-backend-test -f backend/Dockerfile.test backend/ && \
-		docker run --rm -v "$$(pwd)/backend/app:/app/app" -v "$$(pwd)/backend/tests:/app/tests" jizifin-backend-test pytest; \
-	fi
+test-backend: ## Run the Rust workspace tests with cargo-nextest in Docker
+	docker build -t jizifin-backend-test -f backend/Dockerfile.test backend/
+	docker run --rm -v "$$(pwd)/backend:/app" -v jizifin-cargo-registry:/usr/local/cargo/registry -v jizifin-cargo-target:/target -e CARGO_TARGET_DIR=/target jizifin-backend-test cargo nextest run --workspace
+
+.PHONY: lint-backend
+lint-backend: ## Clippy over the whole Rust workspace (also type-checks)
+	docker run --rm -v "$$(pwd)/backend:/src" -w /src -v jizifin-cargo-registry:/usr/local/cargo/registry -v jizifin-cargo-target:/target -e CARGO_TARGET_DIR=/target rust:1-bookworm sh -c 'rustup component add clippy >/dev/null 2>&1; cargo clippy --workspace --all-targets -- -D warnings'
 
 .PHONY: test-frontend
 test-frontend: ## Run frontend vitest suite
@@ -130,9 +123,7 @@ test-frontend: ## Run frontend vitest suite
 .PHONY: clean
 clean: ## Remove temporary build files, test caches, coverage reports, and stopped containers
 	$(COMPOSE_PROD) --profile full down --remove-orphans
-	rm -rf frontend/dist frontend/coverage backend/coverage.xml backend/.pytest_cache
-	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
-	find . -type f -name "*.pyc" -delete 2>/dev/null || true
+	rm -rf frontend/dist frontend/coverage
 
 .PHONY: clean-all
 clean-all: clean ## Deep clean including docker volumes and dangling images

@@ -7,17 +7,13 @@ echo "=========================================="
 npm --prefix frontend run test:coverage
 
 echo "=========================================="
-echo " 2. Running Backend Tests (Pytest)         "
+echo " 2. Running Backend Tests (cargo nextest) "
 echo "=========================================="
-(
-  cd backend
-  uv run pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
-)
+make test-backend
 
 echo "=========================================="
 echo " 3. Coverage Reports Generated            "
 echo "   - Frontend: frontend/coverage/lcov.info"
-echo "   - Backend:  backend/coverage.xml       "
 echo "=========================================="
 
 SONAR_HOST="${SONAR_HOST_URL:-http://host.docker.internal:9000}"

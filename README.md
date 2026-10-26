@@ -1,6 +1,6 @@
 # Personal Finance Tracker (Jizifin)
 
-A monorepo personal finance tracking application designed for managing shared household expenses, employment incomes, budgets, joint accounts, and paybacks across multi-member and multi-couple households. Built with a high-performance Python/FastAPI backend and a reactive Vanilla Svelte frontend.
+A monorepo personal finance tracking application designed for managing shared household expenses, employment incomes, budgets, joint accounts, and paybacks across multi-member and multi-couple households. Built with a Rust (axum) backend on embedded DuckDB 2.0, an in-process Auditor that owns every contentious calculation, and a thin Vanilla Svelte client that only encrypts, decrypts and renders.
 
 ---
 
@@ -17,13 +17,13 @@ A monorepo personal finance tracking application designed for managing shared ho
   - `📊 Detailed / Power User`: Exact `.00` precision everywhere, detailed metadata chips, and advanced tabs (Query Console, Budgets).
 - **View Depth & Rapid Logging Accelerators:** Configurable project lifecycle filters (`Active Only`, `In Progress`, `All Archive`), ledger row density (`Minimal`, `Compact`, `Detailed`), currency precision mode, smart form memory (`Remember Last Used`, `Static Defaults`, `Empty`), and granular form field toggles.
 - **Exact Basis-Point & Float Percentage Splits:** Configure category split allocations with full basis-point float precision (`0.01%`), supporting proportional income splits (e.g. $26.6667\% / 13.3333\% / 25.9259\% / 11.1111\% / 18.5185\%$) without forced integer coercion.
-- **Signed Hare-Niemeyer / Largest Remainder Math:** Integer-cent split distribution supporting positive transactions, zero, and negative refunds/credit memos using mathematical `math.floor`, paired with a deterministic transaction-salted SHA-256 tie-breaker to prevent alphabetical bias.
+- **Signed Hare-Niemeyer / Largest Remainder Math:** Integer-cent split distribution supporting positive transactions, zero, and negative refunds/credit memos using a mathematical floor, paired with a deterministic transaction-salted SHA-256 tie-breaker to prevent alphabetical bias.
 - **Multi-Tenant Joint Accounts:** Isolated joint accounts owned by specific household sub-groups (e.g., Couple AB, Couple CD) with custom safety margins, expected monthly costs, per-user monthly deposit schedules, and signed balance corrections.
 - **Payback Calculator & Graph Decomposition:** Computes exact net balances based on payer, category shares, and joint exclusions. Employs connected-component graph decomposition to isolate subgroup debts from cross-household transfers before executing greedy debt simplification.
 - **Dynamic Tag Timelines & Boundary Enforcement:** Open-ended color-coded tag labeling system with `start_date` and `end_date` active windows. Validates that expenses fall strictly within active tag milestones and prevents retrospective tag window shrinkage.
 - **Projects & Settlement Equity Balance Sheets:** Long-term project budget targets with estimated completion dates and dedicated point-in-time participant equity balance sheets (`GET /projects/{id}/settlement`), tracking effective funding vs assigned liability.
 - **Expense Tracking & Full Management:** Log and manage shared/personal expenses with split percentage overrides, project allocations, and tag associations. Features a live search/filter toolbar, quick inline tag popover assignment, a full-featured Edit Expense modal, and date-locking for settled historical months.
-- **Bank Statement CSV Importer & Duplicate Detection:** Upload and review bank statements (supporting ING Belgium format with KBC selection). Features clean beneficiary extraction from Debit Mastercard, Bancontact, SEPA Direct Debits, and credit transfers. Implements dual-stream routing (positive credits to Income, debits to Expenses), real-time category auto-cascading per beneficiary, 1-click micro-expense bundling, and strict categorization validation (no default fallback to "other"). Integrated duplicate detection engine checks category and cent amount against decrypted ledger expenses in both manual form entry and CSV imports, providing an interactive confirmation prompt to cancel, add anyway, or skip duplicates.
+- **Bank Statement CSV Importer & Duplicate Detection:** Upload and review bank statements (supporting ING Belgium format with KBC selection). Features clean beneficiary extraction from Debit Mastercard, Bancontact, SEPA Direct Debits, and credit transfers. Implements dual-stream routing (positive credits to Income, debits to Expenses), real-time category auto-cascading per beneficiary, 1-click micro-expense bundling, and strict categorization validation (no default fallback to "other"). The CSV parser runs in the browser as WebAssembly; a server-side duplicate check (same category and cent amount in the same month) runs when you press Import and on manual entry, with a confirmation prompt to cancel, add anyway, or skip duplicates.
 - **Centralized Settings & Personalization:** Comprehensive settings panel managing household members and color palettes, feature modules, navigation tab visibility, entry defaults with 1-click currency presets (€, $, £, CHF, ¥, kr), chart & split visualization styles, mobile layout density, and zero-knowledge encrypted database backups.
 - **Zero-Knowledge Privacy:** Client-side AES-GCM 256-bit encryption (via Web Crypto API) ensures all names, descriptions, notes, and category labels are stored encrypted at rest on the server, with secure in-place server-side database export/import utilities.
 - **Modern UI & Design System:** Modern typography powered by Plus Jakarta Sans and JetBrains Mono, `tabular-nums` formatting on all currency and financial amounts, and glassmorphic depth.
@@ -33,23 +33,23 @@ A monorepo personal finance tracking application designed for managing shared ho
 ## 🛠 Tech Stack
 
 **Backend:**
-- Python 3.14
-- FastAPI (Strict Pydantic v2 validation)
-- SQLite (`aiosqlite`) with WAL mode and foreign key enforcement
-- `uv` for dependency and virtual environment management
-- Pytest with coverage reporting (`pytest-cov`, `pytest-asyncio`)
+- Rust (axum, tokio), organised as a Cargo workspace of small crates (`domain`, `auditor`, `store`, `api`, `wasm`)
+- DuckDB 2.0 (embedded, single file, one serialised writer, pooled readers); native SQL, no ORM
+- The **Auditor**: settlements, deposit proposals, budgets, income, split resolution, cash flow and project equity are calculated in-process, verified against invariants, and returned with an input hash
+- clippy-enforced small methods (≤ 20 lines, ≤ 4 parameters, low cognitive complexity)
 
 **Frontend:**
 - Vanilla Svelte (Flat component architecture, no heavy SSR framework)
 - Tailwind CSS (Utility-first styling, glassmorphism tokens)
 - Chart.js (Native Canvas 2D rendering)
 - Vite build tool & development server
+- Rust-to-WASM CSV statement parser
 - Vitest with `@testing-library/svelte` and JSDOM
 
 **Infrastructure & Orchestration:**
 - Docker Compose
 - Caddy Server (Reverse Proxy, automatic HTTPS/TLS termination, and WebSocket proxying)
-- SonarQube static code quality analysis
+- SonarQube static code quality analysis (optional)
 
 ---
 
@@ -57,8 +57,8 @@ A monorepo personal finance tracking application designed for managing shared ho
 
 ### Option 1: Docker Compose (Recommended Cluster Setup)
 You can run the full production-like stack using Docker Compose. The setup consists of containers in a shared bridge network (`app-network`):
-- **`finance-tracker-backend`**: Runs the FastAPI server on port 8000.
-- **`finance-tracker-frontend`**: Runs the Svelte application using Vite on port 5173.
+- **`finance-tracker-backend`**: Runs the Rust API on port 8000; the DuckDB file lives in `./data` (bind-mounted at `/data`).
+- **`finance-tracker-frontend`**: Serves the built Svelte application on port 5173.
 - **`finance-tracker-caddy`**: Serves as the single entry gateway, binding host ports `80` and `443`.
 - **`finance-tracker-sonarqube`**: Local SonarQube server on port 9000 (for quality scans).
 
@@ -85,68 +85,29 @@ Caddy orchestrates routing and traffic control for the cluster:
 
 ### Option 2: Local Development Setup
 
-**Prerequisites:**
-- Python 3.14+
-- `uv` package manager (`uv 0.11+` or compatible)
-- Node.js (`v20+` or `v24+`)
-- `npm`
+Everything runs in Docker; host `cargo`/`npm` are not required.
 
-#### 1. Start the Backend:
 ```bash
-cd backend
-uv run uvicorn app.main:app --reload --port 8000
+make wasm        # build the CSV parser into frontend/src/lib/wasm
+make dev         # dev stack with hot reload
+make lint-backend
 ```
-This boots the FastAPI dev server on `http://localhost:8000` and creates or connects to `finance.db`.
 
-#### 2. Start the Frontend:
+Deploying a new backend swaps the running container only when the image build succeeds; Caddy retries requests for up to 30 seconds during the swap:
+
 ```bash
-cd frontend
-npm install
-npm run dev
+make deploy-backend
 ```
-This starts the Vite server on `http://localhost:5173`. Local client development routes requests to `/api` which are proxied to `http://localhost:8000` (configured in `vite.config.js`).
 
 ---
 
 ## 🧪 Testing & Quality Assurance
 
-The application features full-stack automated test suites ensuring zero regression and mathematical precision across all domain logic.
+- **Lint and type-check (Rust):** `make lint-backend` runs clippy with `-D warnings` over the whole workspace.
+- **Backend tests:** `make test-backend` runs `cargo nextest` in the `jizifin-backend-test` image. The Rust test suite is still to be written (plan §12); there are currently no backend tests.
+- **Frontend tests:** `make test-frontend` runs Vitest (`-- --run`). Several suites still target modules that were removed in the thin-client rewrite and are scheduled for deletion (plan §12.6).
 
-> **CRITICAL REQUIREMENT:** All future code changes, migrations, and additions must execute and pass 100% of both test suites (`pytest` and `vitest`) with zero regressions before being committed.
-
-### 1. Backend Test Suite & Integration Scenarios (Pytest)
-- **Framework:** Pytest, `pytest-asyncio`, and `pytest-cov`.
-- **Coverage:** **342 passed tests** across 21 test modules, including:
-  - `tests/test_expenses_batch.py`: Atomic batch expense creation with deterministic client-side encryption and category referential integrity.
-  - `tests/test_scenarios_integration.py`: End-to-end integration scenarios verifying isolated joint accounts, basis-point income splits, negative refund cent rounding, salted tie-breaking invariance over 500 transactions, tag active timeline bounds, point-in-time project equity snapshots, graph-decomposed couple debt isolation, and SCD2 category split overrides with timeline precedence.
-  - Core domain suites: `test_jobs_and_salary.py`, `test_ledger_transfers.py`, `test_budgeting_engine.py`, `test_concurrency_security.py`, `test_import_export_analytics.py`, `test_categories_tags.py`, `test_category_rename_delete.py`, `test_scd2_category_splits.py`, `test_multi_household_couples.py`, etc.
-
-See [.agents/rules/](file:///home/jim/Documents/jizifin/.agents/rules/) for full workspace execution rules and cross-platform instructions.
-
-```bash
-# Universal (Primary): Run backend tests inside Docker container:
-docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest
-
-# Secondary: Run full backend test suite on host (if uv/Python 3.14 installed):
-uv run --directory backend pytest --cov=app --cov-report=xml:coverage.xml --cov-report=term
-```
-
-### 2. Frontend Test Suite (Vitest)
-- **Framework:** Vitest, `@testing-library/svelte`, JSDOM, and `jsdom-testing-mocks`.
-- **Coverage:** **384 passed tests** across 43 test files covering bank statement CSV parsing (`csvParser.test.js`), duplicate detection matching (`duplicateDetector.test.js`), bank statement import modal workflows (`BankCsvImportModal.test.js`), duplicate prompt interception (`ExpenseForm.test.js`), encryption/decryption, stores, device profiles, workflow presets, API error handling, Svelte components (`IncomeTab`, `SplitManager`, `SettingsTab`, `JointAccountTab`, `ExpenseForm`, `ExpenseList`, `BudgetManager`, `TagsTab`, `ProjectsTab`, `QueryConsole`, `DocsHub`, etc.), form validations, and user workflows.
-
-```bash
-# Universal (Primary): Run frontend tests inside Docker container:
-docker run --rm \
-  -v $(pwd)/frontend/src:/app/src \
-  -v $(pwd)/frontend/index.html:/app/index.html \
-  -v $(pwd)/frontend/tailwind.config.js:/app/tailwind.config.js \
-  -v $(pwd)/frontend/vite.config.js:/app/vite.config.js \
-  jizifin-frontend-test npm test -- --run
-
-# Secondary: Run Vitest test suite on host (if Node/npm installed):
-npm --prefix frontend test -- --run
-```
+See [docs/RUST_MIGRATION_PLAN.md](docs/RUST_MIGRATION_PLAN.md) for the full test plan and [.agents/rules/](.agents/rules/) for workspace execution rules.
 
 ---
 
@@ -157,13 +118,16 @@ A unified [Makefile](file:///home/jim/Documents/jizifin/Makefile) is provided fo
 | Command | Action | Description |
 | :--- | :--- | :--- |
 | `make help` | Help overview | Displays all available targets and descriptions. |
-| `make build` | Build Production | Builds multi-stage production images (Nginx frontend + Python backend). |
+| `make build` | Build Production | Builds the production images (frontend + Rust backend). |
 | `make run` / `make up` | Start Production | Starts `backend`, `frontend`, and `caddy` in background. |
 | `make dev` | Start Development | Starts dev stack with hot-reloading and live code volume mounting. |
 | `make full` | Start Stack + SonarQube | Starts all services plus SonarQube via Compose profile `full`. |
 | `make stop` / `make down` | Stop Stack | Stops all active containers. |
-| `make clean` | Clean Workspace | Stops containers and purges build/test caches (`coverage`, `__pycache__`, etc.). |
-| `make test` | Run All Tests | Executes both backend (pytest) and frontend (vitest) test suites. |
+| `make clean` | Clean Workspace | Stops containers and purges build caches. |
+| `make test` | Run All Tests | Executes the backend (nextest) and frontend (vitest) test suites. |
+| `make lint-backend` | Lint Rust | Clippy with `-D warnings` over the workspace. |
+| `make wasm` | Build WASM | Builds the CSV parser into `frontend/src/lib/wasm`. |
+| `make deploy-backend` | Swap backend | Builds, then replaces the running backend only on success. |
 | `make logs` | Stream Logs | Streams unified log output from all services. |
 | `make deploy-macbook` | Deploy to MacBook | Pulls latest commit and triggers production rebuild on MacBook server. |
 
@@ -171,10 +135,11 @@ A unified [Makefile](file:///home/jim/Documents/jizifin/Makefile) is provided fo
 
 ## 🏗 Architecture & Design Principles
 
-- **Integer Cents Precision:** All currencies are represented as whole `INTEGER` cents at the database layer to eliminate floating-point rounding errors. Presentation and decimal formatting (`cents / 100.0`) occur strictly at the presentation boundary.
-- **Mathematical Exactness:** Split distributions use Hare-Niemeyer / Largest Remainder with signed math floor and transaction-salted SHA-256 tie-breaking.
-- **No ORMs:** Backend endpoint logic executes raw, optimized, ANSI-compliant SQL queries directly with `aiosqlite`.
-- **Zero-Knowledge Privacy:** Client derives a 256-bit AES-GCM key from the user passphrase. Sensitive text columns are encrypted before transmission. Deterministic encryption enables exact matching, indexing, and foreign key referential integrity without plaintext exposure on the server disk.
+- **Integer Cents Precision:** All currencies are represented as whole `INTEGER` cents at the database layer to eliminate floating-point rounding errors. Decimal formatting occurs strictly at the presentation boundary.
+- **Mathematical Exactness:** Split distributions use Hare-Niemeyer / Largest Remainder with a signed floor and SHA-256 tie-breaking salted by the entry id and member id.
+- **No ORMs:** Repositories execute native DuckDB SQL directly.
+- **Auditor:** Contentious maths lives only in the in-process Auditor; the browser does no money arithmetic.
+- **Zero-Knowledge Privacy:** Client derives a 256-bit AES-GCM key from the user passphrase. Sensitive text columns are encrypted before transmission. Deterministic encryption enables exact matching, joins and grouping without plaintext exposure on the server disk.
 
 ---
 

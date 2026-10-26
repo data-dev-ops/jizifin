@@ -9,11 +9,11 @@
 
   const sections = [
     { id: 'overview', title: '1. Stack and Lifecycle' },
-    { id: 'database', title: '2. SQLite Schema & WAL Mode' },
-    { id: 'algorithms', title: '3. Algorithms (Largest Remainder & Graphs)' },
+    { id: 'database', title: '2. DuckDB Schema & Single Writer' },
+    { id: 'algorithms', title: '3. The Auditor (Largest Remainder & Graphs)' },
     { id: 'endpoints', title: '4. API Endpoints Catalog' },
     { id: 'websockets', title: '5. WebSockets & Real-Time Events' },
-    { id: 'testing', title: '6. Pytest Test Suite' },
+    { id: 'testing', title: '6. Verification & Tests' },
   ];
 
   function copyCode(id, text) {
@@ -119,7 +119,7 @@
         <div class="p-3 bg-neutral-100 dark:bg-neutral-900 rounded-xl border border-neutral-200 dark:border-neutral-800 text-xs">
           <p class="font-bold text-neutral-800 dark:text-neutral-200 mb-1">Backend Test Status</p>
           <p class="text-neutral-600 dark:text-neutral-400 text-[11px]">
-            328 Pytest tests passing in Docker.
+            Clippy is the gate today; the Rust test suite is still to be written.
           </p>
         </div>
       </aside>
@@ -133,7 +133,7 @@
             Backend Services & Database Architecture
           </h1>
           <p class="text-sm text-neutral-600 dark:text-neutral-400 mt-2 leading-relaxed">
-            Technical reference for FastAPI routing, SQLite WAL persistence, integer cent arithmetic, Largest Remainder math, and graph debt reduction.
+            Technical reference for the Rust API, embedded DuckDB, the in-process Auditor, integer cent arithmetic, Largest Remainder math, and graph debt reduction.
           </p>
         </div>
 
@@ -143,7 +143,7 @@
             <span class="text-amber-500 font-mono">1.</span> Stack and Lifecycle
           </h2>
           <p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            The backend is built with Python 3.14, FastAPI, and SQLite via <code class="text-indigo-500">aiosqlite</code>. Request and response schemas are strictly validated using Pydantic v2.
+            The backend is a Rust workspace (axum on tokio) over an embedded DuckDB 2.0 file. Inputs are validated by typed domain values (<code class="text-indigo-500">Cents</code>, <code class="text-indigo-500">Month</code>, <code class="text-indigo-500">Ciphertext</code>, typed ids). Clippy enforces small methods: at most 20 lines, 4 parameters and low cognitive complexity.
           </p>
 
           <div class="overflow-x-auto rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
@@ -158,58 +158,57 @@
               <tbody class="divide-y divide-neutral-200 dark:divide-neutral-800 text-neutral-600 dark:text-neutral-400">
                 <tr>
                   <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Framework</td>
-                  <td class="py-2 px-3">FastAPI</td>
-                  <td class="py-2 px-3">Async REST routes, OpenAPI schemas, WebSockets</td>
+                  <td class="py-2 px-3">axum / tokio</td>
+                  <td class="py-2 px-3">REST routes, bearer auth, WebSocket fan-out on /ws/finance</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Database</td>
-                  <td class="py-2 px-3">SQLite / aiosqlite</td>
-                  <td class="py-2 px-3">Embedded WAL-mode database with foreign keys</td>
+                  <td class="py-2 px-3">DuckDB 2.0 (embedded)</td>
+                  <td class="py-2 px-3">Single file, pooled readers, one serialised writer</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Validation</td>
-                  <td class="py-2 px-3">Pydantic v2</td>
-                  <td class="py-2 px-3">Request models and payload constraints</td>
+                  <td class="py-2 px-3">serde + domain types</td>
+                  <td class="py-2 px-3">Typed values and validate() on input structs</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Scheduler</td>
-                  <td class="py-2 px-3">APScheduler</td>
-                  <td class="py-2 px-3">Recurring expense occurrence generation</td>
+                  <td class="py-2 px-3">tokio loop</td>
+                  <td class="py-2 px-3">Daily recurring catch-up and idle-session sweep</td>
                 </tr>
                 <tr>
-                  <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Crypto</td>
-                  <td class="py-2 px-3">cryptography (Python)</td>
-                  <td class="py-2 px-3">PBKDF2/AES-GCM for export and import verification</td>
+                  <td class="py-2 px-3 font-semibold text-neutral-900 dark:text-white">Auditor</td>
+                  <td class="py-2 px-3">jizifin-auditor</td>
+                  <td class="py-2 px-3">Settlements, deposits, budgets, income, ratios, cash flow, project equity</td>
                 </tr>
               </tbody>
             </table>
           </div>
         </section>
 
-        <!-- Section 2: SQLite Schema & WAL Mode -->
+        <!-- Section 2: DuckDB Schema & Single Writer -->
         <section id="database" class="space-y-3 scroll-mt-24">
           <h2 class="text-lg font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-            <span class="text-amber-500 font-mono">2.</span> SQLite Schema & WAL Mode
+            <span class="text-amber-500 font-mono">2.</span> DuckDB Schema & Single Writer
           </h2>
           <p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            Every database connection executes PRAGMA initialization for concurrency and data safety:
+            Schema changes are numbered SQL files applied at start-up. Writes are serialised through one lock, because DuckDB aborts overlapping updates of the same row; reads use a connection pool:
           </p>
 
           <div class="rounded-xl bg-neutral-900 text-neutral-100 p-4 font-mono text-xs overflow-x-auto relative border border-neutral-800">
-            <pre><code>PRAGMA journal_mode = WAL;
-PRAGMA foreign_keys = ON;
-PRAGMA busy_timeout = 5000;
-PRAGMA synchronous = NORMAL;</code></pre>
+            <pre><code>migrations/0001_init.sql   -- tables, sequences, indexes
+Database::write(...)       -- exclusive lock, one transaction, bumps the data version
+Database::read(...)        -- pooled connection, no lock</code></pre>
           </div>
 
           <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs pt-1">
             <div class="p-3 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-1">
               <p class="font-bold text-neutral-900 dark:text-white">No ORM (Native ANSI SQL)</p>
-              <p class="text-neutral-600 dark:text-neutral-400">All queries write parameterized native SQL in database.py without ORM overhead.</p>
+              <p class="text-neutral-600 dark:text-neutral-400">Repositories write parameterized native DuckDB SQL. There are no foreign keys; repositories enforce integrity.</p>
             </div>
             <div class="p-3 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-1">
               <p class="font-bold text-neutral-900 dark:text-white">Integer Cent Currency</p>
-              <p class="text-neutral-600 dark:text-neutral-400">Monetary amounts are stored as integer cents to eliminate floating-point rounding errors.</p>
+              <p class="text-neutral-600 dark:text-neutral-400">Monetary amounts are stored as BIGINT cents to eliminate floating-point rounding errors.</p>
             </div>
           </div>
         </section>
@@ -217,13 +216,13 @@ PRAGMA synchronous = NORMAL;</code></pre>
         <!-- Section 3: Algorithms -->
         <section id="algorithms" class="space-y-3 scroll-mt-24">
           <h2 class="text-lg font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-            <span class="text-amber-500 font-mono">3.</span> Algorithms (Largest Remainder & Graphs)
+            <span class="text-amber-500 font-mono">3.</span> The Auditor (Largest Remainder & Graphs)
           </h2>
           <div class="space-y-3 text-xs text-neutral-600 dark:text-neutral-400">
             <div class="p-4 rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 space-y-2">
               <h3 class="font-bold text-neutral-900 dark:text-white">Hare-Niemeyer Largest Remainder Distribution</h3>
               <p class="leading-relaxed">
-                Calculates exact integer cent shares for split allocations. Uses <code class="text-indigo-500">math.floor()</code> for negative and positive amounts and resolves remainder ties deterministically via SHA-256 hashes of <code class="text-indigo-500">f"&#123;tx_salt&#125;:&#123;user&#125;"</code>.
+                Calculates exact integer cent shares for split allocations. Uses a signed floor for negative and positive amounts and resolves remainder ties deterministically via the SHA-256 of <code class="text-indigo-500">"&#123;seed&#125;:&#123;member_id&#125;"</code>, where the seed is the entry id. Every audited result is checked against invariants and returned with an input hash; a failed invariant is an HTTP 500, never a wrong number.
               </p>
             </div>
 
@@ -255,39 +254,51 @@ PRAGMA synchronous = NORMAL;</code></pre>
               <tbody class="divide-y divide-neutral-200 dark:divide-neutral-800 text-neutral-600 dark:text-neutral-400">
                 <tr>
                   <td class="py-2 px-3 font-mono font-bold text-emerald-600">GET</td>
-                  <td class="py-2 px-3 font-mono">/users</td>
+                  <td class="py-2 px-3 font-mono">/members</td>
                   <td class="py-2 px-3">None</td>
-                  <td class="py-2 px-3">List active household members</td>
+                  <td class="py-2 px-3">List household members</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-mono font-bold text-blue-600">POST</td>
-                  <td class="py-2 px-3 font-mono">/users</td>
-                  <td class="py-2 px-3">UserCreate</td>
-                  <td class="py-2 px-3">Create a household member</td>
-                </tr>
-                <tr>
-                  <td class="py-2 px-3 font-mono font-bold text-blue-600">POST</td>
-                  <td class="py-2 px-3 font-mono">/expenses</td>
-                  <td class="py-2 px-3">ExpenseCreate</td>
-                  <td class="py-2 px-3">Log an expense with split overrides</td>
+                  <td class="py-2 px-3 font-mono">/entries</td>
+                  <td class="py-2 px-3">EntryInput</td>
+                  <td class="py-2 px-3">Log an expense, income, deposit or correction</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-mono font-bold text-amber-600">PUT</td>
-                  <td class="py-2 px-3 font-mono">/splits/&#123;cat&#125;</td>
-                  <td class="py-2 px-3">SplitUpdate</td>
-                  <td class="py-2 px-3">Update category percentage splits</td>
+                  <td class="py-2 px-3 font-mono">/categories/&#123;id&#125;/baseline</td>
+                  <td class="py-2 px-3">shares</td>
+                  <td class="py-2 px-3">Replace a category's open-ended split</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-mono font-bold text-blue-600">POST</td>
                   <td class="py-2 px-3 font-mono">/jobs</td>
-                  <td class="py-2 px-3">JobCreate</td>
-                  <td class="py-2 px-3">Create employment income stream</td>
+                  <td class="py-2 px-3">JobInput</td>
+                  <td class="py-2 px-3">Create an employment income stream</td>
                 </tr>
                 <tr>
                   <td class="py-2 px-3 font-mono font-bold text-emerald-600">GET</td>
-                  <td class="py-2 px-3 font-mono">/analytics/paybacks</td>
+                  <td class="py-2 px-3 font-mono">/settlements/&#123;month&#125;</td>
+                  <td class="py-2 px-3">?members=&amp;explain=1</td>
+                  <td class="py-2 px-3">Audited settlement, or the sealed result with drift</td>
+                </tr>
+                <tr>
+                  <td class="py-2 px-3 font-mono font-bold text-emerald-600">GET</td>
+                  <td class="py-2 px-3 font-mono">/views/month</td>
                   <td class="py-2 px-3">?month=YYYY-MM</td>
-                  <td class="py-2 px-3">Simplified debt repayment matrix</td>
+                  <td class="py-2 px-3">Plain aggregates for dashboards</td>
+                </tr>
+                <tr>
+                  <td class="py-2 px-3 font-mono font-bold text-emerald-600">GET</td>
+                  <td class="py-2 px-3 font-mono">/accounts/&#123;id&#125;/deposit-proposal</td>
+                  <td class="py-2 px-3">?month=&amp;round_to=</td>
+                  <td class="py-2 px-3">Audited joint-account deposit proposal</td>
+                </tr>
+                <tr>
+                  <td class="py-2 px-3 font-mono font-bold text-emerald-600">GET</td>
+                  <td class="py-2 px-3 font-mono">/entries/&#123;id&#125;/shares</td>
+                  <td class="py-2 px-3">None</td>
+                  <td class="py-2 px-3">Who bears what for one expense</td>
                 </tr>
               </tbody>
             </table>
@@ -300,13 +311,11 @@ PRAGMA synchronous = NORMAL;</code></pre>
             <span class="text-amber-500 font-mono">5.</span> WebSockets & Real-Time Events
           </h2>
           <p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            Connected clients listen on <code class="text-indigo-500">WS /ws/finance</code>. Broadcast events trigger reactive client store updates:
+            Connected clients listen on <code class="text-indigo-500">WS /ws/finance</code>. Every successful write publishes <code class="text-indigo-500">&lt;table&gt;.&lt;action&gt;</code>; the client bumps its ledger version and refetches what it shows:
           </p>
           <div class="rounded-xl bg-neutral-900 text-neutral-100 p-4 font-mono text-xs overflow-x-auto border border-neutral-800">
             <pre><code>&#123;
-  "event": "expense_created",
-  "expense_id": 104,
-  "month": "2026-08"
+  "event": "entries.created"
 &#125;</code></pre>
           </div>
         </section>
@@ -314,26 +323,23 @@ PRAGMA synchronous = NORMAL;</code></pre>
         <!-- Section 6: Testing -->
         <section id="testing" class="space-y-3 scroll-mt-24 pb-8">
           <h2 class="text-lg font-bold text-neutral-900 dark:text-white flex items-center gap-2">
-            <span class="text-amber-500 font-mono">6.</span> Pytest Test Suite
+            <span class="text-amber-500 font-mono">6.</span> Verification & Tests
           </h2>
           <p class="text-xs text-neutral-600 dark:text-neutral-400 leading-relaxed">
-            Execute the full backend test suite in Docker:
+            Lint and type-check the whole workspace in Docker (the Rust test suite is still to be written):
           </p>
 
           <div class="rounded-xl bg-neutral-900 text-neutral-100 p-4 font-mono text-xs overflow-x-auto relative border border-neutral-800">
             <div class="flex items-center justify-between pb-2 mb-2 border-b border-neutral-800 text-neutral-400 text-[11px]">
-              <span>Pytest Docker command</span>
+              <span>Clippy via make</span>
               <button
-                on:click={() => copyCode('docker-backend-test', 'docker run --rm -v $(pwd)/backend/app:/app/app -v $(pwd)/backend/tests:/app/tests jizifin-backend-test pytest')}
+                on:click={() => copyCode('docker-backend-test', 'make lint-backend')}
                 class="px-2 py-0.5 rounded bg-neutral-800 hover:bg-neutral-700 text-neutral-300 transition-colors"
               >
                 {copiedSnippetId === 'docker-backend-test' ? '✓ Copied' : 'Copy'}
               </button>
             </div>
-            <pre><code>docker run --rm \
-  -v $(pwd)/backend/app:/app/app \
-  -v $(pwd)/backend/tests:/app/tests \
-  jizifin-backend-test pytest</code></pre>
+            <pre><code>make lint-backend</code></pre>
           </div>
         </section>
       </main>
