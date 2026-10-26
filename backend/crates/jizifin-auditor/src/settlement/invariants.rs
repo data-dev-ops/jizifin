@@ -1,20 +1,21 @@
 //! Invariants every settlement must satisfy.
 
-use super::Settlement;
-use crate::Snapshot;
+use super::ledger::CategoryLedger;
+use super::{Settlement, SettlementCalculator};
 use crate::invariant::{Invariant, InvariantSet};
+use crate::{AuditScope, Snapshot};
 use jizifin_domain::Cents;
 use jizifin_domain::ids::MemberId;
 use std::collections::BTreeMap;
 
-/// Invariant set applied to [`Settlement`].
-pub fn settlement_invariants() -> InvariantSet<Settlement> {
+/// Invariant set applied to [`Settlement`] computed for `scope`.
+pub fn settlement_invariants(scope: &AuditScope) -> InvariantSet<Settlement> {
     InvariantSet::new(vec![
         Box::new(BucketZeroSum),
+        Box::new(MemberNetsMatchEntries { scope: scope.clone() }),
         Box::new(NetZeroSum),
         Box::new(DebtsSettleNet),
         Box::new(DebtsStayInComponent),
-        Box::new(JointExcluded),
     ])
 }
 
@@ -28,6 +29,27 @@ impl Invariant<Settlement> for BucketZeroSum {
     fn holds(&self, s: &Settlement, _: &Snapshot) -> bool {
         s.rows.iter().all(|r| r.expected.values().copied().sum::<Cents>() == r.total)
     }
+}
+
+/// Σ row nets per member equals Σ paid − Σ share posted entry by entry, so no booked money is dropped.
+struct MemberNetsMatchEntries {
+    scope: AuditScope,
+}
+
+impl Invariant<Settlement> for MemberNetsMatchEntries {
+    fn id(&self) -> &'static str {
+        "member_nets_match_entries"
+    }
+    fn holds(&self, s: &Settlement, snap: &Snapshot) -> bool {
+        let posted = SettlementCalculator::new(snap, &self.scope).member_positions();
+        non_zero(CategoryLedger::net_of(&s.rows)) == non_zero(posted)
+    }
+}
+
+/// `positions` without the members at zero.
+fn non_zero(mut positions: BTreeMap<MemberId, Cents>) -> BTreeMap<MemberId, Cents> {
+    positions.retain(|_, c| !c.is_zero());
+    positions
 }
 
 /// Net positions sum to zero across the household.
@@ -55,7 +77,7 @@ impl Invariant<Settlement> for DebtsSettleNet {
 }
 
 /// True when applying `debts` zeroes every position in `net`.
-pub(crate) fn debts_settle(net: &BTreeMap<MemberId, Cents>, debts: &[super::Debt]) -> bool {
+pub fn debts_settle(net: &BTreeMap<MemberId, Cents>, debts: &[super::Debt]) -> bool {
     let mut rest = net.clone();
     for d in debts {
         *rest.entry(d.from).or_default() += d.amount;
@@ -73,17 +95,5 @@ impl Invariant<Settlement> for DebtsStayInComponent {
     }
     fn holds(&self, s: &Settlement, _: &Snapshot) -> bool {
         s.debts.iter().all(|d| s.components.iter().any(|c| c.contains(&d.from) && c.contains(&d.to)))
-    }
-}
-
-/// No joint-account category appears in peer settlement.
-struct JointExcluded;
-
-impl Invariant<Settlement> for JointExcluded {
-    fn id(&self) -> &'static str {
-        "joint_excluded"
-    }
-    fn holds(&self, s: &Settlement, snap: &Snapshot) -> bool {
-        s.rows.iter().all(|r| !snap.is_joint_category(r.bucket.category))
     }
 }

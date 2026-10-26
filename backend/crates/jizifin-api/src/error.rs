@@ -73,7 +73,7 @@ impl From<StoreError> for ApiError {
         match e {
             StoreError::NotFound(_) => Self::NotFound(e.to_string()),
             StoreError::Conflict(_) => Self::Conflict(e.to_string()),
-            StoreError::Invalid(_) => Self::BadRequest(e.to_string()),
+            StoreError::Invalid(_) | StoreError::VersionMismatch { .. } => Self::BadRequest(e.to_string()),
             StoreError::Duck(_) | StoreError::Pool(_) => Self::Internal(e.to_string()),
         }
     }

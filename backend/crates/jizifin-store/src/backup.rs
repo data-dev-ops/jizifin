@@ -38,7 +38,8 @@ impl Backup {
     fn attach(conn: &Connection, path: &Path, read_only: bool) -> Result<(), StoreError> {
         let quoted = path.display().to_string().replace('\'', "''");
         let mode = if read_only { " (READ_ONLY)" } else { "" };
-        conn.execute_batch(&format!("ATTACH '{quoted}' AS {ALIAS}{mode}"))?;
+        conn.execute_batch(&format!("ATTACH '{quoted}' AS {ALIAS}{mode}"))
+            .map_err(|e| StoreError::Invalid(format!("corrupt backup: {e}")))?;
         Ok(())
     }
 
@@ -54,10 +55,11 @@ impl Backup {
 
     fn check_version(conn: &Connection) -> Result<(), StoreError> {
         let sql = format!("SELECT COALESCE(MAX(version), 0) FROM {ALIAS}.schema_version");
-        let version: i64 = conn.query_row(&sql, [], |r| r.get(0))?;
+        let version: i64 = conn.query_row(&sql, [], |r| r.get(0))
+            .map_err(|e| StoreError::Invalid(format!("invalid backup: missing schema_version ({e})")))?;
         match version == LATEST_VERSION {
             true => Ok(()),
-            false => Err(StoreError::Invalid(format!("backup schema v{version} does not match server schema v{LATEST_VERSION}"))),
+            false => Err(StoreError::VersionMismatch { found: version, expected: LATEST_VERSION }),
         }
     }
 
@@ -70,7 +72,8 @@ impl Backup {
     }
 
     fn copy_table(tx: &Transaction<'_>, table: &str, sequence: Option<&str>) -> Result<(), StoreError> {
-        tx.execute(&format!("INSERT INTO {table} SELECT * FROM {ALIAS}.{table}"), [])?;
+        tx.execute(&format!("INSERT INTO {table} SELECT * FROM {ALIAS}.{table}"), [])
+            .map_err(|e| StoreError::Invalid(format!("invalid backup payload: failed to copy {table} ({e})")))?;
         match sequence {
             Some(seq) => Self::advance(tx, table, seq),
             None => Ok(()),
@@ -79,8 +82,9 @@ impl Backup {
 
     /// DuckDB has no `setval`: draw the sequence past the highest restored id.
     fn advance(tx: &Transaction<'_>, table: &str, sequence: &str) -> Result<(), StoreError> {
-        let sql = format!("SELECT COUNT(nextval('{sequence}')) FROM range((SELECT COALESCE(MAX(id), 0) FROM {table}))");
-        tx.query_row(&sql, [], |r| r.get::<_, i64>(0))?;
+        let sql = format!("SELECT COUNT(nextval('{sequence}')) FROM range((SELECT COALESCE(GREATEST(MAX(id), 0), 0) FROM {table}))");
+        tx.query_row(&sql, [], |r| r.get::<_, i64>(0))
+            .map_err(|e| StoreError::Invalid(format!("invalid backup payload: failed to advance {sequence} ({e})")))?;
         Ok(())
     }
 }

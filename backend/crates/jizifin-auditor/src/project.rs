@@ -6,6 +6,7 @@ use crate::invariant::{Invariant, InvariantSet};
 use crate::settlement::{Debt, DebtSimplifier, debts_settle};
 use crate::shares::ShareResolver;
 use crate::Snapshot;
+use chrono::NaiveDate;
 use jizifin_domain::entities::{Entry, EntryKind, Project};
 use jizifin_domain::ids::{AccountId, MemberId, ProjectId};
 use jizifin_domain::{Cents, Month};
@@ -83,15 +84,15 @@ impl<'a> ProjectSettlementCalculator<'a> {
 
     fn funding_of(&self, entry: &Entry) -> MemberCents {
         match (entry.account, entry.member) {
-            (Some(account), _) => self.allocate(entry, &self.equity(account, Month::of(entry.date))),
+            (Some(account), _) => self.allocate(entry, &self.equity(account, entry.date)),
             (None, Some(payer)) => MemberCents::from([(payer, entry.amount)]),
             (None, None) => MemberCents::new(),
         }
     }
 
-    fn equity(&self, account: AccountId, month: Month) -> Vec<Weight> {
-        let period = month.period();
-        let deposits = self.snap.entries.iter().filter(|e| e.kind == EntryKind::Deposit && e.account == Some(account) && period.contains(e.date));
+    /// Equity weights: every member's deposits into `account` up to and including `date`.
+    fn equity(&self, account: AccountId, date: NaiveDate) -> Vec<Weight> {
+        let deposits = self.snap.entries.iter().filter(|e| e.kind == EntryKind::Deposit && e.account == Some(account) && e.date <= date);
         let mut weights: BTreeMap<MemberId, f64> = BTreeMap::new();
         deposits.filter_map(|e| e.member.map(|m| (m, e.amount))).for_each(|(m, c)| *weights.entry(m).or_default() += c.value() as f64);
         match weights.values().any(|w| *w > 0.0) {
@@ -106,10 +107,23 @@ impl<'a> ProjectSettlementCalculator<'a> {
     }
 
     fn liability_of(&self, entry: &Entry) -> MemberCents {
-        let (Some(payer), Some(category)) = (entry.member, entry.category) else { return MemberCents::new() };
         let income = IncomeResolver::new(self.snap, Month::of(entry.date)).weights();
-        let resolution = ShareResolver::new(self.snap, income, self.members()).resolve(entry, payer, category);
-        self.allocate(entry, &resolution.weights)
+        let resolver = ShareResolver::new(self.snap, income, self.members());
+        let weights = match (entry.member, entry.category) {
+            (Some(payer), Some(category)) => resolver.resolve(entry, payer, category).weights,
+            (None, Some(category)) => resolver.resolve_unpaid(entry, category).weights,
+            _ => self.equal_weights(entry),
+        };
+        self.allocate(entry, &weights)
+    }
+
+    /// Equal split over the project members, or over the account members when the project has none yet.
+    fn equal_weights(&self, entry: &Entry) -> Vec<Weight> {
+        let members = self.members();
+        match (members.is_empty(), entry.account) {
+            (true, Some(account)) => self.equal_account_weights(account),
+            _ => members.into_iter().map(|member| Weight { member, weight: 1.0 }).collect(),
+        }
     }
 
     fn allocate(&self, entry: &Entry, weights: &[Weight]) -> MemberCents {

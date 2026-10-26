@@ -49,7 +49,11 @@ impl DuckSnapshotLoader {
             Some(p) => (project_sql, Some(p.0)),
             None => ("AND COALESCE(?, 0) = 0", None),
         };
-        let sql = format!("SELECT {ENTRY_COLS} FROM entries WHERE entry_date >= ? AND entry_date <= ? {filter} ORDER BY entry_date, id");
-        query(conn, &sql, params![from, to, project], rows::entry)
+        // An account scope keeps that account's whole history plus every entry of the scoped month (income weights need them).
+        let account = scope.account.map(|a| a.0);
+        let month_start = scope.month.first_day();
+        let account_sql = "AND (COALESCE(?, 0) = 0 OR account_id = ? OR entry_date >= ?)";
+        let sql = format!("SELECT {ENTRY_COLS} FROM entries WHERE entry_date >= ? AND entry_date <= ? {filter} {account_sql} ORDER BY entry_date, id");
+        query(conn, &sql, params![from, to, project, account, account, month_start], rows::entry)
     }
 }

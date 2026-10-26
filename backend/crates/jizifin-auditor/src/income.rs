@@ -1,5 +1,6 @@
 //! Effective monthly income per member: overrides beat contracts; one-off income adds on top.
 
+use chrono::Datelike;
 use jizifin_domain::entities::{EntryKind, Frequency, Job};
 use jizifin_domain::ids::MemberId;
 use jizifin_domain::{Cents, Month};
@@ -73,7 +74,43 @@ impl<'a> IncomeResolver<'a> {
     }
 
     fn contract(&self, member: MemberId) -> Cents {
-        self.active_jobs(member).map(|j| self.normalizer.monthly(j.amount, j.frequency)).sum()
+        self.active_jobs(member).map(|j| self.payout(j)).sum()
+    }
+
+    /// Cash paid by `job` this month: days worked prorated, plus the first-salary catch-up after a switch.
+    fn payout(&self, job: &Job) -> Cents {
+        let monthly = self.normalizer.monthly(job.amount, job.frequency);
+        let switch = self.switch_month(job);
+        if switch == Some(self.month) {
+            return Cents::ZERO;
+        }
+        let catch_up = switch.map_or(Cents::ZERO, |m| Self::prorate(monthly, m, Self::days_worked(job, m)));
+        Self::prorate(monthly, self.month, Self::days_worked(job, self.month)) + catch_up
+    }
+
+    /// Days of `month` the contract covers, bounded by both `valid_from` and `valid_to`.
+    fn days_worked(job: &Job, month: Month) -> i64 {
+        let first = job.valid_from.max(month.first_day());
+        let last = job.valid_to.map_or(month.last_day(), |end| end.min(month.last_day()));
+        ((last - first).num_days() + 1).max(0)
+    }
+
+    /// Month in which `job` replaced another of the member's jobs mid-month; its first salary lands the month after.
+    fn switch_month(&self, job: &Job) -> Option<Month> {
+        let start = Month::of(job.valid_from);
+        let mid_month = job.valid_from.day() > 1;
+        let replaced = self.snap.jobs.iter().any(|p| p.member == job.member && Self::ended_in_before(p, start, job));
+        (mid_month && replaced).then_some(start)
+    }
+
+    fn ended_in_before(previous: &Job, month: Month, job: &Job) -> bool {
+        previous.valid_to.is_some_and(|end| month.period().contains(end) && end < job.valid_from)
+    }
+
+    /// `days` of `month` out of its length, rounded half up; a full month is exactly `monthly`.
+    fn prorate(monthly: Cents, month: Month, days: i64) -> Cents {
+        let length = i64::from(month.last_day().day());
+        Cents::new((monthly.value() * days * 2 + length) / (length * 2))
     }
 
     fn active_jobs(&self, member: MemberId) -> impl Iterator<Item = &Job> {

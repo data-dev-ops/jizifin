@@ -8,6 +8,7 @@ use crate::shares::ShareSource;
 use crate::{AuditScope, Snapshot};
 use jizifin_domain::entities::{Agreement, Category, CategoryKind, PayMode};
 use jizifin_domain::ids::{AgreementId, CategoryId, MemberId};
+use chrono::NaiveDate;
 use jizifin_domain::Month;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -26,8 +27,19 @@ pub struct CategorySplit {
     pub agreement: Option<AgreementId>,
     /// True when that agreement is a date-bounded override.
     pub is_override: bool,
+    /// Days of the month the agreement covers, when that is only part of it; entries on the other days use the baseline split.
+    pub partial: Option<Coverage>,
     /// Percent per member; empty for personal pay (the payer bears everything).
     pub pct: BTreeMap<MemberId, f64>,
+}
+
+/// First and last day of the month an agreement is effective.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
+pub struct Coverage {
+    /// First effective day inside the month.
+    pub from: NaiveDate,
+    /// Last effective day inside the month.
+    pub to: NaiveDate,
 }
 
 /// Every expense category's split for a month.
@@ -63,6 +75,7 @@ impl<'a> SplitOverviewCalculator<'a> {
             source,
             agreement: agreement.map(|a| a.id),
             is_override: agreement.is_some_and(Agreement::is_bounded),
+            partial: agreement.and_then(|a| self.partial_coverage(a)),
             pct,
         };
         match (category.pay_mode, self.agreement(category.id)) {
@@ -71,6 +84,13 @@ impl<'a> SplitOverviewCalculator<'a> {
             (_, Some(a)) => row(ShareSource::Agreement, Some(a), a.shares.iter().map(|s| (s.member, s.pct)).collect()),
             (_, None) => row(ShareSource::Equal, None, self.equal_pct()),
         }
+    }
+
+    /// The agreement's window inside the month, unless it covers every day.
+    fn partial_coverage(&self, agreement: &Agreement) -> Option<Coverage> {
+        let from = agreement.valid_from.max(self.month.first_day());
+        let to = agreement.valid_to.map_or(self.month.last_day(), |end| end.min(self.month.last_day()));
+        (from > self.month.first_day() || to < self.month.last_day()).then_some(Coverage { from, to })
     }
 
     /// Highest-precedence agreement overlapping the month.

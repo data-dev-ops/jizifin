@@ -1,7 +1,7 @@
 //! Shared query-string parsing for audited endpoints.
 
 use crate::error::ApiError;
-use chrono::{NaiveDate, Utc};
+pub use crate::state::today;
 use jizifin_domain::Month;
 use jizifin_domain::ids::MemberId;
 use serde::Deserialize;
@@ -32,9 +32,4 @@ impl MonthQuery {
     fn member_id(raw: &str) -> Result<MemberId, ApiError> {
         raw.trim().parse().map(MemberId).map_err(|_| ApiError::BadRequest(format!("invalid member id '{raw}'")))
     }
-}
-
-/// Evaluation date for status calculations.
-pub fn today() -> NaiveDate {
-    Utc::now().date_naive()
 }

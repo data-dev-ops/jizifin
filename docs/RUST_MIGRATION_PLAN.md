@@ -270,7 +270,7 @@ The calculators apply the member and account filters; the loader does not.
 
 | Auditor method | Calculator (file) | Endpoint | Invariant ids |
 | :--- | :--- | :--- | :--- |
-| `settlement(scope)` | `SettlementCalculator` (`settlement/`) | `GET /settlements/{month}` (live) | `bucket_zero_sum`, `net_zero_sum`, `debts_settle_net`, `debts_stay_in_component`, `joint_excluded` |
+| `settlement(scope)` | `SettlementCalculator` (`settlement/`) | `GET /settlements/{month}` (live) | `bucket_zero_sum`, `member_nets_match_entries`, `net_zero_sum`, `debts_settle_net`, `debts_stay_in_component` |
 | `sealed_settlement(scope, seal)` | Recomputes and compares the JSON | `GET /settlements/{month}` (sealed) | none; reports `drift` |
 | `deposit_proposal(scope, account, round_to)` | `DepositProposer` (`deposit.rs`) | `GET /accounts/{id}/deposit-proposal` | `deposit_sums_to_target`, `deposit_non_negative`, `rounding_only_raises` |
 | `joint_dashboard(scope, account)` | `JointBalanceCalculator` (`joint.rs`) | `GET /accounts/{id}/dashboard` | `categories_within_actual`, `target_covers_expected`, `top_up_closes_gap` |
@@ -304,6 +304,8 @@ Do not change these without updating the Phase B parity tests.
 
 **Settlement** (`settlement/`):
 1. Book every non-joint expense into buckets (`ledger.rs`). Each row has `total`, `paid`, `expected`, `share_pct`, `paid_pct` and `net`.
+   - A bucket whose total nets to zero is kept while any member's net in it is non-zero (one member paid, another received the refund); its `share_pct` and `paid_pct` are empty. Buckets where every net is zero are omitted.
+   - `member_nets_match_entries` re-posts paid − share entry by entry, bypassing the bucket ledger, and must equal the summed row nets per member.
 2. Net per member = paid − expected.
 3. Apply offset rules (`offsets.rs`). The smaller of two amounts moves from the debit member to the credit member: the credit member's spend in the credit category, and the debit member's spend in the debit category.
 4. Partition members into connected components (`components.rs`, union-find).
@@ -405,7 +407,7 @@ The encryption rules from `AGENTS.md` carry over. On `*_ct` columns, use only eq
 | Class | File | Notes |
 | :--- | :--- | :--- |
 | `Members` | members.rs | List, create, update, delete. Delete is refused while the member is referenced; it also removes project memberships and income overrides. |
-| `Categories` | categories.rs | `list`, `map`, `kind_of`, create, update, delete. Delete is refused while referenced (the `REFERENCES` list). |
+| `Categories` | categories.rs | `list`, `map`, `kind_of`, create, update, delete. Delete is refused (409) while referenced (the `REFERENCES` list); agreements and budgets are not references and are deleted with the category by design. |
 | `Agreements` | agreements.rs | `all`, `for_category`, create, update, delete. `set_baseline(category, shares)` updates the latest open-ended agreement, or creates one from `LEDGER_START`. |
 | `Accounts` | accounts.rs | CRUD, including members and categories |
 | `Entries` | entries.rs | See below |
@@ -413,9 +415,9 @@ The encryption rules from `AGENTS.md` carry over. On `*_ct` columns, use only eq
 | `Budgets` | budgets.rs | CRUD |
 | `Projects` | projects.rs | CRUD, including members |
 | `Tags` | tags.rs | CRUD. Update refuses a window that would orphan tagged entries; delete untags the entries. |
-| `Recurring` | recurring.rs | CRUD and `materialize(today, grace_days)`. The insert uses `ON CONFLICT DO NOTHING` on the unique index. |
+| `Recurring` | recurring.rs | CRUD and `materialize(today)`, which catches up from each template's last materialized date (its `valid_from` when it never ran). The insert uses `ON CONFLICT DO NOTHING` on the unique index. |
 | `OffsetRules` | offsets.rs | `list`, `active`, create, delete |
-| `Seals` | seals.rs | `list`, `get`, `insert`, `guard` |
+| `Seals` | seals.rs | `list`, `get`, `insert`, `delete`, `guard`, `guard_span`, `guard_update` (jobs, income overrides and agreements in sealed months) |
 | `Auth`, `Sessions` | auth.rs | Proof hash: init, read, reset. Sessions: create, touch, delete, sweep. |
 | `Console` | console.rs | Read-only SQL, see below |
 | `Views` | views.rs | Read-only aggregates (§7.4) |
@@ -490,7 +492,7 @@ The client proof is `encryptText("FinanceTrackerAuth", key)`, using the PBKDF2/A
 | Accounts | `/accounts`, `/accounts/{id}` | `{id, name, safety_margin_pct, expected_override, deposit_mode, members:[{member, fixed_deposit, due_day}], categories:[{category, expected}]}` |
 | Projects | `/projects`, `/projects/{id}` | `{id, name, color, target, target_date, members:[id]}` |
 | Entries | See below | See below |
-| Settlements | GET `/settlements` (seals); GET `/settlements/{month}?members=&explain=1`; POST `/settlements/{month}/seal` | §4.5. `explain=1` (live months only) adds `trail: ["share(entry <id>, member <id>) = <cents> via <source>"]` to the result. |
+| Settlements | GET `/settlements` (seals); GET `/settlements/{month}?members=&explain=1`; POST/DELETE `/settlements/{month}/seal` | §4.5. `explain=1` (live months only) adds `trail: ["share(entry <id>, member <id>) = <cents> via <source>"]` to the result. |
 
 **Entry routes:**
 
@@ -535,8 +537,8 @@ All of these return an `AuditedResult`: `{value, inputs_hash, data_version, chec
 
 ### 7.5 Background jobs (`scheduler.rs`)
 
-At start-up, and daily at 00:00:05 UTC, the scheduler:
-- materializes recurring templates, with a 7-day grace period for missed days;
+At start-up, and daily at 00:00:05 server-local time (`TZ`, default UTC), the scheduler:
+- materializes recurring templates, catching up however long the backend was down (sealed months are skipped);
 - sweeps sessions that have been idle for more than 7 days.
 
 ---

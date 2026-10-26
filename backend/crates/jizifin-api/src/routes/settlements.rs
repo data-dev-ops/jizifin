@@ -29,7 +29,7 @@ pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/settlements", get(list))
         .route("/settlements/{month}", get(fetch))
-        .route("/settlements/{month}/seal", post(seal))
+        .route("/settlements/{month}/seal", post(seal).delete(unseal))
 }
 
 async fn list(State(s): State<AppState>) -> Result<Json<Vec<MonthSeal>>, ApiError> {
@@ -74,4 +74,10 @@ async fn seal(State(s): State<AppState>, Path(month): Path<String>) -> Result<St
     let json = serde_json::to_string(&audited.value).map_err(|e| ApiError::Internal(e.to_string()))?;
     s.write("settlements.sealed", move |c| Seals::insert(c, month, &json, &audited.inputs_hash)).await?;
     Ok(StatusCode::CREATED)
+}
+
+async fn unseal(State(s): State<AppState>, Path(month): Path<String>) -> Result<StatusCode, ApiError> {
+    let month = Month::parse(&month)?;
+    s.write("settlements.unsealed", move |c| Seals::delete(c, month)).await?;
+    Ok(StatusCode::NO_CONTENT)
 }

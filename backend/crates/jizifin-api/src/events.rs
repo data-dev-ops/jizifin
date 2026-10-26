@@ -28,8 +28,14 @@ impl EventHub {
         let _ = self.sender.send(json!({ "event": topic }).to_string());
     }
 
-    fn subscribe(&self) -> broadcast::Receiver<String> {
+    /// Subscribes to the broadcast channel.
+    pub fn subscribe(&self) -> broadcast::Receiver<String> {
         self.sender.subscribe()
+    }
+
+    /// Number of active subscribers.
+    pub fn receiver_count(&self) -> usize {
+        self.sender.receiver_count()
     }
 }
 
@@ -50,7 +56,10 @@ async fn stream(mut ws: WebSocket, mut events: broadcast::Receiver<String>) {
 async fn forward(ws: &mut WebSocket, event: Result<String, broadcast::error::RecvError>) -> bool {
     match event {
         Ok(text) => ws.send(Message::Text(text.into())).await.is_ok(),
-        Err(broadcast::error::RecvError::Lagged(_)) => true,
+        Err(broadcast::error::RecvError::Lagged(_)) => {
+            let resync = json!({ "event": "backup.restored" }).to_string();
+            ws.send(Message::Text(resync.into())).await.is_ok()
+        }
         Err(broadcast::error::RecvError::Closed) => false,
     }
 }

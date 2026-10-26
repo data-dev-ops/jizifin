@@ -12,15 +12,25 @@ pub(super) struct ComponentPartitioner {
 }
 
 impl ComponentPartitioner {
-    /// Groups members with non-zero `net` that co-occur in any row.
-    pub fn partition(mut self, rows: &[BucketRow], net: &BTreeMap<MemberId, Cents>) -> Vec<Vec<MemberId>> {
+    /// Groups members with non-zero `net` (or tied by an applied offset) that co-occur in any row.
+    pub fn partition(
+        mut self,
+        rows: &[BucketRow],
+        net: &BTreeMap<MemberId, Cents>,
+        applied: &[(MemberId, MemberId)],
+    ) -> Vec<Vec<MemberId>> {
         net.iter().filter(|(_, c)| !c.is_zero()).for_each(|(m, _)| self.insert(*m));
+        applied.iter().for_each(|(a, b)| {
+            self.insert(*a);
+            self.insert(*b);
+        });
         rows.iter().for_each(|row| self.join_row(row));
+        applied.iter().for_each(|(a, b)| self.union(*a, *b));
         self.groups()
     }
 
     fn insert(&mut self, member: MemberId) {
-        self.parent.insert(member, member);
+        self.parent.entry(member).or_insert(member);
     }
 
     fn join_row(&mut self, row: &BucketRow) {

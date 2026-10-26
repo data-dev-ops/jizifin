@@ -1,3 +1,4 @@
+use super::{Seals, Span};
 use crate::inputs::{JobAdjustment, JobInput};
 use crate::rows::{self, INCOME_OVERRIDE_COLS, JOB_COLS};
 use crate::sql::{insert_id, opt_ct, query, require, touch_one};
@@ -19,6 +20,7 @@ impl Jobs {
     /// Inserts a job.
     pub fn create(conn: &Connection, input: &JobInput) -> Result<JobId, StoreError> {
         Self::check(conn, input)?;
+        Seals::guard_span(conn, Span { from: input.valid_from, to: input.valid_to })?;
         let sql = "INSERT INTO jobs (member_id, name_ct, amount_cents, frequency, valid_from, valid_to, notes_ct) \
                    VALUES (?, ?, ?, ?, ?, ?, ?) RETURNING id";
         insert_id(conn, sql, duckdb::params_from_iter(Self::params(input))).map(JobId)
@@ -27,6 +29,7 @@ impl Jobs {
     /// Replaces a job.
     pub fn update(conn: &Connection, id: JobId, input: &JobInput) -> Result<(), StoreError> {
         Self::check(conn, input)?;
+        Self::guard_update(conn, &Self::get(conn, id)?, input)?;
         let sql = "UPDATE jobs SET member_id = ?, name_ct = ?, amount_cents = ?, frequency = ?, valid_from = ?, \
                    valid_to = ?, notes_ct = ? WHERE id = ?";
         let mut p = Self::params(input);
@@ -55,7 +58,16 @@ impl Jobs {
 
     /// Deletes a job.
     pub fn delete(conn: &Connection, id: JobId) -> Result<(), StoreError> {
+        let job = Self::get(conn, id)?;
+        Seals::guard_span(conn, Span { from: job.valid_from, to: job.valid_to })?;
         touch_one(conn, "DELETE FROM jobs WHERE id = ?", [id.0], "job")
+    }
+
+    /// Retroactive edits of a sealed month are refused; see [`Seals::guard_update`].
+    fn guard_update(conn: &Connection, old: &Job, new: &JobInput) -> Result<(), StoreError> {
+        let content_changed = (old.member, old.amount, old.frequency) != (new.member, new.amount, new.frequency);
+        let span = |from, to| Span { from, to };
+        Seals::guard_update(conn, span(old.valid_from, old.valid_to), span(new.valid_from, new.valid_to), content_changed)
     }
 
     fn check(conn: &Connection, input: &JobInput) -> Result<(), StoreError> {
@@ -89,6 +101,7 @@ impl IncomeOverrides {
     /// Inserts or replaces the override of `(member, month)`.
     pub fn upsert(conn: &Connection, input: &IncomeOverride) -> Result<(), StoreError> {
         require(conn, "members", input.member.0)?;
+        Seals::guard(conn, &[input.month.first_day()])?;
         let sql = "INSERT OR REPLACE INTO income_overrides (member_id, month, amount_cents, note_ct) VALUES (?, ?, ?, ?)";
         conn.execute(sql, params![input.member.0, input.month.first_day(), input.amount.value(), opt_ct(&input.note)])?;
         Ok(())
@@ -96,6 +109,7 @@ impl IncomeOverrides {
 
     /// Deletes the override of `(member, month)`.
     pub fn delete(conn: &Connection, member: MemberId, month: Month) -> Result<(), StoreError> {
+        Seals::guard(conn, &[month.first_day()])?;
         let sql = "DELETE FROM income_overrides WHERE member_id = ? AND month = ?";
         touch_one(conn, sql, params![member.0, month.first_day()], "income override")
     }

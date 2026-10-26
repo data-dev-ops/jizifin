@@ -17,3 +17,4 @@ pub use database::Database;
 pub use duckdb::Connection;
 pub use error::StoreError;
 pub use loader::DuckSnapshotLoader;
+pub use migrate::{LATEST_VERSION, Migrator};

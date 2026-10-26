@@ -832,6 +832,7 @@ dependencies = [
  "chrono",
  "getrandom 0.4.3",
  "hex",
+ "http-body-util",
  "jizifin-auditor",
  "jizifin-domain",
  "jizifin-store",
@@ -840,6 +841,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "tower",
  "tower-http",
  "tracing",
  "tracing-subscriber",
@@ -864,6 +866,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "serde",
+ "serde_json",
  "thiserror",
 ]
 

@@ -31,6 +31,6 @@ pub use offsets::OffsetRules;
 pub use progress::{Completion, ProjectProgress};
 pub use projects::Projects;
 pub use recurring::Recurring;
-pub use seals::Seals;
+pub use seals::{Seals, Span};
 pub use tags::Tags;
 pub use views::{Bucket, Focus, MonthSlice, MonthView, RecurringView, SeriesPoint, TagDetail, TagView, Views};

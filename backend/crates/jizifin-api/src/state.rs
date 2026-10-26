@@ -2,6 +2,7 @@
 
 use crate::error::ApiError;
 use crate::events::EventHub;
+use chrono::{Local, NaiveDate};
 use jizifin_auditor::Auditor;
 use jizifin_store::{Connection, Database, DuckSnapshotLoader, StoreError};
 use std::path::{Path, PathBuf};
@@ -27,6 +28,15 @@ impl AppState {
         let loader = Arc::new(DuckSnapshotLoader::new(db.clone()));
         let auditor = Arc::new(Auditor::new(loader, db.version()));
         let tmp_dir = path.parent().unwrap_or(Path::new(".")).join("tmp");
+        Ok(Self { db, auditor, events: EventHub::default(), tmp_dir })
+    }
+
+    /// In-memory instance for testing and ephemeral workloads.
+    pub fn in_memory() -> Result<Self, StoreError> {
+        let db = Database::in_memory()?;
+        let loader = Arc::new(DuckSnapshotLoader::new(db.clone()));
+        let auditor = Arc::new(Auditor::new(loader, db.version()));
+        let tmp_dir = std::env::temp_dir().join("jizifin-test");
         Ok(Self { db, auditor, events: EventHub::default(), tmp_dir })
     }
 
@@ -71,4 +81,9 @@ where
 {
     let joined = tokio::task::spawn_blocking(work).await;
     joined.map_err(|e| ApiError::Internal(e.to_string()))?.map_err(Into::into)
+}
+
+/// Today in the server's local time zone (set `TZ` for the household), so month boundaries follow the household's midnight.
+pub fn today() -> NaiveDate {
+    Local::now().date_naive()
 }

@@ -47,7 +47,7 @@ impl Auditor {
 
     /// Peer settlement for a month.
     pub fn settlement(&self, scope: AuditScope) -> Result<AuditedResult<Settlement>, AuditError> {
-        self.audit(&scope, &settlement::settlement_invariants(), |snap| {
+        self.audit(&scope, &settlement::settlement_invariants(&scope), |snap| {
             Ok(SettlementCalculator::new(snap, &scope).calculate())
         })
     }
@@ -70,8 +70,10 @@ impl Auditor {
         }
     }
 
-    /// Re-verifies a seal against current data. The seal stays authoritative.
-    pub fn sealed_settlement(&self, scope: AuditScope, seal: MonthSeal) -> Result<SealedSettlement, AuditError> {
+    /// Re-verifies a seal against current data. The seal stays authoritative and covers the whole
+    /// household, so a member filter on `scope` is dropped before comparing.
+    pub fn sealed_settlement(&self, mut scope: AuditScope, seal: MonthSeal) -> Result<SealedSettlement, AuditError> {
+        scope.members = None;
         let live = serde_json::to_value(&self.settlement(scope)?.value).map_err(|e| AuditError::Load(e.to_string()))?;
         let stored: serde_json::Value = serde_json::from_str(&seal.result_json).map_err(|e| AuditError::Load(e.to_string()))?;
         Ok(SealedSettlement { drift: live != stored, seal })

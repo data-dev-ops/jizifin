@@ -253,8 +253,9 @@ fn with_shares<K>(buckets: Vec<Bucket<K>>, total: Cents) -> Vec<Bucket<K>> {
     buckets.into_iter().map(|b| Bucket { share_pct: share(&b), ..b }).collect()
 }
 
+/// Rows without a grouping id (e.g. deposits have no category) share the key 0.
 fn id_bucket(r: &Row<'_>) -> duckdb::Result<Bucket<i64>> {
-    Ok(Bucket { key: r.get(0)?, total: Cents::new(r.get(1)?), count: r.get(2)?, share_pct: None })
+    Ok(Bucket { key: r.get::<_, Option<i64>>(0)?.unwrap_or_default(), total: Cents::new(r.get(1)?), count: r.get(2)?, share_pct: None })
 }
 
 fn month_bucket(r: &Row<'_>) -> duckdb::Result<Bucket<Month>> {

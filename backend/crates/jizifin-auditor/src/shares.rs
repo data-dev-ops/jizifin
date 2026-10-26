@@ -121,6 +121,12 @@ impl<'a> ShareResolver<'a> {
         }
     }
 
+    /// Resolves the shares of an expense nobody paid personally (e.g. a joint-account expense): personal pay mode is treated as shared.
+    pub fn resolve_unpaid(&self, entry: &Entry, category: CategoryId) -> Resolution {
+        let mode = self.snap.category(category).map_or(PayMode::Shared, |c| c.pay_mode);
+        self.shared(entry, mode, Bucket { category, personal_of: None })
+    }
+
     fn personal(category: CategoryId, payer: MemberId) -> Resolution {
         let bucket = Bucket { category, personal_of: Some(payer) };
         Resolution { bucket, weights: vec![Weight { member: payer, weight: 100.0 }], source: ShareSource::Personal }

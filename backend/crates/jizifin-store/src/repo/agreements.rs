@@ -1,4 +1,4 @@
-use super::Categories;
+use super::{Categories, Seals, Span};
 use crate::inputs::AgreementInput;
 use crate::rows::{self, AGREEMENT_COLS};
 use crate::sql::{insert_id, opt_ct, query, require, touch_one};
@@ -32,6 +32,7 @@ impl Agreements {
     /// Inserts an agreement for an expense category.
     pub fn create(conn: &Connection, category: CategoryId, input: &AgreementInput) -> Result<AgreementId, StoreError> {
         Self::check(conn, category, input)?;
+        Seals::guard_span(conn, Span { from: input.valid_from, to: input.valid_to })?;
         let sql = "INSERT INTO agreements (category_id, valid_from, valid_to, note_ct) VALUES (?, ?, ?, ?) RETURNING id";
         let id = AgreementId(insert_id(conn, sql, params![category.0, input.valid_from, input.valid_to, opt_ct(&input.note)])?);
         Self::write_shares(conn, id, &input.shares)?;
@@ -42,6 +43,7 @@ impl Agreements {
     pub fn update(conn: &Connection, id: AgreementId, input: &AgreementInput) -> Result<(), StoreError> {
         let category = Self::category_of(conn, id)?;
         Self::check(conn, category, input)?;
+        Self::guard_update(conn, &Self::get(conn, id)?, input)?;
         let sql = "UPDATE agreements SET valid_from = ?, valid_to = ?, note_ct = ? WHERE id = ?";
         touch_one(conn, sql, params![input.valid_from, input.valid_to, opt_ct(&input.note), id.0], "agreement")?;
         Self::write_shares(conn, id, &input.shares)
@@ -64,8 +66,21 @@ impl Agreements {
 
     /// Deletes an agreement and its shares.
     pub fn delete(conn: &Connection, id: AgreementId) -> Result<(), StoreError> {
+        let old = Self::get(conn, id)?;
+        Seals::guard_span(conn, Span { from: old.valid_from, to: old.valid_to })?;
         conn.execute("DELETE FROM agreement_shares WHERE agreement_id = ?", [id.0])?;
         touch_one(conn, "DELETE FROM agreements WHERE id = ?", [id.0], "agreement")
+    }
+
+    fn get(conn: &Connection, id: AgreementId) -> Result<Agreement, StoreError> {
+        Self::all(conn)?.into_iter().find(|a| a.id == id).ok_or_else(|| StoreError::NotFound("agreement".into()))
+    }
+
+    /// Retroactive edits of a sealed month are refused; see [`Seals::guard_update`].
+    fn guard_update(conn: &Connection, old: &Agreement, new: &AgreementInput) -> Result<(), StoreError> {
+        let content_changed = old.shares != new.shares;
+        let span = |from, to| Span { from, to };
+        Seals::guard_update(conn, span(old.valid_from, old.valid_to), span(new.valid_from, new.valid_to), content_changed)
     }
 
     fn check(conn: &Connection, category: CategoryId, input: &AgreementInput) -> Result<(), StoreError> {

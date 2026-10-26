@@ -60,8 +60,9 @@ Every public method runs `snapshot → calculate → verify invariants → Audit
 
 - **Allocation:** signed Hare-Niemeyer (largest remainder) with `.floor()`; ties broken by SHA-256 of `"{seed}:{member_id}"` (entries use the entry id as seed).
 - **Share precedence:** personal pay → entry override → income ratio → agreement in force (bounded beats open-ended, then later `valid_from`, then higher id) → equal split.
-- **Settlement:** per-category buckets, net = paid − expected, offset rules, connected-component isolation, greedy debt simplification. Joint-account expenses never enter it.
-- **Sealed months** (`month_seals`): `GET /settlements/{month}` returns the stored result plus a `drift` flag; entry writes in a sealed month fail with 409.
+- **Settlement:** per-category buckets, net = paid − expected, offset rules, connected-component isolation, greedy debt simplification. Expenses charged to a joint account (`account_id` set) never enter it; expenses paid out of pocket in a joint category do. Offset rules count a member's spend in shared and personal buckets alike, and members tied by an active rule settle in one component.
+- **Income:** a job pays `days worked in the month ÷ days in the month` of its monthly equivalent (bounded by `valid_from` and `valid_to`). A job that starts mid-month right after another of the member's jobs ended that month pays nothing then; its first payout, one month later, also covers the days worked in the start month. Project equity of a joint account is the cumulative deposits up to the entry date.
+- **Sealed months** (`month_seals`): `GET /settlements/{month}` returns the stored result plus a `drift` flag; entry writes in a sealed month fail with 409, as do job, income-override and agreement changes that touch a sealed month. The drift check always recomputes the whole household, whatever `?members=` says. `DELETE /settlements/{month}/seal` unseals (event `settlements.unsealed`).
 - Endpoints: `/settlements/{month}[?explain=1]`, `/accounts/{id}/deposit-proposal`, `/accounts/{id}/dashboard`, `/budgets/status`, `/budgets/proposals`, `/splits/salary-ratios|effective|proposal`, `/income/effective`, `/cashflow`, `/projects/{id}/settlement`, `/entries/{id}/shares`. Full shapes: plan §7.
 
 ### Frontend (`frontend/`, Svelte + Tailwind + Chart.js)
@@ -85,7 +86,7 @@ The browser does the minimum:
 
 ## 🗄️ 3. SCHEMA (`backend/crates/jizifin-store/migrations/0001_init.sql`)
 
-Surrogate `BIGINT` keys from sequences. **No foreign keys, by decision** (DuckDB blocks updating a UNIQUE column of a referenced parent); repositories enforce integrity with `require`/`unreferenced`. One unified `entries` ledger; SCD2 agreements and budgets; no stored contentious values except `month_seals`. Bump `LATEST_VERSION` and add a numbered SQL file for every schema change.
+Surrogate `BIGINT` keys from sequences. **No foreign keys, by decision** (DuckDB blocks updating a UNIQUE column of a referenced parent); repositories enforce integrity with `require`/`unreferenced`. Deleting a category is refused with 409 while entries or recurring templates use it; its agreements and budgets cascade with it, by design. One unified `entries` ledger; SCD2 agreements and budgets; no stored contentious values except `month_seals`. Bump `LATEST_VERSION` and add a numbered SQL file for every schema change.
 
 | Table | Key columns (`*_ct` = ciphertext) |
 | :--- | :--- |
@@ -114,6 +115,7 @@ backend/   Cargo workspace (crates above), Dockerfile, Dockerfile.test, clippy.t
 frontend/  src/lib (api, stores, live, format, crypto, csv, *.svelte), src/lib/docs, src/test (Vitest), Dockerfile.prod (builds WASM)
 docs/      RUST_MIGRATION_PLAN.md, getting-started.md
 scripts/   capture-legacy-reference.sh (one-off), run-tests-and-sonar.sh, get-sonar-report.sh
+.agents/   rules/ (always-on), skills/ (jizifin-backend-developer, jizifin-auditor, jizifin-query-optimizer); .claude/skills links here
 docker-compose.yml, Caddyfile, Makefile
 data/      DuckDB file (git-ignored, bind-mounted at /data)
 ```

@@ -59,7 +59,7 @@ pub struct JointDashboard {
     pub balance: Cents,
     /// Σ joint expenses this month.
     pub actual_total: Cents,
-    /// Deposits plus positive corrections this month.
+    /// Deposits, positive corrections and direct income (interest, cashback) credited this month.
     pub deposited_total: Cents,
     /// Expected monthly costs (override or Σ category expectations).
     pub expected_total: Cents,
@@ -71,8 +71,10 @@ pub struct JointDashboard {
     pub top_up: Cents,
     /// `deposited_total − actual_total` for the month (negative = deficit).
     pub month_surplus: Cents,
-    /// Per-category usage.
+    /// Per-category usage of the configured categories.
     pub categories: Vec<CategoryUsage>,
+    /// Spend and refunds in categories the account does not budget (or without a category).
+    pub other_actual: Cents,
     /// Per-member deposits.
     pub members: Vec<MemberDeposit>,
     /// Status.
@@ -108,6 +110,7 @@ impl<'a> JointBalanceCalculator<'a> {
             safety_margin_pct: self.account.safety_margin_pct,
             target,
             top_up: (target - balance).max(Cents::ZERO),
+            other_actual: self.other_actual(),
             categories: self.account.categories.iter().map(|c| self.usage(c.category, c.expected)).collect(),
             members: self.account.members.iter().map(|m| self.member_deposit(m)).collect(),
             status: self.status(deposited_total, target),
@@ -129,7 +132,8 @@ impl<'a> JointBalanceCalculator<'a> {
     }
 
     fn balance(&self) -> Cents {
-        self.account_entries().map(Self::signed).sum()
+        let month_end = self.scope.month.last_day();
+        self.account_entries().filter(|e| e.date <= month_end).map(Self::signed).sum()
     }
 
     fn signed(entry: &Entry) -> Cents {
@@ -142,7 +146,13 @@ impl<'a> JointBalanceCalculator<'a> {
     fn deposited_total(&self) -> Cents {
         let deposits: Cents = self.month_entries(EntryKind::Deposit).map(|e| e.amount).sum();
         let corrections = self.month_entries(EntryKind::Correction).map(|e| e.amount).filter(|c| c.is_positive());
-        deposits + corrections.sum()
+        let income: Cents = self.month_entries(EntryKind::Income).map(|e| e.amount).sum();
+        deposits + corrections.sum() + income
+    }
+
+    fn other_actual(&self) -> Cents {
+        let budgeted = |e: &Entry| self.account.categories.iter().any(|c| Some(c.category) == e.category);
+        self.month_entries(EntryKind::Expense).filter(|e| !budgeted(e)).map(|e| e.amount).sum()
     }
 
     fn usage(&self, category: CategoryId, expected: Cents) -> CategoryUsage {
@@ -182,7 +192,7 @@ pub fn joint_invariants() -> InvariantSet<JointDashboard> {
     InvariantSet::new(vec![Box::new(CategoriesWithinActual), Box::new(TargetCoversExpected), Box::new(TopUpClosesGap)])
 }
 
-/// Σ category actuals never exceeds the month's joint expense total.
+/// Budgeted categories plus the unbudgeted remainder add up to the month's joint expense total.
 struct CategoriesWithinActual;
 
 impl Invariant<JointDashboard> for CategoriesWithinActual {
@@ -190,7 +200,7 @@ impl Invariant<JointDashboard> for CategoriesWithinActual {
         "categories_within_actual"
     }
     fn holds(&self, d: &JointDashboard, _: &Snapshot) -> bool {
-        d.categories.iter().map(|c| c.actual).sum::<Cents>().abs() <= d.actual_total.abs()
+        d.categories.iter().map(|c| c.actual).sum::<Cents>() + d.other_actual == d.actual_total
     }
 }
 

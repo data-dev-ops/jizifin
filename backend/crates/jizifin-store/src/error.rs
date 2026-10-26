@@ -20,6 +20,14 @@ pub enum StoreError {
     /// Input violates a business rule.
     #[error("{0}")]
     Invalid(String),
+    /// Schema version mismatch.
+    #[error("backup schema v{found} does not match server schema v{expected}")]
+    VersionMismatch {
+        /// Version present in the backup.
+        found: i64,
+        /// Expected schema version.
+        expected: i64,
+    },
 }
 
 impl From<duckdb::Error> for StoreError {

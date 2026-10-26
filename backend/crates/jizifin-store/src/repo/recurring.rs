@@ -3,6 +3,7 @@ use crate::inputs::RecurringInput;
 use crate::rows::{self, RECURRING_COLS};
 use crate::sql::{insert_id, query, require, touch_one};
 use crate::StoreError;
+use std::collections::BTreeMap;
 use chrono::{Duration, NaiveDate};
 use duckdb::{Connection, ToSql, params, params_from_iter};
 use jizifin_domain::entities::RecurringTemplate;
@@ -42,14 +43,21 @@ impl Recurring {
         touch_one(conn, "DELETE FROM recurring_templates WHERE id = ?", [id.0], "recurring template")
     }
 
-    /// Inserts every missing occurrence in `[min(first of month, today − grace), today]`,
-    /// skipping sealed months. Safe to run repeatedly.
-    pub fn materialize(conn: &Connection, today: NaiveDate, grace_days: i64) -> Result<Vec<EntryId>, StoreError> {
-        let from = Month::of(today).first_day().min(today - Duration::days(grace_days));
+    /// Inserts every missing occurrence between each template's last materialized date and `today`
+    /// (its `valid_from` for a template that never ran), skipping sealed months.
+    /// Safe to run repeatedly, and catches up however long the backend was down.
+    pub fn materialize(conn: &Connection, today: NaiveDate) -> Result<Vec<EntryId>, StoreError> {
+        let last = Self::last_materialized(conn)?;
+        let start = |t: &RecurringTemplate| last.get(&t.id.0).map_or(t.valid_from, |d| *d + Duration::days(1));
         let templates: Vec<RecurringTemplate> = Self::list(conn)?.into_iter().filter(|t| t.is_active).collect();
-        let due = templates.iter().flat_map(|t| Self::due_dates(t, from, today).into_iter().map(move |d| (t, d)));
+        let due = templates.iter().flat_map(|t| Self::due_dates(t, start(t), today).into_iter().map(move |d| (t, d)));
         let open = due.filter(|(_, d)| Seals::guard(conn, &[*d]).is_ok()).collect::<Vec<_>>();
         open.into_iter().filter_map(|(t, d)| Self::insert_occurrence(conn, t, d).transpose()).collect()
+    }
+
+    fn last_materialized(conn: &Connection) -> Result<BTreeMap<i64, NaiveDate>, StoreError> {
+        let sql = "SELECT recurring_id, MAX(entry_date) FROM entries WHERE recurring_id IS NOT NULL GROUP BY recurring_id";
+        Ok(query(conn, sql, [], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, NaiveDate>(1)?)))?.into_iter().collect())
     }
 
     fn due_dates(template: &RecurringTemplate, from: NaiveDate, to: NaiveDate) -> Vec<NaiveDate> {

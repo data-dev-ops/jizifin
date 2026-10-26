@@ -10,6 +10,7 @@ services:
       JIZIFIN_BIND: 0.0.0.0:8000
       JIZIFIN_DB_PATH: /data/finance.duckdb
       RUST_LOG: info
+      TZ: ${TZ:-UTC}
     volumes:
       - ./data:/data
     healthcheck:

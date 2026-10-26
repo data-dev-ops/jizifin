@@ -31,27 +31,33 @@ impl CategoryLedger {
         self.paid.get(&bucket).and_then(|m| m.get(&member)).copied().unwrap_or_default()
     }
 
-    /// Rows for every bucket with a non-zero total.
+    /// Rows for every bucket that moves money. A bucket whose total nets to zero still counts when
+    /// members' positions differ (one member paid, another received the refund).
     pub fn rows(&self) -> Vec<BucketRow> {
-        self.paid.keys().filter_map(|b| self.row(*b)).collect()
+        self.paid.keys().map(|b| self.row(*b)).filter(Self::moves_money).collect()
     }
 
     /// Σ paid − expected per member across all buckets.
     pub fn net(&self) -> MemberCents {
+        Self::net_of(&self.rows())
+    }
+
+    /// Σ of the row nets per member.
+    pub fn net_of(rows: &[BucketRow]) -> MemberCents {
         let mut net = MemberCents::new();
-        self.rows().iter().for_each(|row| Self::add_row_net(&mut net, row));
+        rows.iter().flat_map(|row| row.net.iter()).for_each(|(member, delta)| *net.entry(*member).or_default() += *delta);
         net
     }
 
-    fn add_row_net(net: &mut MemberCents, row: &BucketRow) {
-        row.net.iter().for_each(|(member, delta)| *net.entry(*member).or_default() += *delta);
+    fn moves_money(row: &BucketRow) -> bool {
+        !row.total.is_zero() || row.net.values().any(|c| !c.is_zero())
     }
 
-    fn row(&self, bucket: Bucket) -> Option<BucketRow> {
+    fn row(&self, bucket: Bucket) -> BucketRow {
         let paid = self.paid.get(&bucket).cloned().unwrap_or_default();
         let expected = self.expected.get(&bucket).cloned().unwrap_or_default();
         let total: Cents = paid.values().copied().sum();
-        (!total.is_zero()).then(|| BucketRow {
+        BucketRow {
             share_pct: Self::pct_of(&expected, total),
             paid_pct: Self::pct_of(&paid, total),
             net: Self::row_net(&paid, &expected),
@@ -59,13 +65,16 @@ impl CategoryLedger {
             total,
             paid,
             expected,
-        })
+        }
     }
 
-    /// Each member's amount as a percentage of `total`, two decimals.
+    /// Each member's amount as a percentage of `total`, two decimals; empty when `total` is zero.
     fn pct_of(amounts: &MemberCents, total: Cents) -> BTreeMap<MemberId, f64> {
         let pct = |c: Cents| (c.value() as f64 / total.value() as f64 * 10_000.0).round() / 100.0;
-        amounts.iter().map(|(m, c)| (*m, pct(*c))).collect()
+        match total.is_zero() {
+            true => BTreeMap::new(),
+            false => amounts.iter().map(|(m, c)| (*m, pct(*c))).collect(),
+        }
     }
 
     /// Paid − expected for every member present in either map.

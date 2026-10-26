@@ -1,16 +1,8 @@
-//! Jizifin HTTP API. Listens on the port Caddy proxies `/api/*` and `/ws/*` to.
-
-mod auth;
-mod config;
-mod error;
-mod events;
-mod health;
-mod routes;
-mod scheduler;
-mod state;
-
-use config::Config;
-use state::AppState;
+use jizifin_api::config::Config;
+use jizifin_api::health;
+use jizifin_api::routes;
+use jizifin_api::scheduler;
+use jizifin_api::state::AppState;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {

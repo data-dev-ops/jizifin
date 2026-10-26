@@ -18,6 +18,28 @@ pub struct QueryResult {
     pub truncated: bool,
 }
 
+/// Forbidden function/token signatures in console queries.
+const FORBIDDEN: &[&str] = &[
+    "\"TABLE_FUNCTION\"",
+    "read_csv",
+    "read_parquet",
+    "read_json",
+    "read_blob",
+    "read_text",
+    "parquet_scan",
+    "scan_parquet",
+    "scan_csv",
+    "glob",
+    "sniff_csv",
+    "current_setting",
+    "set_variable",
+    "get_variable",
+    "load_extension",
+    "install_extension",
+    "checkpoint",
+    "write_csv",
+];
+
 /// Read-only SQL console. Accepts a single plain `SELECT` without table functions.
 pub struct Console;
 
@@ -25,22 +47,36 @@ impl Console {
     /// Validates and runs `sql`.
     pub fn run(conn: &Connection, sql: &str) -> Result<QueryResult, StoreError> {
         Self::ensure_plain_select(conn, sql)?;
-        let mut stmt = conn.prepare(sql)?;
-        let mut rows = stmt.query([])?;
+        let mut stmt = conn.prepare(sql).map_err(|e| StoreError::Invalid(e.to_string()))?;
+        let mut rows = stmt.query([]).map_err(|e| StoreError::Invalid(e.to_string()))?;
         let mut out = Vec::new();
-        while let Some(row) = rows.next()? {
-            out.push((0..row.as_ref().column_count()).map(|i| row.get::<_, Value>(i).map(Self::to_json)).collect::<duckdb::Result<Vec<_>>>()?);
+        while let Some(row) = rows.next().map_err(|e| StoreError::Invalid(e.to_string()))? {
+            out.push(Self::read_row(row)?);
+            if out.len() > ROW_LIMIT {
+                break;
+            }
         }
         let truncated = out.len() > ROW_LIMIT;
         out.truncate(ROW_LIMIT);
         Ok(QueryResult { columns: stmt.column_names(), rows: out, truncated })
     }
 
+    fn read_row(row: &duckdb::Row<'_>) -> Result<Vec<Json>, StoreError> {
+        let cols = (0..row.as_ref().column_count())
+            .map(|i| row.get::<_, Value>(i).map(Self::to_json))
+            .collect::<duckdb::Result<Vec<_>>>()
+            .map_err(|e| StoreError::Invalid(e.to_string()))?;
+        Ok(cols)
+    }
+
     fn ensure_plain_select(conn: &Connection, sql: &str) -> Result<(), StoreError> {
-        let parsed: String = conn.query_row("SELECT CAST(json_serialize_sql(?) AS VARCHAR)", [sql], |r| r.get(0))?;
+        let q = "SELECT CAST(json_serialize_sql(?) AS VARCHAR)";
+        let parsed: String = conn.query_row(q, [sql], |r| r.get(0)).map_err(|e| StoreError::Invalid(e.to_string()))?;
         let tree: Json = serde_json::from_str(&parsed).map_err(|e| StoreError::Invalid(e.to_string()))?;
         let single = tree["error"] == json!(false) && tree["statements"].as_array().is_some_and(|s| s.len() == 1);
-        match single && !parsed.contains("\"TABLE_FUNCTION\"") {
+        let is_select = tree["statements"][0]["node"]["type"] == "SELECT_NODE";
+        let safe = single && is_select && !FORBIDDEN.iter().any(|f| parsed.contains(f));
+        match safe {
             true => Ok(()),
             false => Err(StoreError::Invalid("only a single SELECT over tables is allowed".into())),
         }

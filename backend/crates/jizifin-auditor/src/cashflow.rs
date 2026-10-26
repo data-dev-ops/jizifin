@@ -53,9 +53,12 @@ impl<'a> CashFlowCalculator<'a> {
         resolved.values().filter(|i| self.in_scope(i.member)).map(|i| i.total).sum()
     }
 
+    /// Cash that left the scoped members' own pockets: direct payments plus deposits into joint accounts.
+    /// Joint-account charges are not counted again; the deposits already funded them.
     fn spent(&self) -> Cents {
-        let expenses = self.snap.entries_in(EntryKind::Expense, self.scope.month);
-        expenses.filter(|e| e.member.is_some_and(|m| self.in_scope(m))).map(|e| e.amount).sum()
+        let direct = self.snap.entries_in(EntryKind::Expense, self.scope.month).filter(|e| e.account.is_none());
+        let deposits = self.snap.entries_in(EntryKind::Deposit, self.scope.month);
+        direct.chain(deposits).filter(|e| e.member.is_some_and(|m| self.in_scope(m))).map(|e| e.amount).sum()
     }
 }
 
