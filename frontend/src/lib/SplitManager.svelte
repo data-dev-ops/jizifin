@@ -13,8 +13,18 @@
 
   const dispatch = createEventDispatcher();
 
-  const PAY_MODES = [['shared', 'Shared'], ['personal', 'Personal (payer bears all)'], ['income_ratio', 'Income ratio']];
-  const SOURCE_LABEL = { personal: 'Personal', income_ratio: 'Income ratio', agreement: 'Agreement', equal: 'Equal split', override: 'Override' };
+  const PAY_MODES = [
+    ['shared', 'Shared (Custom Agreement / Equal)'],
+    ['income_ratio', 'Income ratio (Dynamic by salary)'],
+    ['personal', 'Personal (Payer bears all)'],
+  ];
+  const SOURCE_LABEL = {
+    personal: 'Personal',
+    income_ratio: 'Income ratio',
+    agreement: 'Custom Agreement',
+    equal: 'Equal split (default)',
+    override: 'Override',
+  };
 
   let section = 'agreements';
   let overview = [];
@@ -37,7 +47,8 @@
 
   $: splitOf = new Map(overview.map((s) => [s.category, s]));
   $: jointCategoryIds = new Set($accounts.flatMap((a) => a.categories.map((c) => c.category)));
-  $: sharedCategories = $expenseCategories.filter((c) => c.pay_mode !== 'personal' && !jointCategoryIds.has(c.id));
+  $: sharedCategories = $expenseCategories.filter((c) => c.pay_mode === 'shared' && !jointCategoryIds.has(c.id));
+  $: incomeRatioCategories = $expenseCategories.filter((c) => c.pay_mode === 'income_ratio' && !jointCategoryIds.has(c.id));
   const memberLabel = (id) => $memberById.get(Number(id))?.name ?? `#${id}`;
   const memberColor = (id) => $memberById.get(Number(id))?.color ?? '#6366f1';
 
@@ -53,6 +64,7 @@
     try {
       await categoryApi.create({ kind: newKind, name: newName.trim().toUpperCase(), pay_mode: 'shared' });
       newName = '';
+      await load($selectedMonth);
     } catch (err) {
       categoryError = err.message;
     }
@@ -63,6 +75,7 @@
     try {
       await categoryApi.update(c.id, { kind: c.kind, name: c.name, pay_mode: c.pay_mode, ...patch });
       renaming = null;
+      await load($selectedMonth);
     } catch (err) {
       categoryError = err.message;
     }
@@ -73,6 +86,7 @@
     try {
       await categoryApi.remove(id);
       confirmDelete = null;
+      await load($selectedMonth);
     } catch (err) {
       categoryError = err.message;
     }
@@ -104,6 +118,7 @@
       if (editor.id) await agreementApi.update(editor.id, input);
       else await agreementApi.create(editor.category, input);
       editor = null;
+      await load($selectedMonth);
     } catch (err) {
       editorError = err.message;
     }
@@ -111,6 +126,7 @@
 
   async function deleteAgreement(id) {
     await agreementApi.remove(id).catch((err) => { loadError = err.message; });
+    await load($selectedMonth);
   }
 
   // ── Matrix (baseline per category) ─────────────────────────────────────────
@@ -133,6 +149,7 @@
     try {
       await agreementApi.setBaseline(categoryId, toShares(baseline[categoryId]));
       rowMessage[categoryId] = '✓ Saved';
+      await load($selectedMonth);
     } catch (err) {
       rowMessage[categoryId] = err.message;
     }
@@ -156,6 +173,7 @@
         : Object.entries((await audit.splitProposal(batchStrategy, batchMembers, $selectedMonth)).value.pct).map(([member, pct]) => ({ member: Number(member), pct }));
       for (const id of batchCategories) await agreementApi.setBaseline(id, shares);
       batchMessage = `✓ Updated ${batchCategories.length} category baseline(s).`;
+      await load($selectedMonth);
     } catch (err) {
       batchMessage = err.message;
     }
@@ -204,8 +222,10 @@
             </div>
             <div class="flex items-center gap-2">
               <button id="timeline-{c.id}" type="button" on:click={() => toggleTimeline(c.id)} class="btn-ghost text-xs">{expanded === c.id ? 'Hide timeline' : 'Timeline'}</button>
-              {#if c.pay_mode !== 'personal'}
+              {#if c.pay_mode === 'shared'}
                 <button id="add-override-{c.id}" type="button" on:click={() => openEditor(c.id)} class="btn-secondary text-xs">+ Override</button>
+              {:else if c.pay_mode === 'income_ratio'}
+                <span class="text-[11px] font-medium px-2 py-0.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800/60" title="Agreements are bypassed by the Auditor while pay mode is Income ratio">Income ratio mode</span>
               {/if}
             </div>
           </div>
@@ -222,6 +242,11 @@
           {/if}
           {#if expanded === c.id}
             <div class="space-y-2 pt-2 border-t border-neutral-200 dark:border-neutral-800">
+              {#if c.pay_mode === 'income_ratio'}
+                <p class="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-800/60 rounded-lg p-2.5">
+                  ℹ️ This category's pay mode is set to <strong>Income ratio</strong> in Categories. The Auditor calculates shares dynamically from monthly salary, so static agreements are bypassed.
+                </p>
+              {/if}
               {#each timeline as a (a.id)}
                 <div class="card-sub p-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <span class="font-mono text-neutral-600 dark:text-neutral-400">{fmtDate(a.valid_from)} → {a.valid_to ? fmtDate(a.valid_to) : 'open-ended'}</span>
@@ -240,28 +265,36 @@
   {/if}
 
   {#if section === 'matrix'}
-    <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
-      {#each sharedCategories as c (c.id)}
-        <div class="card p-4 space-y-3">
-          <div class="flex items-center justify-between">
-            <span class="text-sm font-bold text-neutral-900 dark:text-white">{c.name}</span>
-            <div class="flex gap-1.5 text-[11px]">
-              <button type="button" on:click={() => propose(c.id, 'even')} class="btn-ghost text-[11px]">Even</button>
-              <button type="button" on:click={() => propose(c.id, 'salary')} class="btn-ghost text-[11px]">Salary</button>
-              {#each $activeMembers as m (m.id)}
-                <button type="button" on:click={() => singlePayer(c.id, m.id)} class="btn-ghost text-[11px]" style="color: {m.color}">{m.name} 100%</button>
-              {/each}
+    <div class="space-y-4">
+      {#if incomeRatioCategories.length}
+        <div class="card p-3 bg-amber-50/50 dark:bg-amber-950/20 border border-amber-200/60 dark:border-amber-800/40 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+          <span>💡</span>
+          <span><strong>{incomeRatioCategories.length} categories</strong> ({incomeRatioCategories.map((c) => c.name).join(', ')}) are set to <em>Income ratio</em> mode and automatically follow monthly earnings. Only <em>Shared</em> categories are managed here.</span>
+        </div>
+      {/if}
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {#each sharedCategories as c (c.id)}
+          <div class="card p-4 space-y-3">
+            <div class="flex items-center justify-between">
+              <span class="text-sm font-bold text-neutral-900 dark:text-white">{c.name}</span>
+              <div class="flex gap-1.5 text-[11px]">
+                <button type="button" on:click={() => propose(c.id, 'even')} class="btn-ghost text-[11px]">Even</button>
+                <button type="button" on:click={() => propose(c.id, 'salary')} class="btn-ghost text-[11px]">Salary</button>
+                {#each $activeMembers as m (m.id)}
+                  <button type="button" on:click={() => singlePayer(c.id, m.id)} class="btn-ghost text-[11px]" style="color: {m.color}">{m.name} 100%</button>
+                {/each}
+              </div>
+            </div>
+            {#if baseline[c.id]}
+              <SplitEditor members={$activeMembers} bind:shares={baseline[c.id]} idPrefix="matrix-{c.id}" />
+            {/if}
+            <div class="flex items-center justify-between">
+              <span class="text-xs {rowMessage[c.id]?.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">{rowMessage[c.id] ?? ''}</span>
+              <button id="save-baseline-{c.id}" type="button" on:click={() => saveBaseline(c.id)} class="btn-primary text-xs">Save baseline</button>
             </div>
           </div>
-          {#if baseline[c.id]}
-            <SplitEditor members={$activeMembers} bind:shares={baseline[c.id]} idPrefix="matrix-{c.id}" />
-          {/if}
-          <div class="flex items-center justify-between">
-            <span class="text-xs {rowMessage[c.id]?.startsWith('✓') ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-600 dark:text-red-400'}">{rowMessage[c.id] ?? ''}</span>
-            <button id="save-baseline-{c.id}" type="button" on:click={() => saveBaseline(c.id)} class="btn-primary text-xs">Save baseline</button>
-          </div>
-        </div>
-      {/each}
+        {/each}
+      </div>
     </div>
   {/if}
 
@@ -308,6 +341,15 @@
   {/if}
 
   {#if section === 'categories'}
+    <div class="card p-3.5 bg-neutral-50 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-xs text-neutral-600 dark:text-neutral-400 space-y-1.5">
+      <p class="font-bold text-neutral-800 dark:text-neutral-200 uppercase tracking-wider text-[11px]">How Expense Pay Modes Work:</p>
+      <ul class="list-disc list-inside space-y-1">
+        <li><strong>Shared:</strong> Governed by custom agreements set in the Split Agreements & Matrix tabs (defaults to equal split if no agreement exists).</li>
+        <li><strong>Income ratio:</strong> Dynamic split computed each month from active salaries in the Income tab. Overrides static agreements.</li>
+        <li><strong>Personal:</strong> Payer bears 100% of out-of-pocket expenses.</li>
+      </ul>
+    </div>
+
     <div class="card space-y-3">
       <div class="flex items-end gap-3 flex-wrap">
         <div class="flex-1 min-w-[200px]">
