@@ -187,7 +187,7 @@
       </div>
       <div class="mt-2.5 pt-2 border-t border-dashed border-neutral-200 dark:border-neutral-800/60 flex items-center justify-between">
         <button id="btn-adjust-salary-{u.member}" type="button" on:click={() => openOverride(u.member)} class="text-[11px] font-medium text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 dark:hover:text-indigo-300 cursor-pointer">
-          ✏️ {u.has_override ? `Edit ${$selectedMonth} Salary` : `Adjust for ${$selectedMonth}`}
+          ✏️ {u.has_override ? 'Edit Salary Override' : 'Adjust Monthly Salary'}
         </button>
         {#if u.has_override}
           <span class="text-[10px] text-neutral-400 dark:text-neutral-500 font-mono">Contract: <span class:privacy-masked={$privacyShield}>{$money(u.contract)}</span></span>
@@ -198,7 +198,6 @@
   <div class="card p-4 sm:p-5 border-indigo-200 dark:border-indigo-900/40 bg-indigo-50/50 dark:bg-gradient-to-br dark:from-neutral-900 dark:to-indigo-950/40">
     <div class="flex items-center justify-between gap-2 mb-3">
       <span class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider">Household Total</span>
-      <span class="badge-indigo">{$selectedMonth}</span>
     </div>
     <p class="text-2xl font-bold tabular-nums text-neutral-900 dark:text-white"><span class:privacy-masked={$privacyShield}>{$money(householdTotal)}</span></p>
     <p class="text-[11px] text-neutral-500 mt-3 pt-3 border-t border-neutral-200 dark:border-neutral-800">Contracts or overrides, plus one-off income</p>

@@ -43,7 +43,7 @@
 
 {#if isOpen && items.length > 0}
   <div
-    class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 overflow-hidden"
+    class="fixed inset-0 z-50 !m-0 w-full h-full min-h-screen flex items-center justify-center p-3 sm:p-4 overflow-hidden"
     role="dialog"
     aria-modal="true"
     aria-labelledby="duplicate-modal-title"

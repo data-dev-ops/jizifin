@@ -133,7 +133,7 @@
           <button type="button" on:click={() => { form.kind = k; form.category = null; }} class="px-3 py-1.5 rounded-lg text-xs font-semibold capitalize {form.kind === k ? 'bg-indigo-600 text-white' : 'text-neutral-600 dark:text-neutral-400'}">{k}</button>
         {/each}
       </div>
-      <input id="recurring-name" type="text" bind:value={form.name} placeholder="e.g. Netflix, Rent" class="input-field" />
+      <input id="recurring-name" name="recurring-name" type="text" bind:value={form.name} placeholder="e.g. Netflix, Rent" aria-label="Recurring item name" class="input-field" />
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs text-neutral-600 dark:text-neutral-400">Amount ({$currencySymbol}) <input id="recurring-amount" type="text" inputmode="decimal" bind:value={form.amount} class="input-field mt-1 tabular-nums" /></label>
         <label class="block text-xs text-neutral-600 dark:text-neutral-400">{form.kind === 'income' ? 'Earned by' : 'Paid by'}

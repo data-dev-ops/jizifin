@@ -32,6 +32,7 @@
   let categoryId = Number(remembered($lastLoggedCategory, $defaultCategory)) || null;
   let projectId = Number($defaultProject) || null;
   let tagId = null;
+  let note = '';
   let customSplit = false;
   let shares = {};
 
@@ -60,6 +61,7 @@
     categoryId = Number(remembered($lastLoggedCategory, $defaultCategory)) || null;
     projectId = Number($defaultProject) || null;
     tagId = null;
+    note = '';
     customSplit = false;
     shares = {};
     errorMsg = null;
@@ -76,6 +78,7 @@
       project: projectId,
       tag: tagId,
       name,
+      note: note.trim() || null,
       overrides: !paidByJoint && customSplit ? toShares(shares) : [],
     };
   }
@@ -250,29 +253,42 @@
     </div>
   {/if}
 
+  <!-- Note (optional) -->
+  <div>
+    <label for="expense-note" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-1.5">
+      Note <span class="text-neutral-500 dark:text-neutral-600">(optional)</span>
+    </label>
+    <input
+      id="expense-note"
+      type="text"
+      bind:value={note}
+      placeholder="e.g. Receipt details, shop name..."
+      class="input-field"
+    />
+  </div>
+
   <!-- 7. Who paid (Final field) -->
   <div>
     <p id="who-paid-label" class="block text-xs font-medium text-neutral-700 dark:text-neutral-400 mb-2.5">Who paid?</p>
-    <div class="flex flex-wrap gap-3">
+    <div class="flex flex-wrap gap-3" role="radiogroup" aria-labelledby="who-paid-label">
       {#each $activeMembers as u (u.id)}
         <label class="flex items-center gap-2.5 text-sm text-neutral-700 dark:text-neutral-300 cursor-pointer select-none hover:text-neutral-900 dark:hover:text-white transition-colors group">
           <div class="relative flex items-center justify-center">
             <input
-              type="checkbox"
+              type="radio"
+              name="expense-payer"
               id="who-paid-{u.id}"
-              checked={memberId === u.id}
-              on:change={() => { memberId = memberId === u.id ? null : u.id; }}
+              checked={!paidByJoint && memberId === u.id}
+              on:change={() => { paidByJoint = false; memberId = u.id; }}
               class="sr-only"
             />
             <div
-              class="w-5 h-5 rounded border transition-all duration-150 flex items-center justify-center
-                     {memberId === u.id ? 'text-white shadow-sm' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 group-hover:border-neutral-400 dark:group-hover:border-neutral-500'}"
-              style={memberId === u.id ? `background-color:${u.color};border-color:${u.color}` : ''}
+              class="w-5 h-5 rounded-full border transition-all duration-150 flex items-center justify-center
+                     {!paidByJoint && memberId === u.id ? 'text-white shadow-sm' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 group-hover:border-neutral-400 dark:group-hover:border-neutral-500'}"
+              style={!paidByJoint && memberId === u.id ? `background-color:${u.color};border-color:${u.color}` : ''}
             >
-              {#if memberId === u.id}
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+              {#if !paidByJoint && memberId === u.id}
+                <div class="w-2 h-2 rounded-full bg-white"></div>
               {/if}
             </div>
           </div>
@@ -285,20 +301,19 @@
         <label class="flex items-center gap-2.5 text-sm text-indigo-700 dark:text-indigo-300 cursor-pointer select-none hover:opacity-90 transition-colors group border border-indigo-200 dark:border-indigo-500/30 bg-indigo-50 dark:bg-indigo-500/10 px-3 py-1.5 rounded-lg">
           <div class="relative flex items-center justify-center">
             <input
-              type="checkbox"
-              id="paid-by-joint-checkbox"
+              type="radio"
+              name="expense-payer"
+              id="paid-by-joint-radio"
               checked={paidByJoint}
-              on:change={() => { paidByJoint = !paidByJoint; }}
+              on:change={() => { paidByJoint = true; memberId = null; }}
               class="sr-only"
             />
             <div
-              class="w-5 h-5 rounded border transition-all duration-150 flex items-center justify-center
+              class="w-5 h-5 rounded-full border transition-all duration-150 flex items-center justify-center
                      {paidByJoint ? 'bg-indigo-600 border-indigo-500 text-white shadow-sm' : 'bg-white dark:bg-neutral-800 border-neutral-300 dark:border-neutral-700 group-hover:border-neutral-400 dark:group-hover:border-neutral-500'}"
             >
               {#if paidByJoint}
-                <svg class="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                </svg>
+                <div class="w-2 h-2 rounded-full bg-white"></div>
               {/if}
             </div>
           </div>

@@ -153,7 +153,7 @@
     <select
       id="expense-category-filter"
       bind:value={selectedCategoryFilter}
-      class="select-field text-xs py-1.5 w-auto"
+      class="select-field text-xs py-1.5 w-full sm:w-auto"
     >
       <option value="ALL">All Categories</option>
       {#each $expenseCategories as c (c.id)}
@@ -166,7 +166,7 @@
       <select
         id="expense-tag-filter"
         bind:value={selectedTagFilter}
-        class="select-field text-xs py-1.5 w-auto"
+        class="select-field text-xs py-1.5 w-full sm:w-auto"
       >
         <option value="ALL">All Tags</option>
         {#each $tags as t}
@@ -446,4 +446,4 @@
   {/if}
 {/if}
 
-<EntryEditModal entry={editing} on:close={() => (editing = null)} />
+<EntryEditModal bind:entry={editing} on:close={() => (editing = null)} />

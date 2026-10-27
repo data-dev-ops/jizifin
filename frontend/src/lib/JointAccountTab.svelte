@@ -341,7 +341,7 @@
   <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" role="dialog" aria-modal="true">
     <form class="card max-w-md w-full shadow-2xl space-y-3" on:submit|preventDefault={create}>
       <h3 class="text-base font-bold text-neutral-900 dark:text-white">New joint account</h3>
-      <input id="joint-name" type="text" bind:value={draft.name} placeholder="Account name" class="input-field" />
+      <input id="joint-name" name="account-name" type="text" bind:value={draft.name} placeholder="Account name" aria-label="Account name" class="input-field" />
       <div class="grid grid-cols-2 gap-3">
         <label class="block text-xs text-neutral-600 dark:text-neutral-400">Safety margin % <input id="joint-margin" type="number" min="0" bind:value={draft.margin} class="input-field mt-1" /></label>
         <label class="block text-xs text-neutral-600 dark:text-neutral-400">Deposit split

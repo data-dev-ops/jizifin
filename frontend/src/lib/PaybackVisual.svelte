@@ -7,19 +7,19 @@
 
   import { audit } from './api.js';
   import { money, fmtPct } from './format.js';
-  import { selectedMonth, scopedMembers, ledgerVersion, memberById, categoryName, paybackDisplayMode, openDrilldown } from './stores.js';
+  import { selectedMonth, scopedMembers, ledgerVersion, memberById, categoryName, paybackDisplayMode, openDrilldown, privacyShield } from './stores.js';
 
   let settlement = null;
   let sealed = null;
   let settling = false;
   let settleError = '';
 
-  $: load($selectedMonth, $scopedMembers ?? [], $ledgerVersion);
+  $: load($selectedMonth, $ledgerVersion);
 
-  async function load(month, members) {
+  async function load(month) {
     settleError = '';
     try {
-      const view = await audit.settlement(month, members);
+      const view = await audit.settlement(month);
       sealed = view.state === 'sealed' ? view : null;
       settlement = sealed ? JSON.parse(view.seal.result_json) : view.value;
     } catch (e) {
@@ -27,8 +27,14 @@
     }
   }
 
-  $: debts = settlement?.debts ?? [];
-  $: rows = settlement?.rows ?? [];
+  $: allDebts = settlement?.debts ?? [];
+  $: allRows = settlement?.rows ?? [];
+  $: debts = $scopedMembers?.length
+    ? allDebts.filter((d) => $scopedMembers.includes(d.from) || $scopedMembers.includes(d.to))
+    : allDebts;
+  $: rows = $scopedMembers?.length
+    ? allRows.filter((r) => $scopedMembers.some((m) => (r.paid[m] ?? 0) > 0 || (r.expected[m] ?? 0) > 0 || (r.net[m] ?? 0) !== 0))
+    : allRows;
   $: allSettled = debts.length === 0;
 
   const name = (id) => $memberById.get(Number(id))?.name ?? `#${id}`;
@@ -42,7 +48,7 @@
     settling = true;
     try {
       await audit.seal($selectedMonth);
-      await load($selectedMonth, $scopedMembers ?? []);
+      await load($selectedMonth);
     } catch (e) {
       settleError = e.message;
     } finally {
@@ -104,7 +110,9 @@
 
             <!-- Arrow + amount -->
             <div class="flex-1 flex flex-col items-center">
-              <span class="font-bold tabular-nums text-lg sm:text-xl" style="color: {color(debt.to)}">{$money(debt.amount)}</span>
+              <span class="font-bold tabular-nums text-lg sm:text-xl" style="color: {color(debt.to)}">
+                <span class:privacy-masked={$privacyShield}>{$money(debt.amount)}</span>
+              </span>
               <div class="flex items-center text-neutral-400 dark:text-neutral-600 font-bold text-lg select-none leading-none mt-0.5">
                 ─────&gt;
               </div>
@@ -236,10 +244,12 @@
                       <div class="w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold text-white" style="background-color:{color(m)}">{initial(m)}</div>
                       <span class="text-xs font-semibold text-neutral-800 dark:text-neutral-200">{name(m)}</span>
                     </div>
-                    <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-900 dark:text-neutral-200 font-semibold tabular-nums">{$money(row.paid[m] ?? 0)}</span></p>
+                    <p class="text-xs text-neutral-500">Paid: <span class="text-neutral-900 dark:text-neutral-200 font-semibold tabular-nums"><span class:privacy-masked={$privacyShield}>{$money(row.paid[m] ?? 0)}</span></span></p>
                     <p class="text-xs text-neutral-500">Share: <span class="font-semibold tabular-nums" style="color:{color(m)}">{fmtPct(row.share_pct[m] ?? 0)}</span></p>
                     <p class="text-[11px] mt-1 font-semibold tabular-nums {net > 0 ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-500'}">
-                      {net > 0 ? `+${$money(net)} owed back` : net < 0 ? `${$money(net)} owes` : 'settled'}
+                      <span class:privacy-masked={$privacyShield}>
+                        {net > 0 ? `+${$money(net)} owed back` : net < 0 ? `owes ${$money(Math.abs(net))}` : 'settled'}
+                      </span>
                     </p>
                   </div>
                 {/each}

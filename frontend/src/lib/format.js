@@ -9,8 +9,10 @@ const GROUPED = { minimumFractionDigits: 2, maximumFractionDigits: 2 };
 
 function render(cents, symbol, whole) {
   const value = Number(cents || 0) / 100;
-  const text = whole ? Math.round(value).toLocaleString('en-GB') : value.toLocaleString('en-GB', GROUPED);
-  return `${symbol}${text}`;
+  const isNeg = value < 0;
+  const absValue = Math.abs(value);
+  const text = whole ? Math.round(absValue).toLocaleString('en-GB') : absValue.toLocaleString('en-GB', GROUPED);
+  return isNeg ? `-${symbol}${text}` : `${symbol}${text}`;
 }
 
 /** `$money(cents)` exact; `$money(cents, true)` whole units on summaries when enabled. */

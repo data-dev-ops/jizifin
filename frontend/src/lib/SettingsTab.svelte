@@ -43,13 +43,21 @@
     dashboardWidgets,
     textScale,
     highContrast,
-    applyExperienceTier
+    applyExperienceTier,
+    sessionToken,
+    cryptoKey,
   } from './stores.js';
 
   export let tabs = [];
   export let onToggleJointPrompt = () => {};
 
   let exporting = false;
+
+  async function handleLogout() {
+    await auth.logout();
+    cryptoKey.set(null);
+    sessionToken.set('');
+  }
   let exportError = '';
   let showResetModal = false;
   let resetConfirmSalt = '';
@@ -1118,6 +1126,21 @@
         class="w-full sm:w-auto px-4 py-2 bg-neutral-100 hover:bg-neutral-200 dark:bg-neutral-800 dark:hover:bg-neutral-700 text-neutral-800 dark:text-neutral-200 text-xs font-semibold rounded-xl transition-colors border border-neutral-200 dark:border-neutral-700 disabled:opacity-50 whitespace-nowrap shadow-sm"
       >
         {exporting ? 'Exporting…' : 'Export .duckdb File'}
+      </button>
+    </div>
+
+    <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-3 border-t border-neutral-100 dark:border-neutral-800">
+      <div>
+        <p class="text-sm font-medium text-neutral-800 dark:text-neutral-200">Lock Session & Log Out</p>
+        <p class="text-xs text-neutral-500 dark:text-neutral-400 mt-0.5">Clears the in-memory decryption key and ends your authenticated session immediately.</p>
+      </div>
+      <button
+        id="settings-logout-btn"
+        type="button"
+        on:click={handleLogout}
+        class="w-full sm:w-auto px-4 py-2 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/40 text-rose-700 dark:text-rose-300 text-xs font-semibold rounded-xl transition-colors border border-rose-200 dark:border-rose-900/50 whitespace-nowrap shadow-sm cursor-pointer"
+      >
+        🔒 Lock & Log Out
       </button>
     </div>
   </div>

@@ -165,7 +165,7 @@
 <div class="space-y-6">
   <div>
     <h1 class="page-title flex items-center gap-2.5"><span>⚖️</span> Categories & Split Agreements</h1>
-    <p class="page-subtitle">Splits as the Auditor applies them for {$selectedMonth}; edit baselines and date-bounded overrides.</p>
+    <p class="page-subtitle">Splits as the Auditor applies them; edit baselines and date-bounded overrides.</p>
   </div>
 
   <nav class="flex flex-wrap gap-2 border-b border-neutral-200 dark:border-neutral-800 pb-3" aria-label="Categories sub-navigation">

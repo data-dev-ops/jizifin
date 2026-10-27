@@ -76,7 +76,7 @@ html.dark {
 
   /* ── Card Surfaces & Glassmorphism ── */
   .card {
-    @apply bg-white/95 dark:bg-neutral-900/90 backdrop-blur-md rounded-2xl border border-neutral-200/90 dark:border-neutral-800/90 p-4 sm:p-6 shadow-sm dark:shadow-xl dark:shadow-black/30 transition-all duration-200 text-neutral-900 dark:text-neutral-100;
+    @apply bg-white/95 dark:bg-neutral-900/90 rounded-2xl border border-neutral-200/90 dark:border-neutral-800/90 p-4 sm:p-6 shadow-sm dark:shadow-xl dark:shadow-black/30 transition-all duration-200 text-neutral-900 dark:text-neutral-100;
   }
 
   .card-interactive {
@@ -163,9 +163,7 @@ html.dark {
     user-select: none;
     transition: filter 0.15s cubic-bezier(0.23, 1, 0.32, 1);
   }
-  .privacy-masked:hover,
-  .privacy-masked:focus,
-  .privacy-masked:focus-within {
+  .privacy-masked:active {
     filter: blur(0px) !important;
     user-select: auto;
   }

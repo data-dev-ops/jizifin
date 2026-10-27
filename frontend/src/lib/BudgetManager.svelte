@@ -103,7 +103,7 @@
         <p class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 text-[11px] text-neutral-500">Across {s.configured} configured limits</p>
       </div>
       <div class="card p-4 sm:p-5">
-        <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Spent ({$selectedMonth})</p>
+        <p class="text-xs font-semibold text-neutral-500 dark:text-neutral-400 uppercase tracking-wider mb-2">Total Spent</p>
         <p class="font-bold text-neutral-900 dark:text-white tabular-nums text-xl sm:text-2xl">{$money(s.total_spent, true)}</p>
         <p class="mt-3 pt-2.5 border-t border-neutral-200 dark:border-neutral-800/80 text-[11px] text-neutral-500">Overall usage: {fmtPct(s.usage_pct)}</p>
       </div>
@@ -123,13 +123,12 @@
     </div>
   {/if}
 
-  <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3 flex-wrap gap-3">
+  <div class="border-b border-neutral-200 dark:border-neutral-800 pb-3">
     <div class="flex items-center gap-2 overflow-x-auto">
       {#each [['all', '🌟 All-in-One Studio'], ['health', '📊 Budget Health'], ['matrix', `🎯 Configured Limits (${$budgets.length})`], ['proposals', `💡 Proposals (${proposals.length})`], ['add', '➕ Add / Update Limit']] as [id, label]}
         <button type="button" on:click={() => (activeSubtab = id)} class="px-3.5 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap {activeSubtab === id ? 'bg-indigo-600 text-white' : 'bg-neutral-100 dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-400'}">{label}</button>
       {/each}
     </div>
-    <span class="badge-indigo">{$selectedMonth}</span>
   </div>
 
   {#if error}<div class="bg-rose-50 dark:bg-red-950/40 border border-rose-200 dark:border-red-900/60 text-rose-700 dark:text-red-400 rounded-xl px-4 py-3 text-xs">{error}</div>{/if}

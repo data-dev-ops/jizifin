@@ -87,18 +87,22 @@
           {#if showPassword}
             <input
               id="salt"
+              name="passphrase"
               type="text"
               bind:value={passphrase}
               placeholder={isFirstBoot ? "Create master passphrase..." : "Enter master passphrase..."}
+              autocomplete={isFirstBoot ? "new-password" : "current-password"}
               class="input-field py-3 text-sm pr-11 font-mono"
               disabled={loading}
             />
           {:else}
             <input
               id="salt"
+              name="passphrase"
               type="password"
               bind:value={passphrase}
               placeholder={isFirstBoot ? "Create master passphrase..." : "Enter master passphrase..."}
+              autocomplete={isFirstBoot ? "new-password" : "current-password"}
               class="input-field py-3 text-sm pr-11"
               disabled={loading}
             />

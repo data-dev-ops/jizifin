@@ -26,7 +26,11 @@
   let error = null;
   let resolved = null;
 
-  $: if (entry && draft?.id !== entry.id) open(entry);
+  $: if (!entry) {
+    draft = null;
+  } else if (!draft || draft.id !== entry.id) {
+    open(entry);
+  }
   $: isExpense = draft?.kind === 'expense';
   $: categoryOptions = isExpense ? $expenseCategories : $incomeCategories;
 
@@ -51,6 +55,7 @@
   }
 
   function close() {
+    entry = null;
     draft = null;
     dispatch('close');
   }
@@ -79,12 +84,21 @@
   }
 </script>
 
+<svelte:window on:keydown={(e) => { if (e.key === 'Escape' && draft) close(); }} />
+
 {#if draft}
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-fadeIn" role="dialog" aria-modal="true">
+  <!-- svelte-ignore a11y-click-events-have-key-events -->
+  <!-- svelte-ignore a11y-no-static-element-interactions -->
+  <div
+    class="fixed inset-0 z-50 !m-0 w-full h-full min-h-screen flex items-center justify-center p-3 sm:p-4 bg-black/60 dark:bg-black/75 backdrop-blur-sm animate-fadeIn"
+    role="dialog"
+    aria-modal="true"
+    on:click|self={close}
+  >
     <form on:submit|preventDefault={save} class="card max-w-lg w-full shadow-2xl space-y-4 max-h-[90vh] overflow-y-auto" id="entry-edit-form">
       <div class="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 pb-3">
         <h3 class="text-base font-bold text-neutral-900 dark:text-white">Edit {isExpense ? 'Expense' : 'Income'}</h3>
-        <button type="button" on:click={close} class="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200" aria-label="Close">✕</button>
+        <button type="button" on:click={close} class="text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200 text-lg p-1 rounded-lg hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors" aria-label="Close">✕</button>
       </div>
 
       <div>

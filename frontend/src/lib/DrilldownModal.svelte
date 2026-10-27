@@ -92,7 +92,7 @@
 
 {#if isOpen}
   <!-- Modal Overlay Container -->
-  <div class="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-hidden">
+  <div class="fixed inset-0 z-50 !m-0 w-full h-full min-h-screen flex items-center justify-center p-3 sm:p-4 md:p-6 overflow-hidden">
     <!-- Backdrop button for click-outside dismissal -->
     <button
       type="button"
@@ -254,7 +254,7 @@
                   <div class="flex items-center justify-between text-xs pt-1 border-t border-neutral-200 dark:border-neutral-800">
                     <span class="text-neutral-500">Paid: <strong class="text-neutral-800 dark:text-neutral-200 font-semibold tabular-nums">{$money(settlementRow.paid[m] ?? 0)}</strong></span>
                     <span class="font-bold tabular-nums {net > 0 ? 'text-emerald-600 dark:text-emerald-400' : net < 0 ? 'text-rose-600 dark:text-red-400' : 'text-neutral-500'}">
-                      {net > 0 ? `+${$money(net)} owed back` : net < 0 ? `${$money(net)} owes` : 'settled'}
+                      {net > 0 ? `+${$money(net)} owed back` : net < 0 ? `owes ${$money(Math.abs(net))}` : 'settled'}
                     </span>
                   </div>
                 </div>

@@ -18,7 +18,7 @@
   // ── Types & Initial State ──────────────────────────────────────────────────
 
   const DB_OBJECTS_SQL =
-    `SELECT table_name AS name, CASE table_type WHEN 'VIEW' THEN 'view' ELSE 'table' END AS type, NULL AS sql FROM information_schema.tables WHERE table_schema = 'main' ORDER BY type, name`;
+    `SELECT table_name AS name, CASE table_type WHEN 'VIEW' THEN 'view' ELSE 'table' END AS type, CAST(NULL AS VARCHAR) AS sql FROM information_schema.tables WHERE table_schema = 'main' ORDER BY type, name`;
 
   /** Columns holding deterministic AES-GCM ciphertext; shown decrypted. */
   const CIPHER_SUFFIX = '_ct';

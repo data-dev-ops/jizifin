@@ -130,10 +130,10 @@
       <form class="card space-y-3" on:submit|preventDefault={save} id="tag-form">
         <h2 class="text-sm font-bold text-neutral-900 dark:text-white">{form.id ? 'Edit Tag' : 'New Tag'}</h2>
         <div class="flex gap-2">
-          <input id="tag-name" type="text" bind:value={form.name} placeholder="e.g. Summer Trip 2026" class="input-field flex-1" />
-          <input type="color" bind:value={form.color} class="w-10 h-10 rounded-lg" />
+          <input id="tag-name" type="text" bind:value={form.name} placeholder="e.g. Summer Trip 2026" aria-label="Tag Name" class="input-field flex-1" />
+          <input type="color" bind:value={form.color} aria-label="Tag Colour" class="w-10 h-10 rounded-lg cursor-pointer" />
         </div>
-        <input id="tag-description" type="text" bind:value={form.description} placeholder="Description (optional)" class="input-field" />
+        <input id="tag-description" type="text" bind:value={form.description} placeholder="Description (optional)" aria-label="Tag Description" class="input-field" />
         <div class="grid grid-cols-2 gap-3">
           <label class="block text-xs text-neutral-600 dark:text-neutral-400">Active from <input id="tag-from" type="date" bind:value={form.valid_from} class="input-field mt-1" /></label>
           <label class="block text-xs text-neutral-600 dark:text-neutral-400">Until <input id="tag-to" type="date" bind:value={form.valid_to} class="input-field mt-1" /></label>
@@ -148,19 +148,28 @@
       <div class="space-y-2">
         {#each $tags as t (t.id)}
           {@const tv = totals.get(t.id)}
-          <div class="card p-3.5 space-y-2 cursor-pointer {selectedId === t.id ? 'ring-2 ring-indigo-500' : ''}" role="button" tabindex="0" on:click={() => select(t.id)} on:keydown={(e) => e.key === 'Enter' && select(t.id)}>
-            <div class="flex items-center justify-between gap-2">
-              <span class="flex items-center gap-2 min-w-0"><span class="w-3 h-3 rounded-full flex-none" style="background-color: {t.color}"></span><span class="text-sm font-semibold text-neutral-900 dark:text-white truncate">{t.name}</span></span>
-              <span class="text-sm font-bold tabular-nums text-neutral-900 dark:text-white">{$money(tv?.total ?? 0)}</span>
-            </div>
-            <p class="text-[11px] text-neutral-500">{tv?.count ?? 0} expenses{t.valid_from || t.valid_to ? ` · ${fmtDate(t.valid_from)} → ${fmtDate(t.valid_to)}` : ''}</p>
-            <div class="flex gap-3 text-xs" on:click|stopPropagation on:keydown|stopPropagation role="presentation">
-              <button type="button" on:click={() => edit(t)} class="text-indigo-600 dark:text-indigo-400">Edit</button>
+          <div class="card p-3.5 space-y-2 {selectedId === t.id ? 'ring-2 ring-indigo-500' : ''}">
+            <button
+              type="button"
+              class="w-full text-left space-y-1 cursor-pointer focus:outline-none"
+              on:click={() => select(t.id)}
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span class="flex items-center gap-2 min-w-0">
+                  <span class="w-3 h-3 rounded-full flex-none" style="background-color: {t.color}"></span>
+                  <span class="text-sm font-semibold text-neutral-900 dark:text-white truncate">{t.name}</span>
+                </span>
+                <span class="text-sm font-bold tabular-nums text-neutral-900 dark:text-white">{$money(tv?.total ?? 0)}</span>
+              </div>
+              <p class="text-[11px] text-neutral-500">{tv?.count ?? 0} expenses{t.valid_from || t.valid_to ? ` · ${fmtDate(t.valid_from)} → ${fmtDate(t.valid_to)}` : ''}</p>
+            </button>
+            <div class="flex gap-3 text-xs pt-1 border-t border-neutral-100 dark:border-neutral-800">
+              <button type="button" on:click={() => edit(t)} class="text-indigo-600 dark:text-indigo-400 hover:underline">Edit</button>
               {#if confirmDeleteId === t.id}
                 <button type="button" on:click={() => remove(t.id)} class="px-2 py-0.5 rounded bg-rose-600 text-white">Confirm (entries stay, untagged)</button>
                 <button type="button" on:click={() => (confirmDeleteId = null)} class="text-neutral-500">✕</button>
               {:else}
-                <button type="button" on:click={() => (confirmDeleteId = t.id)} class="text-rose-600 dark:text-red-400">Delete</button>
+                <button type="button" on:click={() => (confirmDeleteId = t.id)} class="text-rose-600 dark:text-red-400 hover:underline">Delete</button>
               {/if}
             </div>
           </div>

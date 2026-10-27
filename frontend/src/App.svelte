@@ -23,7 +23,7 @@
   import FrontendDocs from './lib/docs/FrontendDocs.svelte';
   import BackendDocs from './lib/docs/BackendDocs.svelte';
   import SystemDocs from './lib/docs/SystemDocs.svelte';
-  import { loadCatalog } from './lib/api.js';
+  import { loadCatalog, auth } from './lib/api.js';
   import { connect, disconnect } from './lib/live.js';
   import { selectedMonth, activeMembers, currencySymbol, mobileTabVisibility, mobileAutoCloseMenu, mobileCompactView, cryptoKey, sessionToken, jointAccountEnabled, theme, initDeviceProfiles, privacyShield, textScale, highContrast } from './lib/stores.js';
 
@@ -197,6 +197,12 @@
       sidebarOpen = false;
     }
   }
+
+  async function handleLogout() {
+    await auth.logout();
+    cryptoKey.set(null);
+    sessionToken.set('');
+  }
 </script>
 
 {#if currentRoute === '/docs'}
@@ -317,6 +323,16 @@
           <p class="text-[10px] text-neutral-500">Shared finances · manage →</p>
         </div>
       </button>
+
+      <button
+        id="sidebar-lock-btn"
+        type="button"
+        on:click={handleLogout}
+        class="w-full mt-2 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs text-neutral-500 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-neutral-100 dark:hover:bg-neutral-800 transition-colors cursor-pointer border border-transparent hover:border-neutral-200 dark:hover:border-neutral-700"
+      >
+        <span>🔒</span>
+        <span>Lock Session</span>
+      </button>
     </div>
   </aside>
 
@@ -325,8 +341,8 @@
 
     <!-- ── Top bar (always visible, contains hamburger, centered time period, & quick theme toggle on right) ─ -->
     <div class="sticky top-0 z-10 bg-white/90 dark:bg-neutral-950/90 backdrop-blur-sm border-b border-neutral-200/80 dark:border-neutral-800/60 px-4 py-3 flex items-center justify-between gap-3 relative">
-      <!-- Left side: Hamburger + Active Tab Title -->
-      <div class="flex items-center gap-3 min-w-0">
+      <!-- Left side: Hamburger menu toggle -->
+      <div class="flex items-center min-w-0">
         <button
           id="sidebar-toggle"
           on:click={() => (sidebarOpen = !sidebarOpen)}
@@ -349,8 +365,6 @@
             style="width: {sidebarOpen ? '18px' : '18px'}; transform: {sidebarOpen ? 'translateY(-4px) rotate(-45deg)' : 'none'}"
           ></span>
         </button>
-
-        <span class="text-sm font-semibold text-neutral-800 dark:text-neutral-200 capitalize truncate">{activeTab}</span>
       </div>
 
       <!-- Center: Name of timeperiod -->
@@ -361,13 +375,13 @@
       </div>
 
       <!-- Right side: Quick Privacy Shield + Quick theme toggle -->
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-1.5 sm:gap-2 flex-none">
         <button
           id="quick-privacy-toggle"
           type="button"
           on:click={() => privacyShield.update((v) => !v)}
           title="Privacy Shield: {$privacyShield ? 'Active (Balances Masked)' : 'Inactive'} (Click to toggle)"
-          class="w-8 h-8 flex items-center justify-center rounded-lg text-xs transition-colors border cursor-pointer {$privacyShield ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 border-neutral-200 dark:border-neutral-700'}"
+          class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg text-xs transition-colors border cursor-pointer {$privacyShield ? 'bg-indigo-600 text-white border-indigo-500 shadow-sm' : 'bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 border-neutral-200 dark:border-neutral-700'}"
           aria-label="Toggle Privacy Shield"
         >
           {$privacyShield ? '🕶️' : '👁️'}
@@ -378,7 +392,7 @@
           type="button"
           on:click={cycleTheme}
           title="Theme: {$theme} (Click to switch)"
-          class="w-8 h-8 flex items-center justify-center rounded-lg text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors border border-neutral-200 dark:border-neutral-700 cursor-pointer"
+          class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-neutral-900 dark:hover:text-white hover:bg-neutral-200 dark:hover:bg-neutral-700 transition-colors border border-neutral-200 dark:border-neutral-700 cursor-pointer"
           aria-label="Toggle theme"
         >
           {#if $theme === 'dark'}
@@ -388,6 +402,17 @@
           {:else}
             💻
           {/if}
+        </button>
+
+        <button
+          id="quick-lock-btn"
+          type="button"
+          on:click={handleLogout}
+          title="Lock Session and Log Out"
+          class="w-8 h-8 sm:w-9 sm:h-9 flex items-center justify-center rounded-lg text-xs bg-neutral-100 dark:bg-neutral-800 text-neutral-600 dark:text-neutral-300 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors border border-neutral-200 dark:border-neutral-700 cursor-pointer"
+          aria-label="Lock Session and Log Out"
+        >
+          🔒
         </button>
       </div>
     </div>
@@ -414,10 +439,7 @@
         <header class="page-header">
           <div>
             <h1 class="page-title">Dashboard</h1>
-            <p class="page-subtitle">Your household financial command center for {monthLabel}</p>
-          </div>
-          <div class="flex items-center gap-2 self-start sm:self-auto">
-            <span class="badge-indigo">{monthLabel}</span>
+            <p class="page-subtitle">Your household financial command center</p>
           </div>
         </header>
 
@@ -436,7 +458,7 @@
             <h1 class="page-title flex items-center gap-2.5">
               <span>💸</span> Expenses Log & Entry
             </h1>
-            <p class="page-subtitle">Log a new household expense or review {monthLabel}'s ledger history</p>
+            <p class="page-subtitle">Log a new household expense or review ledger history</p>
           </div>
           <div class="flex items-center gap-2.5">
             <button
@@ -448,7 +470,6 @@
             >
               <span>📥</span> Import Bank CSV
             </button>
-            <span class="badge-indigo">{monthLabel}</span>
           </div>
         </header>
 

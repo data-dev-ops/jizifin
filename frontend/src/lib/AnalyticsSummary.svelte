@@ -534,7 +534,9 @@
                     <span class="text-neutral-800 dark:text-neutral-200 font-medium truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{row.label}</span>
                     <span class="text-[10px] text-neutral-500">({row.count})</span>
                   </div>
-                  <span class="text-neutral-900 dark:text-white font-bold tabular-nums">{$money(row.total)}</span>
+                  <span class="text-neutral-900 dark:text-white font-bold tabular-nums">
+                    <span class:privacy-masked={$privacyShield}>{$money(row.total)}</span>
+                  </span>
                 </div>
                 <div class="w-full h-1.5 bg-neutral-200 dark:bg-neutral-800 rounded-full overflow-hidden">
                   <div class="h-full rounded-full bg-indigo-500 transition-all duration-500" style="width: {row.share_pct ?? 0}%"></div>
@@ -640,12 +642,9 @@
         </div>
       {/if}
       <div class="card p-5 sm:p-6 space-y-4">
-        <div class="flex items-center justify-between">
-          <div>
-            <h2 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Monthly Budget Limits & Spending Health</h2>
-            <p class="text-xs text-neutral-500 mt-0.5">Actual expenses vs category budget caps</p>
-          </div>
-          <span class="badge-indigo">{$selectedMonth}</span>
+        <div>
+          <h2 class="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Monthly Budget Limits & Spending Health</h2>
+          <p class="text-xs text-neutral-500 mt-0.5">Actual expenses vs category budget caps</p>
         </div>
 
         {#if budgetRows.length > 0}
